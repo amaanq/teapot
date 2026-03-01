@@ -147,7 +147,9 @@ fn render_tweet_items_with_pinned(
    let mut items = Vec::new();
 
    // Add pinned tweet first if present
-   if let Some(pinned_tweet) = pinned {
+   if let Some(pinned_tweet) = pinned
+      && pinned_tweet.available
+   {
       let link = get_link(pinned_tweet);
       if seen_links.insert(link) {
          items.push(render_tweet_item(pinned_tweet, url_prefix, config));
@@ -156,7 +158,7 @@ fn render_tweet_items_with_pinned(
 
    // Add regular tweets, skipping pinned if already added and filtering by userId
    for tweet in tweets {
-      if Some(tweet.id) == pinned_id {
+      if !tweet.available || Some(tweet.id) == pinned_id {
          continue;
       }
       // Filter by userId for user timeline feeds
