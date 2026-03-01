@@ -66,7 +66,6 @@ const RESERVED_PATHS: &[&str] = &[
    "oauth2",
    "saveprefs",
    "resetprefs",
-   "enablehls",
    "enablemp4",
    "public",
    "css",

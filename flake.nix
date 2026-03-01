@@ -276,11 +276,6 @@
                 default = true;
                 description = "Proxy video streaming through the server.";
               };
-              hlsPlayback = lib.mkOption {
-                type = lib.types.bool;
-                default = false;
-                description = "Enable HLS video streaming (requires JavaScript).";
-              };
               infiniteScroll = lib.mkOption {
                 type = lib.types.bool;
                 default = false;

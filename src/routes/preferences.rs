@@ -55,9 +55,7 @@ fn prefs_to_cookies(prefs: &Prefs) -> Vec<Cookie<'static>> {
       bool_cookie("infiniteScroll", prefs.infinite_scroll),
       bool_cookie("stickyProfile", prefs.sticky_profile),
       bool_cookie("bidiSupport", prefs.bidi_support),
-      bool_cookie("hlsPlayback", prefs.hls_playback),
       bool_cookie("mp4Playback", prefs.mp4_playback),
-      bool_cookie("proxyVideos", prefs.proxy_videos),
       bool_cookie("autoplayGifs", prefs.autoplay_gifs),
       bool_cookie("muteVideos", prefs.mute_videos),
       bool_cookie("hideTweetStats", prefs.hide_tweet_stats),
@@ -115,8 +113,6 @@ fn encode_prefs(prefs: &Prefs, config: &Config) -> String {
    enc_checkbox!("squareAvatars", square_avatars);
    enc_checkbox!("useTwemoji", use_twemoji);
    enc_checkbox!("mp4Playback", mp4_playback);
-   enc_checkbox!("hlsPlayback", hls_playback);
-   enc_checkbox!("proxyVideos", proxy_videos);
    enc_checkbox!("muteVideos", mute_videos);
    enc_checkbox!("autoplayGifs", autoplay_gifs);
    enc_string!("replaceTwitter", replace_twitter);
@@ -139,7 +135,6 @@ pub fn router() -> Router<AppState> {
       .route("/settings", get(settings))
       .route("/saveprefs", post(save_prefs))
       .route("/resetprefs", post(reset_prefs))
-      .route("/enablehls", post(enable_hls))
       .route("/enablemp4", post(enable_mp4))
 }
 
@@ -153,12 +148,8 @@ pub struct PrefsForm {
    pub sticky_profile:       Option<String>,
    #[serde(rename = "bidiSupport")]
    pub bidi_support:         Option<String>,
-   #[serde(rename = "hlsPlayback")]
-   pub hls_playback:         Option<String>,
    #[serde(rename = "mp4Playback")]
    pub mp4_playback:         Option<String>,
-   #[serde(rename = "proxyVideos")]
-   pub proxy_videos:         Option<String>,
    #[serde(rename = "autoplayGifs")]
    pub autoplay_gifs:        Option<String>,
    #[serde(rename = "muteVideos")]
@@ -199,9 +190,7 @@ impl PrefsForm {
          infinite_scroll:      parse_bool(&self.infinite_scroll, defaults.infinite_scroll),
          sticky_profile:       parse_bool(&self.sticky_profile, defaults.sticky_profile),
          bidi_support:         parse_bool(&self.bidi_support, defaults.bidi_support),
-         hls_playback:         parse_bool(&self.hls_playback, defaults.hls_playback),
          mp4_playback:         parse_bool(&self.mp4_playback, defaults.mp4_playback),
-         proxy_videos:         parse_bool(&self.proxy_videos, defaults.proxy_videos),
          autoplay_gifs:        parse_bool(&self.autoplay_gifs, defaults.autoplay_gifs),
          mute_videos:          parse_bool(&self.mute_videos, defaults.mute_videos),
          hide_tweet_stats:     parse_bool(&self.hide_tweet_stats, defaults.hide_tweet_stats),
@@ -286,22 +275,6 @@ async fn reset_prefs(jar: CookieJar, Form(form): Form<ResetPrefsForm>) -> Result
    // Redirect to referer or settings page
    let redirect_to = form.referer.as_deref().unwrap_or("/settings");
    Ok((updated_jar, Redirect::to(redirect_to)).into_response())
-}
-
-async fn enable_hls(jar: CookieJar, headers: HeaderMap) -> Result<Response> {
-   let cookie = Cookie::build(("hlsPlayback".to_owned(), "on".to_owned()))
-      .path("/")
-      .max_age(Duration::days(365))
-      .http_only(true)
-      .build();
-
-   let updated_jar = jar.add(cookie);
-   let referer = headers
-      .get(REFERER)
-      .and_then(|hv| hv.to_str().ok())
-      .unwrap_or("/settings");
-
-   Ok((updated_jar, Redirect::to(referer)).into_response())
 }
 
 async fn enable_mp4(jar: CookieJar, headers: HeaderMap) -> Result<Response> {

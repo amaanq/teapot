@@ -359,47 +359,6 @@ pub fn format_duration(ms: i32) -> String {
    }
 }
 
-/// Rewrite M3U8 manifest to proxy video URLs.
-/// Converts relative URLs to proxied URLs through our server.
-pub fn proxify_m3u8(manifest: &str, hmac_key: &str, base64_media: bool) -> String {
-   let mut replacements: Vec<(String, String)> = Vec::new();
-
-   for line in manifest.lines() {
-      let url = if line.starts_with("#EXT-X-MAP:URI=\"") {
-         // Extract URL from #EXT-X-MAP:URI="..."
-         let start = 16; // len of '#EXT-X-MAP:URI="'
-         (line.len() > start + 1).then(|| &line[start..line.len() - 1])
-      } else if line.starts_with("#EXT-X-MEDIA") && line.contains("URI=\"") {
-         // Extract URL from #EXT-X-MEDIA:...URI="..."
-         line.find("URI=\"").and_then(|uri_pos| {
-            let start = uri_pos + 5; // len of 'URI="'
-            line[start..]
-               .find('"')
-               .map(|end_quote| &line[start..start + end_quote])
-         })
-      } else if line.starts_with('/') && !line.starts_with('#') {
-         // Relative URL line
-         Some(line)
-      } else {
-         None
-      };
-
-      if let Some(relative_url) = url.filter(|url| url.starts_with('/')) {
-         // Build full URL and proxied version
-         let full_url = format!("https://video.twimg.com{relative_url}");
-         let proxied_url = get_vid_url(&full_url, hmac_key, base64_media);
-         replacements.push((relative_url.to_owned(), proxied_url));
-      }
-   }
-
-   // Apply all replacements
-   let mut result = manifest.to_owned();
-   for (original, replacement) in replacements {
-      result = result.replace(&original, &replacement);
-   }
-   result
-}
-
 /// Strip illegal XML 1.0 characters. Valid XML 1.0 chars: #x9 | #xA | #xD |
 /// [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF].
 pub fn sanitize_xml(text: &str) -> String {

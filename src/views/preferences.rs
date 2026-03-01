@@ -73,9 +73,7 @@ pub fn render_preferences_form(
 
                    // Media section
                    legend { "Media" }
-                   (gen_checkbox("mp4Playback", "Enable mp4 video playback (only for gifs)", prefs.mp4_playback))
-                   (gen_checkbox("hlsPlayback", "Enable HLS video streaming (requires JavaScript)", prefs.hls_playback))
-                   (gen_checkbox("proxyVideos", "Proxy video streaming through the server (might be slow)", prefs.proxy_videos))
+                   (gen_checkbox("mp4Playback", "Enable mp4 video playback", prefs.mp4_playback))
                    (gen_checkbox("muteVideos", "Mute videos by default", prefs.mute_videos))
                    (gen_checkbox("autoplayGifs", "Autoplay gifs", prefs.autoplay_gifs))
 
@@ -94,7 +92,7 @@ pub fn render_preferences_form(
                        (prefs_url)
                    }
                    p class="bookmark-note" {
-                       (PreEscaped("You can override preferences with query parameters (e.g. <code>?hlsPlayback=on</code>). These overrides aren't saved to cookies, and links won't retain the parameters. Intended for configuring RSS feeds and other cookieless environments. Hover over a preference to see its name."))
+                       (PreEscaped("You can override preferences with query parameters (e.g. <code>?mp4Playback=on</code>). These overrides aren't saved to cookies, and links won't retain the parameters. Intended for configuring RSS feeds and other cookieless environments. Hover over a preference to see its name."))
                    }
 
                    h4 class="note" { "Preferences are stored client-side using cookies without any personal information." }

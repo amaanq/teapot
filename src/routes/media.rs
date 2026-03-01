@@ -1,5 +1,3 @@
-use std::sync::LazyLock;
-
 use axum::{
    Router,
    body::Body,
@@ -154,52 +152,8 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
       .into_response())
 }
 
-// Extract M3U8 URL from VMAP XML (regex matches url="...m3u8")
-static VMAP_M3U8_RE: LazyLock<regex::Regex> =
-   LazyLock::new(|| regex::Regex::new(r#"url="([^"]+\.m3u8)"#).unwrap());
-
 async fn proxy_video(state: &AppState, url: &str) -> Result<Response> {
-   let client = &state.http_client;
-
-   // Handle VMAP: fetch XML, extract M3U8 URL, then fetch and proxy the M3U8
-   if url.contains(".vmap") {
-      let vmap_response = client.get(url).await?;
-      if !vmap_response.status().is_success() {
-         return Err(Error::InvalidUrl("VMAP fetch failed".into()));
-      }
-      let vmap_content = vmap_response.text().await?;
-
-      let m3u8_url = VMAP_M3U8_RE
-         .captures(&vmap_content)
-         .and_then(|caps| caps.get(1))
-         .map(|mat| mat.as_str());
-
-      if let Some(m3u8_url) = m3u8_url {
-         let m3u8_response = client.get(m3u8_url).await?;
-         let manifest = m3u8_response.text().await?;
-         let rewritten = formatters::proxify_m3u8(
-            &manifest,
-            &state.config.config.hmac_key,
-            state.config.config.base64_media,
-         );
-         return Ok((
-            StatusCode::OK,
-            [
-               (
-                  header::CONTENT_TYPE,
-                  "application/vnd.apple.mpegurl".to_owned(),
-               ),
-               (header::CACHE_CONTROL, "max-age=604800".to_owned()),
-            ],
-            rewritten,
-         )
-            .into_response());
-      }
-
-      return Err(Error::InvalidUrl("No M3U8 URL found in VMAP".into()));
-   }
-
-   let response = client.get(url).await?;
+   let response = state.http_client.get(url).await?;
 
    if !response.status().is_success() {
       return Err(Error::InvalidUrl(format!(
@@ -208,49 +162,22 @@ async fn proxy_video(state: &AppState, url: &str) -> Result<Response> {
       )));
    }
 
-   // Check if this is an M3U8 playlist that needs rewriting
-   let is_m3u8 = url.contains(".m3u8");
+   let content_type = response
+      .headers()
+      .get(header::CONTENT_TYPE)
+      .and_then(|hv| hv.to_str().ok())
+      .unwrap_or("video/mp4")
+      .to_owned();
 
-   if is_m3u8 {
-      // Fetch and rewrite M3U8 manifest
-      let manifest = response.text().await?;
-      let rewritten = formatters::proxify_m3u8(
-         &manifest,
-         &state.config.config.hmac_key,
-         state.config.config.base64_media,
-      );
+   let bytes = response.bytes().await?;
 
-      Ok((
-         StatusCode::OK,
-         [
-            (
-               header::CONTENT_TYPE,
-               "application/vnd.apple.mpegurl".to_owned(),
-            ),
-            (header::CACHE_CONTROL, "max-age=604800".to_owned()),
-         ],
-         rewritten,
-      )
-         .into_response())
-   } else {
-      // Regular video/segment file - stream as-is
-      let content_type = response
-         .headers()
-         .get(header::CONTENT_TYPE)
-         .and_then(|hv| hv.to_str().ok())
-         .unwrap_or("video/mp4")
-         .to_owned();
-
-      let bytes = response.bytes().await?;
-
-      Ok((
-         StatusCode::OK,
-         [
-            (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "max-age=604800".to_owned()),
-         ],
-         bytes,
-      )
-         .into_response())
-   }
+   Ok((
+      StatusCode::OK,
+      [
+         (header::CONTENT_TYPE, content_type),
+         (header::CACHE_CONTROL, "max-age=604800".to_owned()),
+      ],
+      bytes,
+   )
+      .into_response())
 }

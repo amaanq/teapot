@@ -105,8 +105,7 @@ pub fn parse_video(media: &MediaItem) -> Video {
 
          let content_type = match variant.content_type.unwrap_or_default() {
             RawVideoContentType::Mp4 => VideoType::Mp4,
-            RawVideoContentType::M3u8 => VideoType::M3u8,
-            RawVideoContentType::Other => continue,
+            RawVideoContentType::M3u8 | RawVideoContentType::Other => continue,
          };
 
          // Parse resolution from URL (format: /vid/WIDTHxHEIGHT/ or

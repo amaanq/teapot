@@ -32,13 +32,9 @@ pub struct Entity {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VideoType {
-   #[serde(rename = "application/x-mpegURL")]
-   M3u8,
    #[default]
    #[serde(rename = "video/mp4")]
    Mp4,
-   #[serde(rename = "video/vmap")]
-   Vmap,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -71,16 +67,6 @@ impl Video {
          .variants
          .iter()
          .filter(|variant| matches!(variant.content_type, VideoType::Mp4))
-         .max_by_key(|variant| variant.resolution)
-         .map(|variant| variant.url.as_str())
-   }
-
-   /// Get the best HLS/m3u8 URL for streaming.
-   pub fn best_hls_url(&self) -> Option<&str> {
-      self
-         .variants
-         .iter()
-         .filter(|variant| matches!(variant.content_type, VideoType::M3u8 | VideoType::Vmap))
          .max_by_key(|variant| variant.resolution)
          .map(|variant| variant.url.as_str())
    }

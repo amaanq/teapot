@@ -96,10 +96,9 @@ impl<'a> PageLayout<'a> {
    }
 
    pub fn render(self) -> Markup {
-      let (hls_playback, infinite_scroll, theme, sticky_nav, use_twemoji) =
-         self.prefs.map_or((false, false, None, true, true), |prefs| {
+      let (infinite_scroll, theme, sticky_nav, use_twemoji) =
+         self.prefs.map_or((false, None, true, true), |prefs| {
             (
-               prefs.hls_playback,
                prefs.infinite_scroll,
                Some(prefs.theme.as_str()),
                prefs.sticky_nav,
@@ -190,10 +189,6 @@ impl<'a> PageLayout<'a> {
                   }
 
                   // Scripts in <head> with defer
-                  @if hls_playback {
-                      script src="/js/hls.min.js" defer="" {}
-                      script src="/js/hlsPlayback.js" defer="" {}
-                  }
                   @if infinite_scroll {
                       script src="/js/infiniteScroll.js" defer="" {}
                   }

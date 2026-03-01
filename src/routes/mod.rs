@@ -148,7 +148,7 @@ pub async fn prefs_middleware(request: Request, next: Next) -> Response {
       return (jar, Redirect::to(&redirect_url)).into_response();
    }
 
-   // Also handle individual pref params (e.g., ?hlsPlayback=on) for cookieless
+   // Also handle individual pref params (e.g., ?mp4Playback=on) for cookieless
    // overrides These don't redirect — they just override the cookie jar for
    // this request
    next.run(request).await

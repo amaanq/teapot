@@ -747,19 +747,7 @@ fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup
 
    let duration = formatters::format_duration(video.duration_ms);
 
-   // Determine playback type:
-   // If proxyVideos is OFF and there's an MP4 URL -> use MP4
-   // Otherwise -> use the video's playback_type (typically m3u8)
-   let proxy_videos = prefs.is_none_or(|pref| pref.proxy_videos);
-   let has_mp4 = video.best_mp4_url().is_some();
-   let use_mp4 = !proxy_videos && has_mp4;
-
-   // Check if playback is enabled for the chosen type
-   let playback_enabled = if use_mp4 {
-      prefs.is_none_or(|pref| pref.mp4_playback)
-   } else {
-      prefs.is_some_and(|pref| pref.hls_playback)
-   };
+   let playback_enabled = prefs.is_none_or(|pref| pref.mp4_playback);
 
    let mute_videos = prefs.is_some_and(|pref| pref.mute_videos);
 
@@ -780,46 +768,19 @@ fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup
                        // Playback disabled in preferences
                        img src=(thumb) loading="lazy";
                        div class="video-overlay" {
-                           @if use_mp4 {
-                               (button_referer("/enablemp4", "Enable mp4 playback", "", "", ""))
-                           } @else {
-                               (button_referer("/enablehls", "Enable hls playback", "", "", ""))
-                           }
+                           (button_referer("/enablemp4", "Enable mp4 playback", "", "", ""))
                        }
-                   } @else if use_mp4 {
+                   } @else if let Some(mp4_url) = video.best_mp4_url() {
                        // MP4 playback: native video element with controls
-                       @if let Some(mp4_url) = video.best_mp4_url() {
-                           @let video_src = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
-                           video poster=(thumb) controls="" muted=[mute_videos.then_some("")] {
-                               source src=(video_src) type="video/mp4";
-                           }
+                       @let video_src = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
+                       video poster=(thumb) controls="" muted=[mute_videos.then_some("")] {
+                           source src=(video_src) type="video/mp4";
                        }
                    } @else {
-                       // HLS/m3u8 playback: poster with click-to-play overlay + duration
-                       @if let Some(hls_url) = video.best_hls_url() {
-                           @let video_src = if proxy_videos {
-                              formatters::get_vid_url(hls_url, &config.config.hmac_key, config.config.base64_media)
-                           } else {
-                              hls_url.to_owned()
-                           };
-                           video poster=(thumb) data-url=(video_src) data-autoload="false" muted=[mute_videos.then_some("")] {}
-                           (maud::PreEscaped(r#"<div class="video-overlay" onclick="playVideo(this)">"#))
-                           div class="overlay-circle" { span class="overlay-triangle" {} }
+                       // No MP4 URL available - show thumbnail with duration
+                       img src=(thumb) loading="lazy";
+                       div class="video-overlay" {
                            div class="overlay-duration" { (duration) }
-                           (maud::PreEscaped("</div>"))
-                       } @else if let Some(mp4_url) = video.best_mp4_url() {
-                           // Fallback to MP4 if no HLS available
-                           @let video_src = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
-                           video poster=(thumb) controls="" muted=[mute_videos.then_some("")] {
-                               source src=(video_src) type="video/mp4";
-                           }
-                       } @else {
-                           // No video URLs available at all - show thumbnail with overlay
-                           img src=(thumb) loading="lazy";
-                           (maud::PreEscaped(r#"<div class="video-overlay" onclick="playVideo(this)">"#))
-                           div class="overlay-circle" { span class="overlay-triangle" {} }
-                           div class="overlay-duration" { (duration) }
-                           (maud::PreEscaped("</div>"))
                        }
                    }
                }

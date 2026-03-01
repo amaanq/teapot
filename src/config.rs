@@ -88,10 +88,6 @@ pub struct PreferencesConfig {
    pub replace_youtube: String,
    #[serde(default, rename = "replaceReddit")]
    pub replace_reddit:  String,
-   #[serde(default = "default_true", rename = "proxyVideos")]
-   pub proxy_videos:    bool,
-   #[serde(default, rename = "hlsPlayback")]
-   pub hls_playback:    bool,
    #[serde(default, rename = "infiniteScroll")]
    pub infinite_scroll: bool,
 }

@@ -50,7 +50,4 @@ replaceTwitter = ""
 replaceYouTube = ""
 replaceReddit = ""
 
-# Media handling
-proxyVideos = true
-hlsPlayback = false
 infiniteScroll = false

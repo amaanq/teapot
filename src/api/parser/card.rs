@@ -165,37 +165,41 @@ impl TryFrom<&CardData> for Card {
 }
 
 /// Parse promo video from card binding values.
+/// Only MP4 URLs are supported; HLS/VMAP streams are skipped.
 fn parse_promo_video(bv: &BindingValues) -> Video {
    let thumb = bv.image("player_image_large").to_owned();
    let duration_secs = bv.string("content_duration_seconds").parse().unwrap_or(0);
 
-   let stream_url = ["player_hls_url", "player_stream_url", "amplify_url_vmap"]
-      .iter()
-      .map(|k| bv.string(k))
-      .find(|v| !v.is_empty())
-      .unwrap_or_default()
-      .to_owned();
-
-   let (content_type, playback_type) = if stream_url.contains("m3u8") {
-      (VideoType::M3u8, VideoType::M3u8)
+   // Only use direct MP4 stream URLs; skip HLS/VMAP since we don't support them
+   let raw_stream = bv.string("player_stream_url");
+   let stream_url = if !raw_stream.is_empty()
+      && !raw_stream.contains("m3u8")
+      && !raw_stream.contains("vmap")
+   {
+      raw_stream.to_owned()
    } else {
-      (VideoType::Vmap, VideoType::Vmap)
+      String::new()
    };
 
-   let variant = VideoVariant {
-      content_type,
-      url: stream_url.clone(),
-      bitrate: 0,
-      resolution: 0,
+   let available = !stream_url.is_empty();
+   let variants = if available {
+      vec![VideoVariant {
+         content_type: VideoType::Mp4,
+         url: stream_url.clone(),
+         bitrate: 0,
+         resolution: 0,
+      }]
+   } else {
+      Vec::new()
    };
 
    Video {
       duration_ms: duration_secs * 1000,
       url: stream_url,
       thumb,
-      available: true,
-      playback_type,
-      variants: vec![variant],
+      available,
+      playback_type: VideoType::Mp4,
+      variants,
       ..Default::default()
    }
 }
