@@ -231,7 +231,7 @@ fn render_user_card(user: &User, config: &Config, prefs: Option<&Prefs>) -> Mark
                            @let url = formatters::replace_urls(&user.website, config);
                            (icon("link", "", "", "", ""))
                            " "
-                           a href=(url) { (short_link(&url)) }
+                           a rel="me" href=(url) { (short_link(&url)) }
                        }
                    }
                }
