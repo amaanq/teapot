@@ -168,8 +168,28 @@ pub fn router() -> Router<AppState> {
 async fn search(
    State(state): State<AppState>,
    jar: CookieJar,
+   RawQuery(raw_qs): RawQuery,
    AxumQuery(params): AxumQuery<SearchQuery>,
 ) -> Result<Response> {
+   // Strip empty query parameters (e.g. since=&until=&min_faves=) for clean URLs
+   if let Some(ref qs) = raw_qs {
+      let clean: Vec<&str> = qs
+         .split('&')
+         .filter(|pair| {
+            pair.split_once('=')
+               .is_none_or(|(_, val)| !val.is_empty())
+         })
+         .collect();
+      if clean.len() < qs.split('&').count() {
+         let url = if clean.is_empty() {
+            "/search".to_owned()
+         } else {
+            format!("/search?{}", clean.join("&"))
+         };
+         return Ok(Redirect::to(&url).into_response());
+      }
+   }
+
    // Extract prefs from cookies
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
@@ -363,6 +383,7 @@ async fn hashtag(
    search(
       State(state),
       jar,
+      RawQuery(None),
       AxumQuery(SearchQuery {
          query: Some(hashtag_query),
          filter: query.filter,
