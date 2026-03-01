@@ -696,7 +696,7 @@ fn render_user_avatar(user: &User, config: &Config, prefs: Option<&Prefs>) -> Ma
    let avatar_url = formatters::get_pic_url(&user.user_pic, config.config.base64_media);
    let avatar_class = get_avatar_class(prefs);
    html! {
-       img src=(avatar_url) class=(avatar_class) alt="";
+       img src=(avatar_url) class=(avatar_class) alt="" loading="lazy";
    }
 }
 

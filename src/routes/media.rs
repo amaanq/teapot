@@ -6,6 +6,7 @@ use axum::{
       State,
    },
    http::{
+      HeaderMap,
       StatusCode,
       header,
    },
@@ -82,6 +83,7 @@ async fn pic_orig_proxy_encoded(
 
 async fn video_proxy(
    State(state): State<AppState>,
+   req_headers: HeaderMap,
    Path((sig, url)): Path<(String, String)>,
 ) -> Result<Response> {
    // URL-decode the URL first
@@ -95,11 +97,12 @@ async fn video_proxy(
       return Err(Error::HmacVerification);
    }
 
-   proxy_video(&state, &decoded_url).await
+   proxy_video(&state, &decoded_url, &req_headers).await
 }
 
 async fn video_proxy_encoded(
    State(state): State<AppState>,
+   req_headers: HeaderMap,
    Path((sig, url)): Path<(String, String)>,
 ) -> Result<Response> {
    let decoded = formatters::base64_decode_url(&url)
@@ -110,7 +113,7 @@ async fn video_proxy_encoded(
       return Err(Error::HmacVerification);
    }
 
-   proxy_video(&state, &decoded).await
+   proxy_video(&state, &decoded, &req_headers).await
 }
 
 async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Response> {
@@ -145,39 +148,65 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
       StatusCode::OK,
       [
          (header::CONTENT_TYPE, content_type),
-         (header::CACHE_CONTROL, "max-age=604800".to_owned()),
+         (header::CACHE_CONTROL, "public, max-age=604800".to_owned()),
       ],
       bytes,
    )
       .into_response())
 }
 
-async fn proxy_video(state: &AppState, url: &str) -> Result<Response> {
-   let response = state.http_client.get(url).await?;
+async fn proxy_video(
+   state: &AppState,
+   url: &str,
+   req_headers: &HeaderMap,
+) -> Result<Response> {
+   // Forward Range header to upstream for seeking support
+   let mut upstream_headers = HeaderMap::new();
+   if let Some(range) = req_headers.get(header::RANGE) {
+      upstream_headers.insert(header::RANGE, range.clone());
+   }
 
-   if !response.status().is_success() {
+   let response = state
+      .http_client
+      .get_with_headers(url, &upstream_headers)
+      .await?;
+
+   let upstream_status = response.status();
+   if !upstream_status.is_success() && upstream_status != StatusCode::PARTIAL_CONTENT {
       return Err(Error::InvalidUrl(format!(
-         "Video fetch failed: {}",
-         response.status()
+         "Video fetch failed: {upstream_status}"
       )));
    }
 
-   let content_type = response
-      .headers()
+   let resp_headers = response.headers();
+
+   let content_type = resp_headers
       .get(header::CONTENT_TYPE)
       .and_then(|hv| hv.to_str().ok())
-      .unwrap_or("video/mp4")
-      .to_owned();
+      .unwrap_or("video/mp4");
+
+   let status = if upstream_status == StatusCode::PARTIAL_CONTENT {
+      StatusCode::PARTIAL_CONTENT
+   } else {
+      StatusCode::OK
+   };
+
+   let mut builder = Response::builder()
+      .status(status)
+      .header(header::CONTENT_TYPE, content_type)
+      .header(header::CACHE_CONTROL, "public, max-age=604800")
+      .header(header::ACCEPT_RANGES, "bytes");
+
+   if let Some(cl) = resp_headers.get(header::CONTENT_LENGTH) {
+      builder = builder.header(header::CONTENT_LENGTH, cl);
+   }
+   if let Some(cr) = resp_headers.get(header::CONTENT_RANGE) {
+      builder = builder.header(header::CONTENT_RANGE, cr);
+   }
 
    let bytes = response.bytes().await?;
 
-   Ok((
-      StatusCode::OK,
-      [
-         (header::CONTENT_TYPE, content_type),
-         (header::CACHE_CONTROL, "max-age=604800".to_owned()),
-      ],
-      bytes,
-   )
-      .into_response())
+   builder
+      .body(Body::from(bytes))
+      .map_err(|err| Error::Internal(format!("build video response: {err}")))
 }
