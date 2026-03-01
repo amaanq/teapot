@@ -62,6 +62,9 @@ pub fn parse_conversation(
       for entry in instruction.entries.as_deref().unwrap_or_default() {
          let entry_id = entry.entry_id_str();
 
+         if entry_id.contains("promoted") {
+            continue;
+         }
          if entry_id.starts_with("tweet-") {
             // Single tweet entry -- match by ID to determine main vs before
             if let Some(tweet) = entry

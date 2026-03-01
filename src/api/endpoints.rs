@@ -71,7 +71,7 @@ pub fn tweet_detail_vars(focal_tweet_id: &str, cursor: Option<&str>) -> String {
    vars(json!({
       "focalTweetId": focal_tweet_id, "cursor": cursor,
       "referrer": "profile", "withRuxInjections": false, "rankingMode": "Relevance",
-      "includePromotedContent": true, "withCommunity": true,
+      "includePromotedContent": false, "withCommunity": true,
       "withQuickPromoteEligibilityTweetFields": true,
       "withBirdwatchNotes": true, "withVoice": true,
    }))

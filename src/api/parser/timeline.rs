@@ -70,6 +70,9 @@ fn parse_timeline_instructions(raw_instructions: &[Instruction]) -> Result<Timel
                let entry_id = entry.entry_id_str();
 
                tracing::trace!("timeline entry: {entry_id}");
+               if entry_id.contains("promoted") {
+                  continue;
+               }
                if entry_id.starts_with("tweet-")
                   || entry_id.contains("-conversation-")
                   || entry_id.starts_with("profile-grid-")
@@ -147,6 +150,9 @@ pub fn parse_search_timeline(data: &SearchTimelineData) -> Timeline {
             for entry in instruction.entries.as_deref().unwrap_or_default() {
                let entry_id = entry.entry_id_str();
 
+               if entry_id.contains("promoted") {
+                  continue;
+               }
                if entry_id.starts_with("tweet-") {
                   if let Some(tweet_result) = entry.tweet_result()
                      && let Ok(tweet) = parse_tweet_object(tweet_result)
