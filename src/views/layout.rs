@@ -96,13 +96,14 @@ impl<'a> PageLayout<'a> {
    }
 
    pub fn render(self) -> Markup {
-      let (hls_playback, infinite_scroll, theme, sticky_nav) =
-         self.prefs.map_or((false, false, None, true), |prefs| {
+      let (hls_playback, infinite_scroll, theme, sticky_nav, use_twemoji) =
+         self.prefs.map_or((false, false, None, true, true), |prefs| {
             (
                prefs.hls_playback,
                prefs.infinite_scroll,
                Some(prefs.theme.as_str()),
                prefs.sticky_nav,
+               prefs.use_twemoji,
             )
          });
 
@@ -151,6 +152,11 @@ impl<'a> PageLayout<'a> {
                   // Theme CSS if different from default
                   @if let Some(ref href) = theme_href {
                       link rel="stylesheet" type="text/css" href=(href);
+                  }
+
+                  // Twemoji font (opt-in via preferences, on by default)
+                  @if use_twemoji {
+                      link rel="stylesheet" type="text/css" href="/css/twemoji.css";
                   }
 
                   @if self.title.is_empty() {

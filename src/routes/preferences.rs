@@ -66,6 +66,7 @@ fn prefs_to_cookies(prefs: &Prefs) -> Vec<Cookie<'static>> {
       bool_cookie("hideReplies", prefs.hide_replies),
       bool_cookie("hideCommunityNotes", prefs.hide_community_notes),
       bool_cookie("squareAvatars", prefs.square_avatars),
+      bool_cookie("useTwemoji", prefs.use_twemoji),
       bool_cookie("stickyNav", prefs.sticky_nav),
       str_cookie("replaceTwitter", &prefs.replace_twitter),
       str_cookie("replaceYouTube", &prefs.replace_youtube),
@@ -112,6 +113,7 @@ fn encode_prefs(prefs: &Prefs, config: &Config) -> String {
    enc_checkbox!("hideReplies", hide_replies);
    enc_checkbox!("hideCommunityNotes", hide_community_notes);
    enc_checkbox!("squareAvatars", square_avatars);
+   enc_checkbox!("useTwemoji", use_twemoji);
    enc_checkbox!("mp4Playback", mp4_playback);
    enc_checkbox!("hlsPlayback", hls_playback);
    enc_checkbox!("proxyVideos", proxy_videos);
@@ -173,6 +175,8 @@ pub struct PrefsForm {
    pub hide_community_notes: Option<String>,
    #[serde(rename = "squareAvatars")]
    pub square_avatars:       Option<String>,
+   #[serde(rename = "useTwemoji")]
+   pub use_twemoji:          Option<String>,
    #[serde(rename = "stickyNav")]
    pub sticky_nav:           Option<String>,
    #[serde(rename = "replaceTwitter")]
@@ -209,6 +213,7 @@ impl PrefsForm {
             defaults.hide_community_notes,
          ),
          square_avatars:       parse_bool(&self.square_avatars, defaults.square_avatars),
+         use_twemoji:          parse_bool(&self.use_twemoji, defaults.use_twemoji),
          sticky_nav:           parse_bool(&self.sticky_nav, defaults.sticky_nav),
          replace_twitter:      parse_str(&self.replace_twitter, defaults.replace_twitter),
          replace_youtube:      parse_str(&self.replace_youtube, defaults.replace_youtube),

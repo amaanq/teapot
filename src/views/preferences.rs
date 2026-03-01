@@ -69,6 +69,7 @@ pub fn render_preferences_form(
                    (gen_checkbox("hideReplies", "Hide tweet replies", prefs.hide_replies))
                    (gen_checkbox("hideCommunityNotes", "Hide community notes", prefs.hide_community_notes))
                    (gen_checkbox("squareAvatars", "Square profile pictures", prefs.square_avatars))
+                   (gen_checkbox("useTwemoji", "Use Twitter emoji (Twemoji)", prefs.use_twemoji))
 
                    // Media section
                    legend { "Media" }
