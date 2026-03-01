@@ -237,7 +237,7 @@ pub fn render_navbar_full(config: &Config, rss: &str, canonical: &str, referer: 
                    a class="site-name" href="/" { (config.server.title) }
                }
                a href="/" {
-                   img class="site-logo" src="/logo.png" alt="Logo";
+                   img class="site-logo" src="/logo.svg" alt="Logo";
                }
                div class="nav-item right" {
                    (icon("search", "", "Search", "", "/search"))

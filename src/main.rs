@@ -100,6 +100,7 @@ async fn main() -> eyre::Result<()> {
         .nest_service("/fonts", ServeDir::new(format!("{static_dir}/fonts")))
         .nest_service("/md", ServeDir::new(format!("{static_dir}/md")))
         // Root-level static files
+        .route_service("/logo.svg", ServeFile::new(format!("{static_dir}/logo.svg")))
         .route_service("/logo.png", ServeFile::new(format!("{static_dir}/logo.png")))
         .route_service("/favicon.ico", ServeFile::new(format!("{static_dir}/favicon.ico")))
         .route_service("/favicon-16x16.png", ServeFile::new(format!("{static_dir}/favicon-16x16.png")))
