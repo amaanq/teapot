@@ -17,7 +17,11 @@ use crate::{
 };
 
 /// Parse a conversation from `TweetDetail` response.
-pub fn parse_conversation(data: &ConversationData, tweet_id: &str) -> Result<Conversation> {
+pub fn parse_conversation(
+   data: &ConversationData,
+   tweet_id: &str,
+   has_cursor: bool,
+) -> Result<Conversation> {
    // Single tweet result path
    if let Some(tweet_data) = data
       .tweet_result
@@ -132,8 +136,14 @@ pub fn parse_conversation(data: &ConversationData, tweet_id: &str) -> Result<Con
       }
    }
 
-   let tweet = main_tweet
-      .ok_or_else(|| Error::TweetNotFound("Main tweet not found in conversation".to_owned()))?;
+   // Paginated requests (with cursor) don't include the main tweet in the
+   // response — Twitter only returns the next batch of replies.
+   let tweet = if has_cursor {
+      main_tweet.unwrap_or_default()
+   } else {
+      main_tweet
+         .ok_or_else(|| Error::TweetNotFound("Main tweet not found in conversation".to_owned()))?
+   };
 
    Ok(Conversation {
       tweet,

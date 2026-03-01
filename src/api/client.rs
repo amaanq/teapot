@@ -361,7 +361,7 @@ impl ApiClient {
             Some(endpoints::TWEET_DETAIL_FIELD_TOGGLES),
          )
          .await?;
-      super::parse_conversation(&data, tweet_id)
+      super::parse_conversation(&data, tweet_id, cursor.is_some())
    }
 
    /// Get user's tweets timeline.

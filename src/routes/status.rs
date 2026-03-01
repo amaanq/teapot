@@ -35,6 +35,7 @@ use crate::{
       Result,
    },
    types::{
+      Conversation,
       Prefs,
       Tweet,
    },
@@ -127,22 +128,11 @@ async fn status(
 
    match conv_result {
       Ok(conversation) => {
-         let tweet = &conversation.tweet;
-
-         // If the main tweet is unavailable (tombstone/withheld), show error
-         if !tweet.available && tweet.id == 0 {
-            let msg = if tweet.tombstone.is_empty() {
-               "Tweet is unavailable"
-            } else {
-               &tweet.tombstone
-            };
-            let markup = layout::render_error(&state.config, "Tweet not found", msg);
-            return Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response());
-         }
-
          let is_scroll = query.scroll.as_ref().is_some_and(|val| val == "true");
+         let has_cursor = query.cursor.is_some();
 
-         // For AJAX scroll requests, return only the replies HTML fragment
+         // For AJAX scroll requests, return only the replies HTML fragment.
+         // Check this first — paginated responses don't include the main tweet.
          if is_scroll {
             if conversation.replies.content.is_empty() {
                return Ok(StatusCode::NOT_FOUND.into_response());
@@ -158,94 +148,57 @@ async fn status(
             return Ok(Html(content.into_string()).into_response());
          }
 
-         let content = html! {
-             div class="conversation" {
-                 div class="main-thread" {
-                     // Before context (parent tweets) with thread line
-                     @if !conversation.before.content.is_empty() {
-                         div class="before-tweet thread-line" {
-                             // "Earlier replies" link when thread doesn't start at root
-                             @let first = &conversation.before.content[0];
-                             @if tweet.thread_id != first.id && (first.reply_id > 0 || !first.available) {
-                                 div class="timeline-item more-replies earlier-replies" {
-                                     a class="more-replies-text" href=(format!("/{}/status/{}#m", first.user.username, first.id)) {
-                                         "earlier replies"
-                                     }
-                                 }
-                             }
-                             @let before_len = conversation.before.content.len();
-                             @for (idx, tw) in conversation.before.content.iter().enumerate() {
-                                 @let ctx = thread_context(idx, before_len, false);
-                                 (TweetRenderer::new(tw, &state.config, false).prefs(&prefs).thread_ctx(ctx).render())
-                             }
-                         }
-                     }
+         // Paginated (cursor) requests with no replies — the cursor was a
+         // dead end. Re-fetch the first page and render it without the bottom
+         // cursor so "Load more replies" disappears.
+         if has_cursor && conversation.replies.content.is_empty() {
+            let cache_key = cache_keys::conversation(&id);
+            let mut first_page = if let Some(cached) =
+               state.cache.get::<Conversation>(&cache_key)
+            {
+               cached
+            } else {
+               match state.api.get_conversation(&id, None).await {
+                  Ok(fresh) => {
+                     state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
+                     fresh
+                  },
+                  Err(err) => return Err(err),
+               }
+            };
+            first_page.replies.bottom = None;
+            return Ok(render_conversation(
+               &first_page,
+               false,
+               &username,
+               &id,
+               &prefs,
+               &state.config,
+            ));
+         }
 
-                     // Main tweet (highlighted, larger)
-                     @let has_after = !conversation.after.content.is_empty();
-                     @let after_class = if has_after { "thread thread-line" } else { "" };
-                     div class="main-tweet" id="m" {
-                         (TweetRenderer::new(tweet, &state.config, true).prefs(&prefs).extra_class(after_class).render())
-                     }
+         // Paginated responses (with cursor) don't include the main tweet.
+         // Recover it from the first-page cache, or re-fetch without cursor.
+         #[expect(clippy::shadow_same, reason = "rebinding as mutable")]
+         let mut conversation = conversation;
+         if conversation.tweet.id == 0 && has_cursor {
+            let cache_key = cache_keys::conversation(&id);
+            if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
+               conversation.tweet = cached.tweet;
+            } else if let Ok(fresh) = state.api.get_conversation(&id, None).await {
+               state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
+               conversation.tweet = fresh.tweet;
+            }
+         }
 
-                     // After context (thread continuation) with thread line
-                     @if has_after {
-                         div class="after-tweet thread-line" {
-                             @let after_len = conversation.after.content.len();
-                             @let has_more = conversation.after.has_more;
-                             @for (idx, tw) in conversation.after.content.iter().enumerate() {
-                                 @let is_last = idx == after_len - 1 && !has_more;
-                                 @let ctx = thread_context(idx, after_len, is_last);
-                                 (TweetRenderer::new(tw, &state.config, false).prefs(&prefs).thread_ctx(ctx).render())
-                             }
-                             @if has_more {
-                                 @if let Some(last_after) = conversation.after.content.last() {
-                                     div class="timeline-item more-replies" {
-                                         @if last_after.available {
-                                             a class="more-replies-text" href=(format!("/{}/status/{}#m", last_after.user.username, last_after.id)) {
-                                                 "more replies"
-                                             }
-                                         } @else {
-                                             a class="more-replies-text" { "more replies" }
-                                         }
-                                     }
-                                 }
-                             }
-                         }
-                     }
-                 }
-
-                 // Replies section
-                 @if !prefs.hide_replies {
-                     // "Load newest" for replies when viewing paginated replies
-                     @if query.cursor.is_some() {
-                         div class="timeline-item show-more" {
-                             a href=(format!("/{username}/status/{id}#r")) { "Load newest" }
-                         }
-                     }
-                 }
-                 @if !prefs.hide_replies && !conversation.replies.content.is_empty() {
-                     div class="replies" id="r" {
-                         (render_reply_chains(
-                             &conversation.replies.content,
-                             conversation.replies.bottom.as_deref().unwrap_or_default(),
-                             &username,
-                             &id,
-                             &state.config,
-                             &prefs,
-                         ))
-                     }
-                 }
-
-                 // Scroll to top button
-                 (render_to_top_with_focus("#m"))
-             }
-         };
-
-         let markup =
-            embed::render_status_page(tweet, &content, &prefs, &state.config, &username, &id);
-
-         Ok(Html(markup.into_string()).into_response())
+         Ok(render_conversation(
+            &conversation,
+            has_cursor,
+            &username,
+            &id,
+            &prefs,
+            &state.config,
+         ))
       },
       Err(Error::TweetNotFound(msg)) => {
          let markup = layout::render_error(&state.config, "Tweet not found", &msg);
@@ -260,6 +213,130 @@ async fn status(
             .into_response())
       },
    }
+}
+
+/// Render a conversation page (first page or paginated replies).
+fn render_conversation(
+   conversation: &Conversation,
+   has_cursor: bool,
+   username: &str,
+   id: &str,
+   prefs: &Prefs,
+   config: &Config,
+) -> Response {
+   let tweet = &conversation.tweet;
+
+   // If the main tweet is unavailable (tombstone/withheld), show error
+   if !tweet.available && tweet.id == 0 {
+      let msg = if tweet.tombstone.is_empty() {
+         "Tweet is unavailable"
+      } else {
+         &tweet.tombstone
+      };
+      let markup = layout::render_error(config, "Tweet not found", msg);
+      return (StatusCode::NOT_FOUND, Html(markup.into_string())).into_response();
+   }
+
+   let content = html! {
+       div class="conversation" {
+           @if has_cursor {
+               // Paginated replies page: compact tweet header + replies only
+               div class="main-thread" {
+                   div class="main-tweet" id="m" {
+                       (TweetRenderer::new(tweet, config, false).prefs(prefs).render())
+                   }
+               }
+               div class="timeline-item show-more" {
+                   a href=(format!("/{username}/status/{id}#r")) { "Back to tweet" }
+               }
+               div class="replies" id="r" {
+                   (render_reply_chains(
+                       &conversation.replies.content,
+                       conversation.replies.bottom.as_deref().unwrap_or_default(),
+                       username,
+                       id,
+                       config,
+                       prefs,
+                   ))
+               }
+           } @else {
+               div class="main-thread" {
+                   // Before context (parent tweets) with thread line
+                   @if !conversation.before.content.is_empty() {
+                       div class="before-tweet thread-line" {
+                           // "Earlier replies" link when thread doesn't start at root
+                           @let first = &conversation.before.content[0];
+                           @if tweet.thread_id != first.id && (first.reply_id > 0 || !first.available) {
+                               div class="timeline-item more-replies earlier-replies" {
+                                   a class="more-replies-text" href=(format!("/{}/status/{}#m", first.user.username, first.id)) {
+                                       "earlier replies"
+                                   }
+                               }
+                           }
+                           @let before_len = conversation.before.content.len();
+                           @for (idx, tw) in conversation.before.content.iter().enumerate() {
+                               @let ctx = thread_context(idx, before_len, false);
+                               (TweetRenderer::new(tw, config, false).prefs(prefs).thread_ctx(ctx).render())
+                           }
+                       }
+                   }
+
+                   // Main tweet (highlighted, larger)
+                   @let has_after = !conversation.after.content.is_empty();
+                   @let after_class = if has_after { "thread thread-line" } else { "" };
+                   div class="main-tweet" id="m" {
+                       (TweetRenderer::new(tweet, config, true).prefs(prefs).extra_class(after_class).render())
+                   }
+
+                   // After context (thread continuation) with thread line
+                   @if has_after {
+                       div class="after-tweet thread-line" {
+                           @let after_len = conversation.after.content.len();
+                           @let has_more = conversation.after.has_more;
+                           @for (idx, tw) in conversation.after.content.iter().enumerate() {
+                               @let is_last = idx == after_len - 1 && !has_more;
+                               @let ctx = thread_context(idx, after_len, is_last);
+                               (TweetRenderer::new(tw, config, false).prefs(prefs).thread_ctx(ctx).render())
+                           }
+                           @if has_more {
+                               @if let Some(last_after) = conversation.after.content.last() {
+                                   div class="timeline-item more-replies" {
+                                       @if last_after.available {
+                                           a class="more-replies-text" href=(format!("/{}/status/{}#m", last_after.user.username, last_after.id)) {
+                                               "more replies"
+                                           }
+                                       } @else {
+                                           a class="more-replies-text" { "more replies" }
+                                       }
+                                   }
+                               }
+                           }
+                       }
+                   }
+               }
+
+               // Replies section
+               @if !prefs.hide_replies && !conversation.replies.content.is_empty() {
+                   div class="replies" id="r" {
+                       (render_reply_chains(
+                           &conversation.replies.content,
+                           conversation.replies.bottom.as_deref().unwrap_or_default(),
+                           username,
+                           id,
+                           config,
+                           prefs,
+                       ))
+                   }
+               }
+           }
+
+           // Scroll to top button
+           (render_to_top_with_focus("#m"))
+       }
+   };
+
+   let markup = embed::render_status_page(tweet, &content, prefs, config, username, id);
+   Html(markup.into_string()).into_response()
 }
 
 async fn status_by_id(
