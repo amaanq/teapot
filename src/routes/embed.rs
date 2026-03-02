@@ -26,7 +26,11 @@ use crate::{
       Error,
       Result,
    },
-   views::embed as embed_view,
+   utils::formatters::format_relative_time,
+   views::{
+      embed as embed_view,
+      layout::strip_html,
+   },
 };
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +38,13 @@ pub struct OEmbedQuery {
    pub text:   Option<String>,
    pub author: Option<String>,
    pub status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StandardOEmbedQuery {
+   pub url:      String,
+   #[serde(default)]
+   pub maxwidth: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,8 +60,9 @@ pub fn router() -> Router<AppState> {
         .route("/embed/Tweet.html", get(legacy_embed_redirect))
         // ActivityPub endpoint for Discord multi-image support
         .route("/users/{username}/statuses/{id}", get(activity_pub_status))
-        // oEmbed endpoint for engagement metrics in Discord embeds
+        // oEmbed endpoints
         .route("/owoembed", get(oembed))
+        .route("/oembed", get(oembed_standard))
 }
 
 /// Redirect legacy `/embed/Tweet.html?id=XXX` to `/i/status/XXX/embed`.
@@ -159,4 +171,92 @@ async fn oembed(
       Json(oembed),
    )
       .into_response())
+}
+
+#[derive(serde::Serialize)]
+struct StandardOEmbed {
+   version:       &'static str,
+   #[serde(rename = "type")]
+   kind:          &'static str,
+   author_name:   String,
+   author_url:    String,
+   provider_name: String,
+   provider_url:  String,
+   html:          String,
+   width:         u32,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   height:        Option<u32>,
+   cache_age:     u32,
+}
+
+/// Standard oEmbed endpoint: `/oembed?url=https://teapot.example.com/user/status/123`.
+///
+/// Parses the tweet ID from the URL, fetches the tweet, and returns a full
+/// oEmbed response per <https://oembed.com>.
+async fn oembed_standard(
+   State(state): State<AppState>,
+   Query(query): Query<StandardOEmbedQuery>,
+) -> Result<Response> {
+   // Parse tweet ID from URL: /{username}/status/{id}
+   let tweet_id = extract_tweet_id(&query.url)
+      .ok_or_else(|| Error::InvalidUrl("Could not parse tweet URL".into()))?;
+
+   let tweet = state.api.get_tweet(tweet_id).await?;
+   let url_prefix = state.config.url_prefix();
+
+   let author_name = format!("{} (@{})", tweet.user.fullname, tweet.user.username);
+   let author_url = format!("{url_prefix}/{}", tweet.user.username);
+   let tweet_text = strip_html(&tweet.text);
+
+   // Build a minimal HTML embed
+   let html = format!(
+      r#"<blockquote><p>{}</p>&mdash; {} <a href="{url_prefix}/{}/status/{}">{}</a></blockquote>"#,
+      tweet_text,
+      author_name,
+      tweet.user.username,
+      tweet.id,
+      tweet.time
+         .map(format_relative_time)
+         .unwrap_or_default(),
+   );
+
+   let data = StandardOEmbed {
+      version: "1.0",
+      kind: "rich",
+      author_name,
+      author_url,
+      provider_name: state.config.server.title.clone(),
+      provider_url: url_prefix.to_owned(),
+      html,
+      width: query.maxwidth.unwrap_or(550),
+      height: None,
+      cache_age: 3600,
+   };
+
+   Ok((
+      [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+      Json(data),
+   )
+      .into_response())
+}
+
+/// Extract tweet ID from a URL path like `/user/status/123` or full URL.
+fn extract_tweet_id(url: &str) -> Option<&str> {
+   // Try path segments: look for "status" or "statuses" followed by the ID
+   let path = url
+      .strip_prefix("http://")
+      .or_else(|| url.strip_prefix("https://"))
+      .map_or(url, |stripped| stripped.split_once('/').map_or("", |(_, rest)| rest));
+
+   let segments: Vec<&str> = path.split('/').collect();
+   for window in segments.windows(2) {
+      assert!(window.len() > 1, "windows(2) guarantees length 2");
+      if (window[0] == "status" || window[0] == "statuses") && !window[1].is_empty() {
+         let id = window[1].split('?').next().unwrap_or(window[1]);
+         if id.chars().all(|ch| ch.is_ascii_digit()) {
+            return Some(id);
+         }
+      }
+   }
+   None
 }
