@@ -1,10 +1,12 @@
-@import "_variables";
-@import "_mixins";
-
 .conversation {
-  @include panel(100%, 600px);
+  max-width: 600px;
+  margin: 0 auto;
+  float: none;
+  border-radius: 0;
+  position: relative;
+  width: 100%;
 
-  .show-more {
+  & .show-more {
     margin-bottom: 10px;
   }
 }
@@ -20,7 +22,6 @@
   margin-top: -50px;
 }
 
-// Elevate main tweet so the reply-sort dropdown renders above replies below
 .main-tweet {
   position: relative;
   z-index: 2;
@@ -42,7 +43,7 @@
 }
 
 .thread-line {
-  .timeline-item::before,
+  & .timeline-item::before,
   &.timeline-item::before {
     background: var(--accent_dark);
     content: "";
@@ -58,7 +59,7 @@
     pointer-events: none;
   }
 
-  .with-header:not(:first-child)::after {
+  & .with-header:not(:first-child)::after {
     background: var(--accent_dark);
     content: "";
     position: relative;
@@ -75,12 +76,12 @@
     pointer-events: none;
   }
 
-  .unavailable::before {
+  & .unavailable::before {
     top: 48px;
     margin-bottom: 28px;
   }
 
-  .more-replies::before {
+  & .more-replies::before {
     content: "...";
     background: unset;
     color: var(--more_replies_dots);
@@ -94,7 +95,7 @@
     margin-left: -2.5px;
   }
 
-  .earlier-replies {
+  & .earlier-replies {
     padding-bottom: 0;
     margin-bottom: -5px;
   }
@@ -112,14 +113,14 @@
 }
 
 .more-replies-text {
-  @include ellipsis;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   display: block;
   margin-left: 58px;
   padding: 7px 0;
 }
 
-// Reply sort dropdown (inside tweet-stats, right-aligned)
-// Uses :focus-within so clicking outside the container auto-closes the menu.
 .reply-sort {
   margin-left: auto;
   position: relative;
@@ -162,7 +163,8 @@
   min-width: 100px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 
-  a, span {
+  & a,
+  & span {
     display: block;
     padding: 6px 12px;
     font-size: 13px;
@@ -171,7 +173,7 @@
     white-space: nowrap;
   }
 
-  a {
+  & a {
     color: var(--fg_color);
 
     &:hover {
@@ -194,7 +196,7 @@
     margin-bottom: 31px;
   }
 
-  .more-replies {
+  & .more-replies {
     display: flex;
     padding-top: unset !important;
     margin-top: 8px;
@@ -206,7 +208,7 @@
       line-height: 0.4em;
     }
 
-    .more-replies-text {
+    & .more-replies-text {
       display: inline;
     }
   }

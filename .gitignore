@@ -26,10 +26,6 @@
 !public/
 !public/**
 
-# Sass sources
-!sass/
-!sass/**
-
 # Nix
 !flake.lock
 !flake.nix

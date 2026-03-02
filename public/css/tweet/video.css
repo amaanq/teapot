@@ -1,6 +1,3 @@
-@import "_variables";
-@import "_mixins";
-
 video {
   height: 100%;
   width: 100%;
@@ -22,17 +19,33 @@ video {
   max-height: 530px;
   margin: 0;
 
-  img {
+  & img {
     max-height: 100%;
     max-width: 100%;
   }
 }
 
 .video-overlay {
-  @include play-button;
-  background-color: $shadow;
+  /* play-button mixin inlined */
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  background-color: var(--shadow);
 
-  p {
+  &:hover {
+    & .overlay-circle {
+      border-color: var(--play_button_hover);
+    }
+
+    & .overlay-triangle {
+      border-color: transparent transparent transparent var(--play_button_hover);
+    }
+  }
+
+  & p {
     position: relative;
     z-index: 0;
     text-align: center;
@@ -42,7 +55,7 @@ video {
     margin: 0 20px;
   }
 
-  .overlay-circle {
+  & .overlay-circle {
     position: relative;
     z-index: 0;
     top: calc(50% - 20px);
@@ -51,7 +64,7 @@ video {
     height: 40px;
   }
 
-  .overlay-duration {
+  & .overlay-duration {
     position: absolute;
     bottom: 8px;
     left: 8px;
@@ -62,7 +75,7 @@ video {
     font-weight: bold;
   }
 
-  form {
+  & form {
     width: 100%;
     height: 100%;
     align-items: center;
@@ -70,7 +83,7 @@ video {
     display: flex;
   }
 
-  button {
+  & button {
     padding: 5px 8px;
     font-size: 16px;
   }

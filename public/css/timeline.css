@@ -1,13 +1,16 @@
-@import "_variables";
-
 .timeline-container {
-  @include panel(100%, 600px);
+  max-width: 600px;
+  margin: 0 auto;
+  float: none;
+  border-radius: 0;
+  position: relative;
+  width: 100%;
 }
 
 .timeline {
   background-color: var(--bg_panel);
 
-  > div:not(:first-child) {
+  & > div:not(:first-child) {
     border-top: 1px solid var(--border_grey);
   }
 }
@@ -22,7 +25,7 @@
   margin-bottom: 5px;
   box-sizing: border-box;
 
-  button {
+  & button {
     float: unset;
   }
 }
@@ -50,7 +53,7 @@
   text-align: center;
   margin-top: 0;
 
-  a {
+  & a {
     border-bottom: 0.1rem solid transparent;
     color: var(--tab);
     display: block;
@@ -87,11 +90,11 @@
 .timeline-protected {
   text-align: center;
 
-  p {
+  & p {
     margin: 8px 0;
   }
 
-  h2 {
+  & h2 {
     color: var(--accent);
     font-size: 20px;
     font-weight: 600;
@@ -119,7 +122,7 @@
   padding: 0.75em 0;
   display: block !important;
 
-  a {
+  & a {
     background-color: var(--darkest_grey);
     display: inline-block;
     height: 2em;
@@ -136,7 +139,7 @@
   background-color: var(--bg_color);
   border-top: none !important;
 
-  .icon-down {
+  & .icon-down {
     font-size: 20px;
     display: flex;
     justify-content: center;

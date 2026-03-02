@@ -1,5 +1,3 @@
-@import "_variables";
-
 .quote {
   margin-top: 10px;
   border: solid 1px var(--dark_grey);
@@ -18,24 +16,24 @@
     border-color: var(--dark_grey);
   }
 
-  .tweet-name-row {
+  & .tweet-name-row {
     padding: 6px 8px;
     margin-top: 1px;
   }
 
-  .quote-text {
+  & .quote-text {
     overflow: hidden;
     white-space: pre-wrap;
     word-wrap: break-word;
     padding: 0px 8px 8px 8px;
   }
 
-  .show-thread {
+  & .show-thread {
     padding: 0px 8px 6px 8px;
     margin-top: -6px;
   }
 
-  .replying-to {
+  & .replying-to {
     padding: 0px 8px;
     margin: unset;
   }
@@ -57,26 +55,26 @@
   max-height: 300px;
   display: flex;
 
-  .card {
+  & .card {
     margin: unset;
   }
 
-  .attachments {
+  & .attachments {
     border-radius: 0;
   }
 
-  .media-gif {
+  & .media-gif {
     width: 100%;
     display: flex;
     justify-content: center;
   }
 
-  .gallery-gif .attachment {
+  & .gallery-gif .attachment {
     display: flex;
     justify-content: center;
     background-color: var(--bg_color);
 
-    video {
+    & video {
       height: unset;
       width: unset;
       max-height: 100%;
@@ -84,12 +82,12 @@
     }
   }
 
-  .gallery-video,
-  .gallery-gif {
+  & .gallery-video,
+  & .gallery-gif {
     max-height: 300px;
   }
 
-  .still-image img {
+  & .still-image img {
     max-height: 250px;
   }
 }

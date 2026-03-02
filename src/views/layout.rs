@@ -13,9 +13,8 @@ use crate::{
    views::renderutils::icon,
 };
 
-/// CSS cache-busting paths (update the version when static assets change).
-pub const STYLE_CSS: &str = "/css/style.css?v=28";
-pub const FONTELLO_CSS: &str = "/css/fontello.css?v=4";
+pub const STYLE_CSS: &str = "/css/style.css";
+pub const FONTELLO_CSS: &str = "/css/fontello.css";
 
 /// Builder for rendering a full page layout.
 #[expect(

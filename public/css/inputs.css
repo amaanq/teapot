@@ -1,8 +1,4 @@
-@import "_variables";
-@import "_mixins";
-
 button {
-  @include input-colors;
   background-color: var(--bg_elements);
   color: var(--fg_color);
   border: 1px solid var(--accent_border);
@@ -10,19 +6,34 @@ button {
   font-size: 14px;
   cursor: pointer;
   float: right;
+
+  &:hover {
+    border-color: var(--accent);
+  }
+
+  &:active {
+    border-color: var(--accent_light);
+  }
 }
 
 input[type="text"],
 input[type="date"],
 input[type="number"],
 select {
-  @include input-colors;
   background-color: var(--bg_elements);
   padding: 1px 4px;
   color: var(--fg_color);
   border: 1px solid var(--accent_border);
   border-radius: 0;
   font-size: 14px;
+
+  &:hover {
+    border-color: var(--accent);
+  }
+
+  &:active {
+    border-color: var(--accent_light);
+  }
 }
 
 input[type="number"] {
@@ -74,19 +85,19 @@ input::-webkit-datetime-edit-year-field:focus {
 }
 
 .date-range {
-  .date-input {
+  & .date-input {
     display: inline-block;
     position: relative;
   }
 
-  .icon-container {
+  & .icon-container {
     pointer-events: none;
     position: absolute;
     top: 2px;
     right: 5px;
   }
 
-  .search-title {
+  & .search-title {
     margin: 0 2px;
   }
 }
@@ -129,7 +140,7 @@ input::-webkit-datetime-edit-year-field:focus {
   user-select: none;
   padding-right: 22px;
 
-  input {
+  & input {
     position: absolute;
     opacity: 0;
     cursor: pointer;
@@ -149,11 +160,11 @@ input::-webkit-datetime-edit-year-field:focus {
     border-color: var(--accent_light);
   }
 
-  .checkbox:after {
+  & .checkbox:after {
     left: 2px;
     bottom: 0;
     font-size: 13px;
-    font-family: $font_1;
+    font-family: fontello;
     content: "\e811";
   }
 }
@@ -163,15 +174,15 @@ input::-webkit-datetime-edit-year-field:focus {
 }
 
 .preferences {
-  button {
+  & button {
     margin: 6px 0 3px 0;
   }
 
-  label {
+  & label {
     padding-right: 150px;
   }
 
-  select {
+  & select {
     position: absolute;
     top: 0;
     right: 0;
@@ -181,23 +192,23 @@ input::-webkit-datetime-edit-year-field:focus {
     appearance: none;
   }
 
-  input[type="text"],
-  input[type="number"] {
+  & input[type="text"],
+  & input[type="number"] {
     position: absolute;
     right: 0;
     max-width: 140px;
   }
 
-  .pref-group {
+  & .pref-group {
     display: block;
   }
 
-  .pref-input {
+  & .pref-input {
     position: relative;
     margin-bottom: 6px;
   }
 
-  .pref-reset {
+  & .pref-reset {
     float: left;
   }
 }

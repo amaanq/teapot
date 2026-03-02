@@ -46,7 +46,6 @@
                 ./Cargo.toml
                 ./Cargo.lock
                 ./src
-                ./sass
                 ./public
                 ./config
               ];
@@ -56,7 +55,6 @@
 
             nativeBuildInputs = [
               pkgs.pkg-config
-              pkgs.dart-sass
             ];
 
             doCheck = false;
@@ -65,9 +63,6 @@
               mkdir -p $out/share/teapot
               cp -r public $out/share/teapot/
               cp -r config $out/share/teapot/
-              # Compile SCSS
-              sass sass/index.scss:$out/share/teapot/public/css/style.css \
-                --load-path=sass/include --style=compressed --no-source-map
             '';
 
             meta = with pkgs.lib; {

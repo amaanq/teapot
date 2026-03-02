@@ -1,8 +1,5 @@
-@import "_variables";
-@import "_mixins";
-
 .embed-video {
-  .gallery-video {
+  & .gallery-video {
     width: 100%;
     height: 100%;
     position: absolute;
@@ -11,7 +8,7 @@
     left: 0%;
   }
 
-  .video-container {
+  & .video-container {
     max-height: unset;
   }
 }

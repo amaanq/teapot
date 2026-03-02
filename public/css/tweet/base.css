@@ -1,12 +1,10 @@
-@import "_variables";
-@import "_mixins";
-@import "thread";
-@import "media";
-@import "video";
-@import "embed";
-@import "card";
-@import "poll";
-@import "quote";
+@import "thread.css";
+@import "media.css";
+@import "video.css";
+@import "embed.css";
+@import "card.css";
+@import "poll.css";
+@import "quote.css";
 
 .tweet-body {
   flex: 1;
@@ -32,7 +30,7 @@
   flex-basis: 100%;
   margin-bottom: 0.2em;
 
-  a {
+  & a {
     display: inline-block;
     word-break: break-all;
     max-width: 100%;
@@ -52,7 +50,9 @@
 }
 
 .fullname {
-  @include ellipsis;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   flex-shrink: 2;
   max-width: 80%;
   font-size: 14px;
@@ -61,7 +61,9 @@
 }
 
 .username {
-  @include ellipsis;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 1.6em;
   margin-left: 0.4em;
   word-wrap: normal;
@@ -89,7 +91,7 @@
 .tweet-avatar {
   display: contents !important;
 
-  img {
+  & img {
     float: left;
     margin-top: 3px;
     margin-left: -58px;
@@ -120,21 +122,21 @@
   height: 100%;
   background-color: var(--bg_panel);
 
-  .tweet-content {
+  & .tweet-content {
     font-size: 18px;
   }
 
-  .tweet-body {
+  & .tweet-body {
     display: flex;
     flex-direction: column;
     max-height: calc(100vh - 0.75em * 2);
   }
 
-  .card-image img {
+  & .card-image img {
     height: auto;
   }
 
-  .avatar {
+  & .avatar {
     position: absolute;
   }
 }
@@ -144,7 +146,7 @@
   pointer-events: all;
   margin: 5px 0;
 
-  strong {
+  & strong {
     color: var(--fg_color);
   }
 }
@@ -154,12 +156,12 @@
   pointer-events: all;
   color: var(--fg_faded);
 
-  .icon-container {
+  & .icon-container {
     padding-right: 2px;
   }
 
-  .media-tag,
-  .icon-container {
+  & .media-tag,
+  & .icon-container {
     color: var(--fg_faded);
   }
 }
@@ -176,7 +178,7 @@
   color: var(--fg_faded);
   margin: -2px 0 4px;
 
-  a {
+  & a {
     pointer-events: all;
   }
 }
@@ -193,8 +195,10 @@
   font-weight: 600;
   line-height: 22px;
 
-  span {
-    @include ellipsis;
+  & span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
