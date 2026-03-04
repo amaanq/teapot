@@ -37,6 +37,7 @@ pub enum QueryKind {
    Users,
    Tweets,
    UserList,
+   Top,
 }
 
 /// Search query with filters.
@@ -217,6 +218,7 @@ impl Query {
          QueryKind::Users => params.push("f=users".to_owned()),
          QueryKind::Tweets => params.push("f=tweets".to_owned()),
          QueryKind::UserList => params.push("f=userlist".to_owned()),
+         QueryKind::Top => params.push("f=top".to_owned()),
       }
 
       for filter in &self.filters {

@@ -96,6 +96,7 @@ impl SearchQuery {
          Some("replies") => QueryKind::Replies,
          Some("media") => QueryKind::Media,
          Some("users") => QueryKind::Users,
+         Some("top") => QueryKind::Top,
          _ => QueryKind::Posts,
       };
 
@@ -242,6 +243,7 @@ async fn search(
          Some(&prefs),
          Some(&filters),
          None,
+         "tweets",
       );
       let markup = layout::PageLayout::new(&state.config, "Search", content)
          .prefs(&prefs)
@@ -307,8 +309,23 @@ async fn search(
       // Build the actual search query for Twitter API
       let api_query = query.build();
 
+      // Map query kind to Twitter API product
+      let product = match query.kind {
+         QueryKind::Top => "Top",
+         QueryKind::Media => "Latest", // Media uses Latest + filter:media in query
+         _ => "Latest",
+      };
+      let active_tab = match query.kind {
+         QueryKind::Top => "top",
+         QueryKind::Media => "media",
+         _ => "tweets",
+      };
+
       // Execute search
-      let search_result = state.api.search(&api_query, params.cursor.as_deref()).await;
+      let search_result = state
+         .api
+         .search(&api_query, params.cursor.as_deref(), product)
+         .await;
 
       match search_result {
          Ok(timeline) => {
@@ -337,6 +354,7 @@ async fn search(
                Some(&prefs),
                Some(&filters),
                newer_url.as_deref(),
+               active_tab,
             );
             let title = format!("Search ({raw_q})");
             let canonical = format!(

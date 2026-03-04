@@ -455,11 +455,16 @@ impl ApiClient {
    }
 
    /// Search tweets.
-   pub async fn search(&self, query: &str, cursor: Option<&str>) -> Result<Timeline> {
+   pub async fn search(
+      &self,
+      query: &str,
+      cursor: Option<&str>,
+      product: &str,
+   ) -> Result<Timeline> {
       let data = self
          .graphql_request::<SearchTimelineData>(
             endpoints::GRAPH_SEARCH_TIMELINE,
-            &endpoints::search_vars(query, cursor, "Latest"),
+            &endpoints::search_vars(query, cursor, product),
             endpoints::GQL_FEATURES,
             None,
          )

@@ -159,7 +159,7 @@ async fn search_rss(
       return Ok(cached);
    }
 
-   let timeline = state.api.search(search_query, None).await?;
+   let timeline = state.api.search(search_query, None, "Latest").await?;
    let tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
    let rss = rss_view::render_search_rss(search_query, &tweets, &state.config);
 
@@ -191,7 +191,7 @@ async fn user_search_rss(
       return Ok(cached);
    }
 
-   let timeline = state.api.search(&api_query, None).await?;
+   let timeline = state.api.search(&api_query, None, "Latest").await?;
    let tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
    let rss = rss_view::render_search_rss(
       &format!("from:{username} {search_query}"),

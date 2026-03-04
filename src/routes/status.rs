@@ -601,7 +601,7 @@ async fn quotes(
 
    let timeline = state
       .api
-      .search(&search_query, query.cursor.as_deref())
+      .search(&search_query, query.cursor.as_deref(), "Latest")
       .await?;
 
    let groups = timeline.content;

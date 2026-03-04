@@ -415,7 +415,7 @@ async fn user_search(
    };
    let (photo_rail, search_result) = tokio::join!(
       fetch_photo_rail(&state, &user.id),
-      state.api.search(&api_query, query.cursor.as_deref()),
+      state.api.search(&api_query, query.cursor.as_deref(), "Latest"),
    );
 
    match search_result {
