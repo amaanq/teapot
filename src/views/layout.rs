@@ -95,13 +95,20 @@ impl<'a> PageLayout<'a> {
    }
 
    pub fn render(self) -> Markup {
-      let (infinite_scroll, theme, sticky_nav, use_twemoji) =
-         self.prefs.map_or((false, None, true, true), |prefs| {
+      let (infinite_scroll, theme, sticky_nav, use_twemoji, font_size) =
+         self.prefs.map_or((false, None, true, true, ""), |prefs| {
             (
                prefs.infinite_scroll,
                Some(prefs.theme.as_str()),
                prefs.sticky_nav,
                prefs.use_twemoji,
+               match prefs.font_size.as_str() {
+                  "Small" => "font-size: 14px",
+                  "Medium" => "font-size: 16px",
+                  "Large" => "font-size: 18px",
+                  "X-Large" => "font-size: 20px",
+                  _ => "",
+               },
             )
          });
 
@@ -196,7 +203,7 @@ impl<'a> PageLayout<'a> {
                   link rel="preload" type="font/woff2" as="font"
                       href="/fonts/fontello.woff2?61663884" crossorigin="anonymous";
               }
-              body class=(body_class) {
+              body class=(body_class) style=(font_size) {
                   (render_navbar_full(self.config, self.rss, self.canonical, self.referer))
                   div class="container" {
                       (self.body)

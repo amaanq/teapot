@@ -76,6 +76,17 @@ pub fn render_preferences_form(
                    (gen_checkbox("mp4Playback", "Enable mp4 video playback", prefs.mp4_playback))
                    (gen_checkbox("muteVideos", "Mute videos by default", prefs.mute_videos))
                    (gen_checkbox("autoplayGifs", "Autoplay gifs", prefs.autoplay_gifs))
+                   (gen_checkbox("proxyMedia", "Proxy media through instance (recommended for privacy)", prefs.proxy_media))
+
+                   // Accessibility section
+                   legend { "Accessibility" }
+                   (gen_select("fontSize", "Font size", &prefs.font_size, &[
+                       String::new(),
+                       "Small".to_owned(),
+                       "Medium".to_owned(),
+                       "Large".to_owned(),
+                       "X-Large".to_owned(),
+                   ]))
 
                    // Link replacements section
                    legend { "Link replacements (blank to disable)" }
