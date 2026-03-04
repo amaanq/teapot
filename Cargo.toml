@@ -37,6 +37,7 @@ rustls = { default-features = false, features = [
 	"std",
 	"tls12",
 ], version = "0.23.37" }
+rustls-native-certs = "0.8.3"
 serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
@@ -49,6 +50,7 @@ tokio = { features = [
 	"fs",
 	"io-util",
 ], version = "1.49.0" }
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
 toml = "1.0.3"
 tower = "0.5.3"
 tower-http = { features = [ "fs", "cors", "compression-gzip" ], version = "0.6.8" }

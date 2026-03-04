@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::http::header;
 use serde::{
    Deserialize,
@@ -57,7 +55,7 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
-   pub fn new(_config: Arc<Config>, sessions: SessionPool) -> Self {
+   pub fn new(config: &Config, sessions: SessionPool) -> Self {
       let mut headers = header::HeaderMap::new();
       headers.insert(
          header::USER_AGENT,
@@ -76,7 +74,8 @@ impl ApiClient {
          header::HeaderValue::from_static("keep-alive"),
       );
 
-      let client = HttpClient::new().with_default_headers(headers);
+      let client =
+         HttpClient::new(&config.config.proxy, &config.config.proxy_auth).with_default_headers(headers);
 
       let tid = TidClient::new(client.clone());
 

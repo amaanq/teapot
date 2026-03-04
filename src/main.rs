@@ -79,14 +79,14 @@ async fn main() -> eyre::Result<()> {
    let sessions = SessionPool::load(&sessions_path).await?;
 
    // Initialize API client
-   let api = ApiClient::new(Arc::clone(&config), sessions);
+   let api = ApiClient::new(&config, sessions);
 
    // Create application state
    let state = AppState {
       config: Arc::clone(&config),
       cache,
       api,
-      http_client: HttpClient::new(),
+      http_client: HttpClient::new(&config.config.proxy, &config.config.proxy_auth),
    };
 
    // Build router - order matters: specific routes first, then static files
