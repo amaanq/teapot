@@ -145,7 +145,13 @@ impl Config {
       } else {
          "http"
       };
-      config.url_prefix = format!("{scheme}://{}", config.server.hostname);
+      let default_port = if config.server.https { 443 } else { 80 };
+      if config.server.port == default_port || config.server.hostname.contains(':') {
+         config.url_prefix = format!("{scheme}://{}", config.server.hostname);
+      } else {
+         config.url_prefix =
+            format!("{scheme}://{}:{}", config.server.hostname, config.server.port);
+      }
       Ok(config)
    }
 

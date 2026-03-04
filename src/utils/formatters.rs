@@ -54,9 +54,11 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
 
    let mut result = text.to_owned();
 
+   let prefix = config.url_prefix();
+
    // Replace t.co short links -> host/t.co
    if result.contains("https://t.co") {
-      result = result.replace("https://t.co", &format!("https://{replace_with}/t.co"));
+      result = result.replace("https://t.co", &format!("{prefix}/t.co"));
    }
 
    // Replace cards.twitter.com/cards -> host/cards
@@ -65,7 +67,7 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
    }
 
    // Handle full <a> tags with x.com/twitter.com
-   let link_replacement = format!(r#"<a href="https://{replace_with}$1">{replace_with}$2</a>"#);
+   let link_replacement = format!(r#"<a href="{prefix}$1">{replace_with}$2</a>"#);
    let result = X_LINK_RE.replace_all(&result, link_replacement.as_str());
    let result = TW_LINK_RE.replace_all(&result, link_replacement.as_str());
 

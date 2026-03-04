@@ -130,17 +130,20 @@ async fn resolve_url(state: &AppState, url: &str) -> Result<String> {
 fn apply_url_replacements(url: &str, prefs: &Prefs, config: &Config) -> String {
    let mut result = url.to_owned();
 
-   // Replace Twitter URLs
-   let twitter_replacement = if prefs.replace_twitter.is_empty() {
-      &config.server.hostname
+   // Replace Twitter URLs — swap full origin so scheme+port are correct
+   let twitter_prefix = if prefs.replace_twitter.is_empty() {
+      config.url_prefix().to_owned()
    } else {
-      &prefs.replace_twitter
+      format!("https://{}", prefs.replace_twitter.trim_end_matches('/'))
    };
 
-   result = result
-      .replace("mobile.twitter.com", twitter_replacement)
-      .replace("twitter.com", twitter_replacement)
-      .replace("x.com", twitter_replacement);
+   for origin in [
+      "https://mobile.twitter.com",
+      "https://twitter.com",
+      "https://x.com",
+   ] {
+      result = result.replace(origin, &twitter_prefix);
+   }
 
    // Replace YouTube URLs if configured
    if !prefs.replace_youtube.is_empty() {
