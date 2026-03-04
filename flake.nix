@@ -244,6 +244,16 @@
                 default = 2;
                 description = "Max concurrent requests per session.";
               };
+              paidEmoji = lib.mkOption {
+                type = lib.types.str;
+                default = "🤝";
+                description = "Emoji for paid promotion disclosure labels.";
+              };
+              aiEmoji = lib.mkOption {
+                type = lib.types.str;
+                default = "🤖";
+                description = "Emoji for AI-generated content disclosure labels.";
+              };
             };
 
             preferences = {

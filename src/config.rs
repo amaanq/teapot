@@ -75,7 +75,11 @@ pub struct AppConfig {
    #[serde(default, rename = "disableTid")]
    pub disable_tid:         bool,
    #[serde(default = "default_max_concurrent_reqs", rename = "maxConcurrentReqs")]
-   pub max_concurrent_reqs: u32,
+   pub max_concurrent_reqs:    u32,
+   #[serde(default = "default_paid_emoji", rename = "paidEmoji")]
+   pub paid_emoji:             String,
+   #[serde(default = "default_ai_emoji", rename = "aiEmoji")]
+   pub ai_emoji:               String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -125,6 +129,12 @@ const fn default_max_concurrent_reqs() -> u32 {
 }
 fn default_theme() -> String {
    "teapot".to_owned()
+}
+fn default_paid_emoji() -> String {
+   "🤝".to_owned()
+}
+fn default_ai_emoji() -> String {
+   "🤖".to_owned()
 }
 const fn default_true() -> bool {
    true

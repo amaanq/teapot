@@ -287,6 +287,9 @@ pub struct Tweet {
    pub photos:      Vec<Photo>,
    /// Community note (Birdwatch) -- structured data, rendered in views.
    pub note:        Option<CommunityNote>,
+   /// Content disclosure labels (paid promotion, AI-generated media).
+   pub paid_promotion:    bool,
+   pub ai_generated:      bool,
    /// Edit history tweet IDs.
    pub history:     Vec<i64>,
    /// Text entities for expansion (mentions, hashtags, URLs).

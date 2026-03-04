@@ -266,6 +266,26 @@ impl<'a> TweetRenderer<'a> {
                       (PreEscaped(&text_html))
                   }
 
+                  // Content disclosure labels
+                  @if display_tweet.paid_promotion || display_tweet.ai_generated {
+                      @let paid_label = format!("{} Paid partnership", config.config.paid_emoji);
+                      @let ai_label = format!("{} Made with AI", config.config.ai_emoji);
+                      @if is_main {
+                          @if display_tweet.paid_promotion {
+                              div class="disclosure-label" { (paid_label) }
+                          }
+                          @if display_tweet.ai_generated {
+                              div class="disclosure-label" { (ai_label) }
+                          }
+                      } @else {
+                          @let labels: Vec<&str> = [
+                              display_tweet.paid_promotion.then_some(paid_label.as_str()),
+                              display_tweet.ai_generated.then_some(ai_label.as_str()),
+                          ].into_iter().flatten().collect();
+                          div class="disclosure-label" { (labels.join(" · ")) }
+                      }
+                  }
+
                   // Attribution (when another user owns the content) — after tweet-content
                   @if let Some(ref attr_user) = display_tweet.attribution {
                       a class="attribution" href=(format!("/{}", attr_user.username)) {
@@ -457,7 +477,8 @@ fn render_quote_media(quote: &Tweet, config: &Config, prefs: Option<&Prefs>) -> 
        div class="quote-media-container" {
            @if !quote.photos.is_empty() {
                (render_photos(&quote.photos, config))
-           } @else if let Some(ref video) = quote.video {
+           }
+           @if let Some(ref video) = quote.video {
                (render_video(video, config, prefs))
            } @else if let Some(ref gif) = quote.gif {
                div class="attachments media-gif" {

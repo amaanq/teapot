@@ -438,6 +438,25 @@ pub struct ListData {
 // ── Tweet types ─────────────────────────────────────────────────────────
 
 #[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct ContentDisclosure {
+   pub advertising_disclosure:   Option<AdvertisingDisclosure>,
+   pub ai_generated_disclosure:  Option<AiGeneratedDisclosure>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct AdvertisingDisclosure {
+   pub is_paid_promotion: bool,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct AiGeneratedDisclosure {
+   pub has_ai_generated_media: bool,
+}
+
+#[derive(Deserialize, Default)]
 pub struct TweetData {
    #[expect(clippy::pub_underscore_fields, reason = "serde field name matches API")]
    pub __typename:              Option<String>,
@@ -465,6 +484,7 @@ pub struct TweetData {
    pub birdwatch_pivot:         Option<BirdwatchPivot>,
    pub edit_control:            Option<EditControl>,
    pub article:                 Option<ArticleWrapper>,
+   pub content_disclosure:      Option<ContentDisclosure>,
 }
 
 #[derive(Deserialize, Default)]

@@ -243,6 +243,12 @@ a.tweet-stat {
   z-index: 2;
 }
 
+.disclosure-label {
+  font-size: 0.82em;
+  color: var(--fg_faded);
+  margin-top: 6px;
+}
+
 .community-note {
   margin-top: 10px;
   border: solid 1px var(--dark_grey);

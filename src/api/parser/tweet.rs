@@ -349,6 +349,16 @@ impl TryFrom<&TweetData> for Tweet {
          .as_ref()
          .and_then(super::super::schema::BirdwatchPivot::to_note);
 
+      // Parse content disclosure labels
+      let (paid_promotion, ai_generated) = raw
+         .content_disclosure
+         .as_ref()
+         .map_or((false, false), |cd| {
+            let paid = cd.advertising_disclosure.as_ref().is_some_and(|ad| ad.is_paid_promotion);
+            let ai = cd.ai_generated_disclosure.as_ref().is_some_and(|ag| ag.has_ai_generated_media);
+            (paid, ai)
+         });
+
       // Parse edit history IDs
       let history = raw
          .edit_control
@@ -503,6 +513,8 @@ impl TryFrom<&TweetData> for Tweet {
          video,
          photos,
          note,
+         paid_promotion,
+         ai_generated,
          history,
          entities,
       })
