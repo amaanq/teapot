@@ -66,6 +66,8 @@ fn prefs_to_cookies(prefs: &Prefs) -> Vec<Cookie<'static>> {
       bool_cookie("squareAvatars", prefs.square_avatars),
       bool_cookie("useTwemoji", prefs.use_twemoji),
       bool_cookie("stickyNav", prefs.sticky_nav),
+      bool_cookie("proxyMedia", prefs.proxy_media),
+      str_cookie("fontSize", &prefs.font_size),
       str_cookie("replaceTwitter", &prefs.replace_twitter),
       str_cookie("replaceYouTube", &prefs.replace_youtube),
       str_cookie("replaceReddit", &prefs.replace_reddit),
@@ -112,6 +114,8 @@ fn encode_prefs(prefs: &Prefs, config: &Config) -> String {
    enc_checkbox!("hideCommunityNotes", hide_community_notes);
    enc_checkbox!("squareAvatars", square_avatars);
    enc_checkbox!("useTwemoji", use_twemoji);
+   enc_checkbox!("proxyMedia", proxy_media);
+   enc_string!("fontSize", font_size);
    enc_checkbox!("mp4Playback", mp4_playback);
    enc_checkbox!("muteVideos", mute_videos);
    enc_checkbox!("autoplayGifs", autoplay_gifs);
@@ -170,6 +174,10 @@ pub struct PrefsForm {
    pub use_twemoji:          Option<String>,
    #[serde(rename = "stickyNav")]
    pub sticky_nav:           Option<String>,
+   #[serde(rename = "proxyMedia")]
+   pub proxy_media:          Option<String>,
+   #[serde(rename = "fontSize")]
+   pub font_size:            Option<String>,
    #[serde(rename = "replaceTwitter")]
    pub replace_twitter:      Option<String>,
    #[serde(rename = "replaceYouTube")]
@@ -201,6 +209,8 @@ impl PrefsForm {
          square_avatars:       parse_bool(&self.square_avatars),
          use_twemoji:          parse_bool(&self.use_twemoji),
          sticky_nav:           parse_bool(&self.sticky_nav),
+         proxy_media:          parse_bool(&self.proxy_media),
+         font_size:            parse_str(&self.font_size, defaults.font_size),
          replace_twitter:      parse_str(&self.replace_twitter, defaults.replace_twitter),
          replace_youtube:      parse_str(&self.replace_youtube, defaults.replace_youtube),
          replace_reddit:       parse_str(&self.replace_reddit, defaults.replace_reddit),

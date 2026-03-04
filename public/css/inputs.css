@@ -180,6 +180,8 @@ input::-webkit-datetime-edit-year-field:focus {
 
   & label {
     padding-right: 150px;
+    box-sizing: border-box;
+    max-width: 100%;
   }
 
   & select {
@@ -187,6 +189,7 @@ input::-webkit-datetime-edit-year-field:focus {
     top: 0;
     right: 0;
     display: block;
+    padding: 0 6px;
     -moz-appearance: none;
     -webkit-appearance: none;
     appearance: none;

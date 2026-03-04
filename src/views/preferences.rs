@@ -27,16 +27,41 @@ fn gen_input(name: &str, label: &str, value: &str, placeholder: &str) -> Markup 
    }
 }
 
+/// Render the font size select with live preview on change.
+fn gen_font_size_select(selected: &str) -> Markup {
+   let options: &[(&str, &str, &str)] = &[
+      ("", "Default", ""),
+      ("Small", "Small (14px)", "14px"),
+      ("Medium", "Medium (16px)", "16px"),
+      ("Large", "Large (18px)", "18px"),
+      ("X-Large", "X-Large (20px)", "20px"),
+   ];
+   html! {
+       div class="pref-group pref-input" title="fontSize" {
+           label { "Font size" }
+           select name="fontSize"
+               onchange="document.body.style.fontSize=this.selectedOptions[0].dataset.px||''" {
+               @for &(value, display, px) in options {
+                   @let is_selected = value.eq_ignore_ascii_case(selected)
+                       || (value.is_empty() && selected.is_empty());
+                   option value=(value) data-px=(px) selected[is_selected] { (display) }
+               }
+           }
+       }
+   }
+}
+
 /// Render a select preference row with title tooltip.
-fn gen_select(name: &str, label: &str, selected: &str, options: &[String]) -> Markup {
+/// `options` is a list of `(value, display_label)` pairs.
+fn gen_select(name: &str, label: &str, selected: &str, options: &[(&str, &str)]) -> Markup {
    html! {
        div class="pref-group pref-input" title=(name) {
            label { (label) }
            select name=(name) {
-               @for opt in options {
-                   @let is_selected = opt.to_lowercase() == selected.to_lowercase()
-                       || opt.to_lowercase().replace(' ', "_") == selected.to_lowercase();
-                   option value=(opt) selected[is_selected] { (opt) }
+               @for &(value, display) in options {
+                   @let is_selected = value.eq_ignore_ascii_case(selected)
+                       || value.to_lowercase().replace(' ', "_") == selected.to_lowercase();
+                   option value=(value) selected[is_selected] { (display) }
                }
            }
        }
@@ -58,7 +83,8 @@ pub fn render_preferences_form(
 
                    // Display section
                    legend { "Display" }
-                   (gen_select("theme", "Theme", &prefs.theme, themes))
+                   (gen_select("theme", "Theme", &prefs.theme,
+                       &themes.iter().map(|t| (t.as_str(), t.as_str())).collect::<Vec<_>>()))
                    (gen_checkbox("infiniteScroll", "Infinite scrolling (experimental, requires JavaScript)", prefs.infinite_scroll))
                    (gen_checkbox("stickyProfile", "Make profile sidebar stick to top", prefs.sticky_profile))
                    (gen_checkbox("stickyNav", "Keep navbar fixed to top", prefs.sticky_nav))
@@ -76,6 +102,11 @@ pub fn render_preferences_form(
                    (gen_checkbox("mp4Playback", "Enable mp4 video playback", prefs.mp4_playback))
                    (gen_checkbox("muteVideos", "Mute videos by default", prefs.mute_videos))
                    (gen_checkbox("autoplayGifs", "Autoplay gifs", prefs.autoplay_gifs))
+                   (gen_checkbox("proxyMedia", "Proxy media through instance (recommended for privacy)", prefs.proxy_media))
+
+                   // Accessibility section
+                   legend { "Accessibility" }
+                   (gen_font_size_select(&prefs.font_size))
 
                    // Link replacements section
                    legend { "Link replacements (blank to disable)" }
