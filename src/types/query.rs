@@ -70,17 +70,22 @@ impl Query {
    pub fn build(&self) -> String {
       let mut param = String::new();
 
-      // Add from:user with OR (from users come first)
-      for (idx, user) in self.from_user.iter().enumerate() {
-         let _ = write!(param, "from:{user} ");
-         if idx < self.from_user.len() - 1 {
-            param.push_str("OR ");
+      // Add from:user with OR (from users come first), wrapped in parens
+      // so the OR doesn't leak into subsequent filters.
+      if !self.from_user.is_empty() {
+         param.push('(');
+         for (idx, user) in self.from_user.iter().enumerate() {
+            let _ = write!(param, "from:{user} ");
+            if idx < self.from_user.len() - 1 {
+               param.push_str("OR ");
+            }
          }
+         param.push_str(") ");
       }
 
       // Add self_threads filter for from-user queries with posts/media kind
       if !self.from_user.is_empty() && matches!(self.kind, QueryKind::Posts | QueryKind::Media) {
-         param.push_str("filter:self_threads OR -filter:replies ");
+         param.push_str("(filter:self_threads OR -filter:replies) ");
       }
 
       // Add include:nativeretweets unless explicitly excluded
@@ -104,9 +109,13 @@ impl Query {
       }
 
       let sep = if self.sep.is_empty() { " " } else { &self.sep };
-      let mut result = format!("{param}{}", filters.join(&format!(" {sep} ")))
-         .trim()
-         .to_owned();
+      let mut result = if filters.is_empty() {
+         param.trim().to_owned()
+      } else {
+         format!("{param}({})", filters.join(&format!(" {sep} ")))
+            .trim()
+            .to_owned()
+      };
 
       if !self.since.is_empty() {
          let _ = write!(result, " since:{}", self.since);
