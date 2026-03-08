@@ -42,7 +42,9 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
-   pub cursor: Option<String>,
+   pub cursor:       Option<String>,
+   /// Exclude retweets from list timeline (?no_retweets=true).
+   pub no_retweets:  Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -97,7 +99,16 @@ async fn list_by_slug(
       .api
       .get_list_tweets(&list.id, query.cursor.as_deref())
       .await?;
-   let groups = timeline.content;
+   let exclude_rts = query.no_retweets.as_deref() == Some("true");
+   let groups = if exclude_rts {
+      timeline
+         .content
+         .into_iter()
+         .filter(|group| !group.first().is_some_and(|t| t.retweet.is_some()))
+         .collect()
+   } else {
+      timeline.content
+   };
    let cursor = timeline.bottom.as_deref();
    let base_url = format!("/{username}/lists/{slug}");
 
@@ -139,7 +150,16 @@ async fn list_by_id(
    );
    let list = list?;
    let timeline = timeline?;
-   let groups = timeline.content;
+   let exclude_rts = query.no_retweets.as_deref() == Some("true");
+   let groups = if exclude_rts {
+      timeline
+         .content
+         .into_iter()
+         .filter(|group| !group.first().is_some_and(|t| t.retweet.is_some()))
+         .collect()
+   } else {
+      timeline.content
+   };
    let cursor = timeline.bottom.as_deref();
    let base_url = format!("/i/lists/{id}");
 
