@@ -138,7 +138,32 @@ impl ApiClient {
    }
 
    /// Make a GraphQL request to the Twitter API.
+   ///
+   /// On token-related failures the session is marked as limited and the
+   /// request is retried once with a different session.
    async fn graphql_request<T: DeserializeOwned>(
+      &self,
+      endpoint: &str,
+      variables: &str,
+      features: &str,
+      field_toggles: Option<&str>,
+   ) -> Result<T> {
+      match self
+         .graphql_request_inner(endpoint, variables, features, field_toggles)
+         .await
+      {
+         Err(Error::TwitterApi(ref msg)) if msg.starts_with("Invalid token") => {
+            tracing::warn!("Token rejected, retrying with another session: {msg}");
+            self
+               .graphql_request_inner(endpoint, variables, features, field_toggles)
+               .await
+         },
+         other => other,
+      }
+   }
+
+   /// Inner implementation of [`graphql_request`].
+   async fn graphql_request_inner<T: DeserializeOwned>(
       &self,
       endpoint: &str,
       variables: &str,
@@ -287,8 +312,16 @@ impl ApiClient {
 
       let bytes = response.bytes().await?;
 
-      // Check for API errors before full deserialization
-      Self::check_api_errors(&bytes)?;
+      // Check for API errors before full deserialization.
+      // Mark the session as limited on token errors so the retry picks
+      // a different one.
+      let api_check = Self::check_api_errors(&bytes);
+      if let Err(Error::TwitterApi(ref msg)) = api_check {
+         if msg.starts_with("Invalid token") {
+            self.sessions.mark_limited(session.id).await;
+         }
+      }
+      api_check?;
 
       let resp = serde_json::from_slice::<GqlResponse<T>>(&bytes)
          .map_err(|err| Error::Internal(format!("Response parse error: {err}")))?;
