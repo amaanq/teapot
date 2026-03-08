@@ -300,7 +300,11 @@ impl ApiClient {
       if !response.status().is_success() {
          let status = response.status();
          let body = response.text().await.unwrap_or_default();
-         tracing::error!("API request failed: {status} - {body}");
+         tracing::error!(
+            session_id = session.id,
+            session_user = %session.username,
+            "API request failed: {status} - {body}"
+         );
 
          if status.as_u16() == 429 {
             self.sessions.mark_limited(session.id).await;
