@@ -40,7 +40,7 @@ window.onload = function () {
             url.searchParams.append("scroll", "true");
 
             fetch(url.toString()).then(function (response) {
-                if (response.status === 404) throw "error";
+                if (response.status > 299) throw "error";
 
                 return response.text();
             }).then(function (html) {
