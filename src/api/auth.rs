@@ -62,6 +62,7 @@ pub struct DebugResponse {
 pub struct SessionDetail {
    pub id:         i64,
    pub username:   String,
+   pub kind:       SessionKind,
    pub limited:    bool,
    pub limited_at: i64,
    pub pending:    i32,
@@ -251,6 +252,7 @@ impl SessionPool {
             SessionDetail {
                id:         sess.id,
                username:   sess.username.clone(),
+               kind:       sess.kind,
                limited:    lim.is_some_and(|sl| sl.limited),
                limited_at: lim.map_or(0, |sl| sl.limited_at),
                pending:    lim.map_or(0, |sl| sl.pending),
