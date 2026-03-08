@@ -120,6 +120,21 @@ async fn main() -> eyre::Result<()> {
             header::REFERRER_POLICY,
             HeaderValue::from_static("no-referrer"),
         ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "default-src 'none'; \
+                 script-src 'self'; \
+                 style-src 'self' 'unsafe-inline'; \
+                 img-src 'self' data:; \
+                 media-src 'self' blob:; \
+                 font-src 'self'; \
+                 connect-src 'self'; \
+                 form-action 'self'; \
+                 base-uri 'self'; \
+                 frame-ancestors 'none'"
+            ),
+        ))
         .with_state(state);
 
    // Start server
