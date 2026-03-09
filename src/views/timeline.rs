@@ -98,10 +98,7 @@ fn render_none_found() -> Markup {
    }
 }
 
-/// Get the link to a tweet (for thread gaps).
-fn get_link(tweet: &Tweet) -> String {
-   super::renderutils::tweet_link(tweet)
-}
+use super::renderutils::tweet_link;
 
 /// Render a thread group wrapped in thread-line.
 fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> Markup {
@@ -116,7 +113,7 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
                @if idx > 0 && tweet.reply_id != sorted[idx - 1].id {
                    div class="timeline-item thread more-replies-thread" {
                        div class="more-replies" {
-                           a class="more-replies-text" href=(get_link(tweet)) {
+                           a class="more-replies-text" href=(tweet_link(tweet)) {
                                "more replies"
                            }
                        }
@@ -135,7 +132,7 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
                (TweetRenderer::new(tweet, config, false).maybe_prefs(prefs).extra_class(thread_class).index(idx).render())
                @if show_thread && tweet.has_thread {
                    div class="show-thread" {
-                       a href=(get_link(tweet)) { "Show this thread" }
+                       a href=(tweet_link(tweet)) { "Show this thread" }
                    }
                }
            }
@@ -195,7 +192,7 @@ fn render_timeline_full(
                        // "Show this thread" for standalone tweets that have threads
                        @if tweet.has_thread {
                            div class="show-thread" {
-                               a href=(get_link(tweet)) { "Show this thread" }
+                               a href=(tweet_link(tweet)) { "Show this thread" }
                            }
                        }
                    }
