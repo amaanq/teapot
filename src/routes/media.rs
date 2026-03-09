@@ -135,6 +135,13 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
 
    let response = state.http_client.get(&full_url).await?;
 
+   if !response.status().is_success() {
+      return Err(Error::InvalidUrl(format!(
+         "Image fetch failed: {}",
+         response.status()
+      )));
+   }
+
    let content_type = response
       .headers()
       .get(header::CONTENT_TYPE)
