@@ -1,4 +1,7 @@
-use std::sync::LazyLock;
+use std::{
+   borrow::Cow,
+   sync::LazyLock,
+};
 
 use data_encoding::BASE64URL_NOPAD;
 use percent_encoding::{
@@ -86,32 +89,37 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
 }
 
 /// Replace `YouTube` URLs with configured replacement.
-pub fn replace_youtube_urls(text: &str, config: &Config) -> String {
+pub fn replace_youtube_urls<'a>(text: &'a str, config: &Config) -> Cow<'a, str> {
    if config.preferences.replace_youtube.is_empty() {
-      return text.to_owned();
+      return Cow::Borrowed(text);
    }
 
    let host = config.preferences.replace_youtube.trim_end_matches('/');
-   YT_RE.replace_all(text, host).to_string()
+   match YT_RE.replace_all(text, host) {
+      Cow::Borrowed(_) => Cow::Borrowed(text),
+      Cow::Owned(owned) => Cow::Owned(owned),
+   }
 }
 
 /// Replace Reddit URLs with configured replacement.
-pub fn replace_reddit_urls(text: &str, config: &Config) -> String {
+pub fn replace_reddit_urls<'a>(text: &'a str, config: &Config) -> Cow<'a, str> {
    if config.preferences.replace_reddit.is_empty() {
-      return text.to_owned();
+      return Cow::Borrowed(text);
    }
 
    let host = config.preferences.replace_reddit.trim_end_matches('/');
    let result = RD_SHORT_RE.replace_all(text, format!("{host}/comments/").as_str());
    let result = RD_RE.replace_all(&result, host);
-   let mut result = result.to_string();
 
    // Reddit gallery -> comments redirect
    if result.contains(host) && result.contains("/gallery/") {
-      result = result.replace("/gallery/", "/comments/");
+      Cow::Owned(result.replace("/gallery/", "/comments/"))
+   } else {
+      match result {
+         Cow::Borrowed(_) => Cow::Borrowed(text),
+         Cow::Owned(owned) => Cow::Owned(owned),
+      }
    }
-
-   result
 }
 
 /// Apply all URL replacements.
@@ -120,7 +128,9 @@ pub fn replace_reddit_urls(text: &str, config: &Config) -> String {
 pub fn replace_urls_abs(text: &str, config: &Config, absolute: &str) -> String {
    let text = replace_twitter_urls(text, config);
    let text = replace_youtube_urls(&text, config);
-   let mut text = replace_reddit_urls(&text, config);
+   let text = replace_reddit_urls(&text, config);
+
+   let mut text = text.into_owned();
 
    // Convert relative hrefs to absolute for RSS
    if !absolute.is_empty() && text.contains("href") {
@@ -204,15 +214,21 @@ pub fn base64_decode_url(encoded: &str) -> Option<String> {
 
 /// Insert comma separators into a number (e.g., 1234567 -> "1,234,567").
 pub fn format_with_commas(num: i64) -> String {
-   let digits = num.to_string();
-   let mut result = String::new();
-   for (idx, ch) in digits.chars().rev().enumerate() {
-      if idx > 0 && idx % 3 == 0 {
+   let (prefix, digits) = if num < 0 {
+      ("-", num.unsigned_abs().to_string())
+   } else {
+      ("", num.to_string())
+   };
+   let len = digits.len();
+   let mut result = String::with_capacity(prefix.len() + len + len / 3);
+   result.push_str(prefix);
+   for (idx, ch) in digits.chars().enumerate() {
+      if idx > 0 && (len - idx) % 3 == 0 {
          result.push(',');
       }
       result.push(ch);
    }
-   result.chars().rev().collect()
+   result
 }
 
 /// Parse tweet time from Twitter format.
