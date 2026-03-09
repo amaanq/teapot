@@ -197,7 +197,7 @@ pub fn short_url(url: &str, max_len: usize) -> String {
    }
 
    let truncated: String = stripped.chars().take(max_len).collect();
-   if truncated.len() < stripped.len() {
+   if stripped.chars().count() > max_len {
       format!("{truncated}\u{2026}")
    } else {
       truncated
