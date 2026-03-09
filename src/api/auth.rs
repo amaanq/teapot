@@ -158,6 +158,9 @@ impl SessionPool {
    }
 
    /// Update rate limit info for a session.
+   ///
+   /// A successful response with valid rate-limit headers proves the session
+   /// is working, so clear the global `limited` flag if it has expired.
    pub async fn update_session_limit(
       &self,
       session_id: i64,
@@ -169,6 +172,10 @@ impl SessionPool {
       let mut limits = self.limits.write().await;
 
       if let Some(lim) = limits.get_mut(&session_id) {
+         // Session responded — clear expired global limit
+         if lim.limited && !lim.is_limited(api) {
+            lim.limited = false;
+         }
          lim.update_limit(api, limit, remaining, reset);
       }
    }

@@ -42,11 +42,19 @@ pub struct SessionLimits {
    pub apis:       HashMap<String, RateLimit>,
 }
 
+/// How long a globally-limited session stays limited before auto-recovery (15
+/// min).
+const GLOBAL_LIMIT_DURATION_SECS: i64 = 15 * 60;
+
 impl SessionLimits {
    /// Check if rate limited for a specific API.
    pub fn is_limited(&self, api: &str) -> bool {
       if self.limited {
-         return true;
+         let now = time::OffsetDateTime::now_utc().unix_timestamp();
+         if now - self.limited_at < GLOBAL_LIMIT_DURATION_SECS {
+            return true;
+         }
+         // Expired — will be cleared on next mutable access
       }
       if let Some(limit) = self.apis.get(api) {
          let now = time::OffsetDateTime::now_utc().unix_timestamp();
