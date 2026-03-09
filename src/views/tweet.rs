@@ -184,7 +184,7 @@ impl<'a> TweetRenderer<'a> {
       // Only "thread-last" for the final tweet; no start/middle classes.
       // Includes .author-{user} and .retweet-{user} for adblock filtering.
       let author_class = format!("author-{}", display_tweet.user.username);
-      let retweet_class = retweet_by.map(|u| format!("retweet-{}", u.username));
+      let retweet_class = retweet_by.map(|rt_user| format!("retweet-{}", rt_user.username));
       let mut classes = vec!["timeline-item", &author_class];
       if let Some(ref rc) = retweet_class {
          classes.push(rc);

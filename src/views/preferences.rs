@@ -87,7 +87,7 @@ pub fn render_preferences_form(
                    // Display section
                    legend { "Display" }
                    (gen_select("theme", "Theme", &prefs.theme,
-                       &themes.iter().map(|t| (t.as_str(), t.as_str())).collect::<Vec<_>>()))
+                       &themes.iter().map(|theme| (theme.as_str(), theme.as_str())).collect::<Vec<_>>()))
                    (gen_checkbox("infiniteScroll", "Infinite scrolling (experimental, requires JavaScript)", prefs.infinite_scroll))
                    (gen_checkbox("stickyProfile", "Make profile sidebar stick to top", prefs.sticky_profile))
                    (gen_checkbox("stickyNav", "Keep navbar fixed to top", prefs.sticky_nav))

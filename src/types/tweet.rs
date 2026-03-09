@@ -261,6 +261,10 @@ pub struct TweetStats {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(
+   clippy::struct_excessive_bools,
+   reason = "mirrors Twitter API tweet fields"
+)]
 pub struct Tweet {
    pub id:             i64,
    pub thread_id:      i64,

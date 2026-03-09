@@ -1,5 +1,7 @@
 use std::{
+   fmt::Write as _,
    io::Read as _,
+   str,
    sync::Arc,
    time::Duration,
 };
@@ -19,6 +21,7 @@ use http_body_util::{
 use hyper::{
    StatusCode,
    body as hyper_body,
+   client::conn::http1,
 };
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::{
@@ -36,6 +39,9 @@ use tokio::{
    },
    net::TcpStream,
 };
+
+use hyper::http::uri::PathAndQuery;
+use hyper_util::rt::TokioIo;
 
 use crate::error::{
    Error,
@@ -126,7 +132,7 @@ impl HttpClient {
 
    /// Send a request with a given method and optional extra headers.
    async fn send(&self, method: Method, uri: &str, extra_headers: &HeaderMap) -> Result<Response> {
-      if let Some(proxy) = &self.proxy {
+      if let Some(ref proxy) = self.proxy {
          return self.send_via_proxy(proxy, method, uri, extra_headers).await;
       }
       self.send_direct(method, uri, extra_headers).await
@@ -184,13 +190,13 @@ impl HttpClient {
       let target_host = parsed
          .host()
          .ok_or_else(|| Error::Internal("no host in URI".into()))?;
-      let target_port = parsed
-         .port_u16()
-         .unwrap_or(if parsed.scheme_str() == Some("https") {
+      let target_port = parsed.port_u16().unwrap_or_else(|| {
+         if parsed.scheme_str() == Some("https") {
             443
          } else {
             80
-         });
+         }
+      });
       let is_https = parsed.scheme_str() == Some("https");
 
       // TCP connect to proxy
@@ -203,8 +209,8 @@ impl HttpClient {
          let mut connect_req = format!(
             "CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}:{target_port}\r\n"
          );
-         if let Some(auth) = &proxy.auth {
-            connect_req.push_str(&format!("Proxy-Authorization: Basic {auth}\r\n"));
+         if let Some(ref auth) = proxy.auth {
+            let _ = write!(connect_req, "Proxy-Authorization: Basic {auth}\r\n");
          }
          connect_req.push_str("\r\n");
 
@@ -214,7 +220,7 @@ impl HttpClient {
             .map_err(|err| Error::Internal(format!("proxy CONNECT write: {err}")))?;
 
          // Read CONNECT response — look for end of HTTP headers
-         let mut buf = vec![0u8; 4096];
+         let mut buf = vec![0_u8; 4096];
          let mut filled = 0;
          loop {
             let n = stream
@@ -233,7 +239,7 @@ impl HttpClient {
             }
          }
 
-         let response_line = std::str::from_utf8(&buf[..filled])
+         let response_line = str::from_utf8(&buf[..filled])
             .map_err(|_| Error::Internal("proxy CONNECT: invalid UTF-8".into()))?;
          if !response_line.starts_with("HTTP/1.1 200") && !response_line.starts_with("HTTP/1.0 200")
          {
@@ -254,8 +260,8 @@ impl HttpClient {
             .map_err(|err| Error::Internal(format!("proxy TLS handshake: {err}")))?;
 
          // HTTP/1.1 over the TLS tunnel
-         let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Empty<Bytes>>(
-            hyper_util::rt::TokioIo::new(tls_stream),
+         let (mut sender, conn) = http1::handshake(
+            TokioIo::new(tls_stream),
          )
          .await
          .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
@@ -268,7 +274,7 @@ impl HttpClient {
 
          let path_and_query = parsed
             .path_and_query()
-            .map_or("/", hyper::http::uri::PathAndQuery::as_str);
+            .map_or("/", PathAndQuery::as_str);
          let mut builder = hyper::Request::builder()
             .method(method)
             .uri(path_and_query)
@@ -298,8 +304,8 @@ impl HttpClient {
          })
       } else {
          // Plain HTTP through proxy: send request with absolute URI
-         let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Empty<Bytes>>(
-            hyper_util::rt::TokioIo::new(stream),
+         let (mut sender, conn) = http1::handshake(
+            TokioIo::new(stream),
          )
          .await
          .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
@@ -315,7 +321,7 @@ impl HttpClient {
             .uri(uri) // absolute URI for HTTP proxy
             .header(header::HOST, target_host);
 
-         if let Some(auth) = &proxy.auth {
+         if let Some(ref auth) = proxy.auth {
             builder = builder.header("Proxy-Authorization", format!("Basic {auth}"));
          }
          for (key, value) in &self.default_headers {
@@ -365,8 +371,8 @@ fn parse_proxy(url: &str, auth: &str) -> ProxyConfig {
       .strip_prefix("https://")
       .or_else(|| url.strip_prefix("http://"))
       .unwrap_or(url);
-   let (host, port) = if let Some((h, p)) = stripped.rsplit_once(':') {
-      (h.to_owned(), p.parse().unwrap_or(8080))
+   let (host, port) = if let Some((host_part, port_part)) = stripped.rsplit_once(':') {
+      (host_part.to_owned(), port_part.parse().unwrap_or(8080))
    } else {
       (stripped.to_owned(), 8080)
    };

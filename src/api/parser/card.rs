@@ -139,12 +139,12 @@ impl TryFrom<&CardData> for Card {
             if !player_url.is_empty() {
                // Convert YouTube embed URLs to watch URLs.
                // e.g. /embed/VIDEO_ID?list=LIST → /watch?v=VIDEO_ID&list=LIST
-               let mut url = player_url.replace("/embed/", "/watch?v=");
+               let mut watch_url = player_url.replace("/embed/", "/watch?v=");
                // Fix double query string: ?v=X?param → ?v=X&param
-               if let Some(second_q) = url[1..].find('?') {
-                  url.replace_range(second_q + 1..second_q + 2, "&");
+               if let Some(second_q) = watch_url[1..].find('?') {
+                  watch_url.replace_range(second_q + 1..second_q + 2, "&");
                }
-               card_url = url;
+               card_url = watch_url;
             }
          },
          _ => {},
