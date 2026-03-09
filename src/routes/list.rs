@@ -31,6 +31,7 @@ use crate::{
       List,
       PaginatedResult,
       Prefs,
+      Tweet,
       User,
    },
    views::{
@@ -43,7 +44,7 @@ use crate::{
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
    pub cursor:       Option<String>,
-   /// Exclude retweets from list timeline (?no_retweets=true).
+   /// Exclude retweets from list timeline (`?no_retweets=true`).
    pub no_retweets:  Option<String>,
 }
 
@@ -83,6 +84,18 @@ async fn user_lists_unsupported(
    Html(markup.into_string()).into_response()
 }
 
+/// Filter retweets from timeline groups if requested.
+fn maybe_filter_retweets(content: Vec<Vec<Tweet>>, exclude: bool) -> Vec<Vec<Tweet>> {
+   if exclude {
+      content
+         .into_iter()
+         .filter(|group| group.first().is_none_or(|tweet| tweet.retweet.is_none()))
+         .collect()
+   } else {
+      content
+   }
+}
+
 async fn list_by_slug(
    State(state): State<AppState>,
    jar: CookieJar,
@@ -100,15 +113,7 @@ async fn list_by_slug(
       .get_list_tweets(&list.id, query.cursor.as_deref())
       .await?;
    let exclude_rts = query.no_retweets.as_deref() == Some("true");
-   let groups = if exclude_rts {
-      timeline
-         .content
-         .into_iter()
-         .filter(|group| !group.first().is_some_and(|t| t.retweet.is_some()))
-         .collect()
-   } else {
-      timeline.content
-   };
+   let groups = maybe_filter_retweets(timeline.content, exclude_rts);
    let cursor = timeline.bottom.as_deref();
    let base_url = format!("/{username}/lists/{slug}");
 
@@ -151,15 +156,7 @@ async fn list_by_id(
    let list = list?;
    let timeline = timeline?;
    let exclude_rts = query.no_retweets.as_deref() == Some("true");
-   let groups = if exclude_rts {
-      timeline
-         .content
-         .into_iter()
-         .filter(|group| !group.first().is_some_and(|t| t.retweet.is_some()))
-         .collect()
-   } else {
-      timeline.content
-   };
+   let groups = maybe_filter_retweets(timeline.content, exclude_rts);
    let cursor = timeline.bottom.as_deref();
    let base_url = format!("/i/lists/{id}");
 
