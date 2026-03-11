@@ -561,6 +561,7 @@ pub struct UserData {
    pub location:            Option<UserLocation>,
    pub profile_bio:         Option<ProfileBio>,
    pub verification:        Option<Verification>,
+   pub privacy:             Option<Privacy>,
 }
 
 #[derive(Deserialize, Default)]
@@ -612,6 +613,12 @@ pub struct ProfileBio {
 #[derive(Deserialize, Default)]
 pub struct Verification {
    pub verified_type: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct Privacy {
+   pub protected: bool,
 }
 
 // ── Unified card types ──────────────────────────────────────────────────

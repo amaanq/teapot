@@ -97,7 +97,12 @@ impl TryFrom<&UserData> for User {
       let tweets = legacy.statuses_count;
       let likes = legacy.favourites_count;
       let media = legacy.media_count;
-      let protected = legacy.protected.unwrap_or(false);
+      let protected = raw
+         .privacy
+         .as_ref()
+         .map(|pr| pr.protected)
+         .or(legacy.protected)
+         .unwrap_or(false);
       let suspended = raw.unavailable_message;
 
       let is_blue = raw.is_blue_verified.unwrap_or(false);
