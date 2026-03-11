@@ -39,11 +39,12 @@ impl TryFrom<&UserData> for User {
    fn try_from(raw: &UserData) -> Result<Self> {
       // Handle UserUnavailable
       if raw.__typename.as_deref() == Some("UserUnavailable") {
-         let reason = raw
-            .reason
-            .clone()
-            .unwrap_or_else(|| "unavailable".to_owned());
-         return Err(Error::UserNotFound(reason));
+         let reason = raw.reason.as_deref().unwrap_or("unavailable");
+         return if reason == "Suspended" {
+            Err(Error::UserSuspended(reason.to_owned()))
+         } else {
+            Err(Error::UserNotFound(reason.to_owned()))
+         };
       }
 
       let default_legacy = UserLegacy::default();
