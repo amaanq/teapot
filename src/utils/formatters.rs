@@ -201,6 +201,17 @@ pub fn get_video_embed_url(config: &Config, tweet_id: i64) -> String {
    format!("{}/i/videos/tweet/{tweet_id}", config.url_prefix())
 }
 
+/// Generate GIF URL with HMAC signature (for local transcoding).
+pub fn get_gif_url(mp4_url: &str, hmac_key: &str, base64_media: bool) -> String {
+   let sig = super::sign(mp4_url, hmac_key);
+   encode_media_url(&format!("/gif/{sig}"), mp4_url, base64_media)
+}
+
+/// Generate external GIF URL by rewriting the domain.
+pub fn get_external_gif_url(mp4_url: &str, external_domain: &str) -> String {
+   mp4_url.replace("video.twimg.com", external_domain)
+}
+
 /// Base64 encode a URL (URL-safe variant).
 pub fn base64_encode_url(url: &str) -> String {
    BASE64URL_NOPAD.encode(url.as_bytes())

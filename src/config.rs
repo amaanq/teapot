@@ -1,11 +1,51 @@
 use std::{
    fs,
    path::Path,
+   process::Command,
 };
 
 use serde::Deserialize;
 
 use crate::error::Result;
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GifTranscodingMode {
+   #[default]
+   Off,
+   Local,
+   External,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GifTranscodingConfig {
+   #[serde(default)]
+   pub mode:            GifTranscodingMode,
+   #[serde(default = "default_gif_cache_dir", rename = "cacheDir")]
+   pub cache_dir:       String,
+   #[serde(default = "default_gif_cache_max_mb", rename = "cacheMaxMb")]
+   pub cache_max_mb:    u64,
+   #[serde(default, rename = "externalDomain")]
+   pub external_domain: String,
+}
+
+impl Default for GifTranscodingConfig {
+   fn default() -> Self {
+      Self {
+         mode:            GifTranscodingMode::Off,
+         cache_dir:       default_gif_cache_dir(),
+         cache_max_mb:    default_gif_cache_max_mb(),
+         external_domain: String::new(),
+      }
+   }
+}
+
+fn default_gif_cache_dir() -> String {
+   "./cache/gif".to_owned()
+}
+const fn default_gif_cache_max_mb() -> u64 {
+   512
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[expect(
@@ -17,10 +57,12 @@ pub struct Config {
    pub cache:       CacheConfig,
    pub config:      AppConfig,
    #[serde(default)]
-   pub preferences: PreferencesConfig,
+   pub preferences:      PreferencesConfig,
+   #[serde(default, rename = "gifTranscoding")]
+   pub gif_transcoding:  GifTranscodingConfig,
    /// Precomputed `{scheme}://{hostname}` — set in `Config::load`.
    #[serde(skip)]
-   pub url_prefix:  String,
+   pub url_prefix:       String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -143,6 +185,7 @@ const fn default_true() -> bool {
 }
 
 impl Config {
+   #[expect(clippy::cognitive_complexity, reason = "validation is straightforward")]
    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
       let content = fs::read_to_string(path)?;
       let mut config = toml::from_str::<Self>(&content)?;
@@ -152,6 +195,33 @@ impl Config {
              config"
          );
       }
+      // Validate GIF transcoding config
+      match config.gif_transcoding.mode {
+         GifTranscodingMode::Local => {
+            if Command::new("ffmpeg")
+               .arg("-version")
+               .output()
+               .is_err()
+            {
+               tracing::error!(
+                  "gifTranscoding.mode is 'local' but ffmpeg was not found on PATH — falling back \
+                   to 'off'"
+               );
+               config.gif_transcoding.mode = GifTranscodingMode::Off;
+            }
+         },
+         GifTranscodingMode::External => {
+            if config.gif_transcoding.external_domain.is_empty() {
+               tracing::error!(
+                  "gifTranscoding.mode is 'external' but externalDomain is empty — falling back \
+                   to 'off'"
+               );
+               config.gif_transcoding.mode = GifTranscodingMode::Off;
+            }
+         },
+         GifTranscodingMode::Off => {},
+      }
+
       let scheme = if config.server.https { "https" } else { "http" };
       let default_port = if config.server.https { 443 } else { 80 };
       let url_port = config.server.public_port.unwrap_or(config.server.port);

@@ -13,7 +13,10 @@ use super::{
    tweet::TweetRenderer,
 };
 use crate::{
-   config::Config,
+   config::{
+      Config,
+      GifTranscodingMode,
+   },
    types::{
       Gif,
       Prefs,
@@ -87,14 +90,6 @@ pub fn og_images_with_quote(tweet: &Tweet) -> Vec<&str> {
       .map_or_else(Vec::new, og_images)
 }
 
-/// Check if this tweet has video/gif, including from quote.
-pub fn has_video_with_quote(tweet: &Tweet) -> bool {
-   with_quote_fallback(tweet, |tw| {
-      (tw.video.is_some() || tw.gif.is_some()).then_some(())
-   })
-   .is_some()
-}
-
 /// Get the video, falling back to quote tweet.
 pub fn video_with_quote(tweet: &Tweet) -> Option<&Video> {
    with_quote_fallback(tweet, |tw| tw.video.as_ref())
@@ -157,11 +152,11 @@ pub fn build_embed_description(tweet: &Tweet) -> String {
 /// Shared between `render_tweet_embed` and `render_status_page`.
 fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> Markup {
    let images = og_images_with_quote(tweet);
-   let has_video = has_video_with_quote(tweet);
+   let has_video = video_with_quote(tweet).is_some();
 
    html! {
        @if has_video {
-           meta property="og:type" content="video";
+           meta property="og:type" content="video.other";
        } @else if !images.is_empty() {
            meta property="og:type" content="photo";
        } @else {
@@ -209,25 +204,13 @@ fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> M
                meta name="twitter:player:stream:content_type" content="video/mp4";
            }
        } @else if let Some(gif) = gif_with_quote(tweet) {
-           @let vid_url = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
-           @let full_gif_url = format!("{url_prefix}{vid_url}");
+           // GIF tweets: summary_large_image with thumbnail. Discord picks
+           // up the animated GIF from the ActivityPub attachment instead.
            @let thumb_url = formatters::get_pic_url(&gif.thumb, config.config.base64_media);
            @let full_thumb_url = format!("{url_prefix}{thumb_url}");
-           @let embed_url = formatters::get_video_embed_url(config, tweet.id);
 
-           meta property="og:video" content=(full_gif_url);
-           meta property="og:video:secure_url" content=(full_gif_url);
-           meta property="og:video:type" content="video/mp4";
-           meta property="og:video:width" content="480";
-           meta property="og:video:height" content="480";
            meta property="og:image" content=(full_thumb_url);
-
-           meta name="twitter:card" content="player";
-           meta name="twitter:player" content=(embed_url);
-           meta name="twitter:player:width" content="480";
-           meta name="twitter:player:height" content="480";
-           meta name="twitter:player:stream" content=(full_gif_url);
-           meta name="twitter:player:stream:content_type" content="video/mp4";
+           meta name="twitter:card" content="summary_large_image";
        } @else if !images.is_empty() {
            meta name="twitter:card" content="summary_large_image";
        } @else {
@@ -395,7 +378,7 @@ pub struct MediaDimensions {
 }
 
 /// Build media attachments for a single tweet's photos/video/gif.
-fn build_media_attachments(tweet: &Tweet, url_prefix: &str) -> Vec<MediaAttachment> {
+fn build_media_attachments(tweet: &Tweet, config: &Config, url_prefix: &str) -> Vec<MediaAttachment> {
    let mut attachments = Vec::new();
 
    for photo in &tweet.photos {
@@ -436,20 +419,63 @@ fn build_media_attachments(tweet: &Tweet, url_prefix: &str) -> Vec<MediaAttachme
    }
 
    if let Some(ref gif) = tweet.gif {
-      attachments.push(MediaAttachment {
-         type_:       "Video".to_owned(),
-         url:         format!("{url_prefix}/pic/{}", gif.url),
-         preview_url: format!("{url_prefix}/pic/{}", gif.thumb),
-         media_type:  "video/mp4".to_owned(),
-         description: None,
-         meta:        Some(MediaMeta {
-            original: MediaDimensions {
-               width:  480,
-               height: 480,
-               aspect: Some(1.0),
-            },
-         }),
-      });
+      match config.gif_transcoding.mode {
+         GifTranscodingMode::Local => {
+            let gif_url = formatters::get_gif_url(
+               &gif.url,
+               &config.config.hmac_key,
+               config.config.base64_media,
+            );
+            attachments.push(MediaAttachment {
+               type_:       "Image".to_owned(),
+               url:         format!("{url_prefix}{gif_url}"),
+               preview_url: format!("{url_prefix}/pic/{}", gif.thumb),
+               media_type:  "image/gif".to_owned(),
+               description: None,
+               meta:        Some(MediaMeta {
+                  original: MediaDimensions {
+                     width:  480,
+                     height: 480,
+                     aspect: Some(1.0),
+                  },
+               }),
+            });
+         },
+         GifTranscodingMode::External => {
+            let ext_url =
+               formatters::get_external_gif_url(&gif.url, &config.gif_transcoding.external_domain);
+            attachments.push(MediaAttachment {
+               type_:       "Image".to_owned(),
+               url:         ext_url,
+               preview_url: format!("{url_prefix}/pic/{}", gif.thumb),
+               media_type:  "image/gif".to_owned(),
+               description: None,
+               meta:        Some(MediaMeta {
+                  original: MediaDimensions {
+                     width:  480,
+                     height: 480,
+                     aspect: Some(1.0),
+                  },
+               }),
+            });
+         },
+         GifTranscodingMode::Off => {
+            attachments.push(MediaAttachment {
+               type_:       "Video".to_owned(),
+               url:         format!("{url_prefix}/pic/{}", gif.url),
+               preview_url: format!("{url_prefix}/pic/{}", gif.thumb),
+               media_type:  "video/mp4".to_owned(),
+               description: None,
+               meta:        Some(MediaMeta {
+                  original: MediaDimensions {
+                     width:  480,
+                     height: 480,
+                     aspect: Some(1.0),
+                  },
+               }),
+            });
+         },
+      }
    }
 
    attachments
@@ -459,13 +485,13 @@ fn build_media_attachments(tweet: &Tweet, url_prefix: &str) -> Vec<MediaAttachme
 pub fn build_activity_pub(tweet: &Tweet, config: &Config) -> ActivityPubNote {
    let url_prefix = config.url_prefix();
 
-   let mut attachments = build_media_attachments(tweet, url_prefix);
+   let mut attachments = build_media_attachments(tweet, config, url_prefix);
 
    // Inherit quote tweet media when the parent has no media
    if !tweet.has_media()
       && let Some(ref quote) = tweet.quote
    {
-      attachments.extend(build_media_attachments(quote, url_prefix));
+      attachments.extend(build_media_attachments(quote, config, url_prefix));
    }
 
    let published = tweet.time.map_or_else(

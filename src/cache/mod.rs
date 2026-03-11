@@ -1,3 +1,7 @@
+pub mod gif_cache;
+
+pub use gif_cache::GifCache;
+
 use std::{
    any::Any,
    collections::HashMap,

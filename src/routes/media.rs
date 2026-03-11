@@ -16,6 +16,7 @@ use axum::{
    },
    routing::get,
 };
+use tokio::fs;
 
 use crate::{
    AppState,
@@ -37,6 +38,8 @@ pub fn router() -> Router<AppState> {
       .route("/pic/orig/enc/{url}", get(pic_orig_proxy_encoded))
       .route("/video/{sig}/{url}", get(video_proxy))
       .route("/video/enc/{sig}/{url}", get(video_proxy_encoded))
+      .route("/gif/{sig}/{url}", get(gif_proxy))
+      .route("/gif/enc/{sig}/{url}", get(gif_proxy_encoded))
 }
 
 async fn pic_proxy(State(state): State<AppState>, Path(url): Path<String>) -> Result<Response> {
@@ -160,6 +163,66 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
       bytes,
    )
       .into_response())
+}
+
+async fn gif_proxy(
+   State(state): State<AppState>,
+   Path((sig, url)): Path<(String, String)>,
+) -> Result<Response> {
+   let decoded_url = percent_encoding::percent_decode_str(&url)
+      .decode_utf8()
+      .map_err(|_| Error::InvalidUrl("Invalid URL encoding".into()))?
+      .to_string();
+
+   if !hmac::verify(&decoded_url, &sig, &state.config.config.hmac_key) {
+      return Err(Error::HmacVerification);
+   }
+
+   serve_gif(&state, &decoded_url).await
+}
+
+async fn gif_proxy_encoded(
+   State(state): State<AppState>,
+   Path((sig, url)): Path<(String, String)>,
+) -> Result<Response> {
+   let decoded = formatters::base64_decode_url(&url)
+      .ok_or_else(|| Error::InvalidUrl("Invalid base64 encoding".into()))?;
+
+   if !hmac::verify(&decoded, &sig, &state.config.config.hmac_key) {
+      return Err(Error::HmacVerification);
+   }
+
+   serve_gif(&state, &decoded).await
+}
+
+async fn serve_gif(state: &AppState, mp4_url: &str) -> Result<Response> {
+   let transcoder = state
+      .gif_transcoder
+      .as_ref()
+      .ok_or_else(|| Error::Internal("GIF transcoding not enabled".into()))?;
+
+   match transcoder.get_or_transcode(mp4_url).await {
+      Ok(path) => {
+         let bytes = fs::read(&path).await.map_err(|err| {
+            Error::Internal(format!("read cached GIF: {err}"))
+         })?;
+
+         Ok((
+            StatusCode::OK,
+            [
+               (header::CONTENT_TYPE, "image/gif".to_owned()),
+               (header::CACHE_CONTROL, "public, max-age=604800".to_owned()),
+            ],
+            bytes,
+         )
+            .into_response())
+      },
+      Err(err) => {
+         tracing::warn!("GIF transcode failed, falling back to MP4 proxy: {err}");
+         // Fall back to proxying the MP4 directly
+         proxy_video(state, mp4_url, &HeaderMap::new()).await
+      },
+   }
 }
 
 async fn proxy_video(state: &AppState, url: &str, req_headers: &HeaderMap) -> Result<Response> {

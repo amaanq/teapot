@@ -41,6 +41,17 @@ disableTid = false
 # Max requests per session to avoid race conditions
 maxConcurrentReqs = 2
 
+[gifTranscoding]
+# Transcode Twitter GIF MP4s to actual GIF format for Discord inline playback
+# Modes: "off" (default), "local" (ffmpeg on server), "external" (URL rewrite)
+mode = "off"
+# Cache directory for transcoded GIFs (local mode only)
+cacheDir = "./cache/gif"
+# Maximum cache size in MB (local mode only)
+cacheMaxMb = 512
+# External transcoding domain (external mode only, e.g. "gif.example.com")
+externalDomain = ""
+
 [preferences]
 # Default theme
 theme = "teapot"

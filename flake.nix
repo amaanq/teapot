@@ -118,7 +118,7 @@
               }
               (
                 lib.recursiveUpdate {
-                  inherit (cfg) cache preferences;
+                  inherit (cfg) cache preferences gifTranscoding;
                   config = cfg.config // {
                     hmacKey = "@hmac@";
                   };
@@ -254,6 +254,33 @@
               };
             };
 
+            gifTranscoding = {
+              mode = lib.mkOption {
+                type = lib.types.enum [
+                  "off"
+                  "local"
+                  "external"
+                ];
+                default = "off";
+                description = "GIF transcoding mode. 'local' requires ffmpeg, 'external' rewrites URLs to an external domain.";
+              };
+              cacheDir = lib.mkOption {
+                type = lib.types.str;
+                default = "/var/lib/teapot/cache/gif";
+                description = "Cache directory for transcoded GIFs (local mode).";
+              };
+              cacheMaxMb = lib.mkOption {
+                type = lib.types.int;
+                default = 512;
+                description = "Maximum cache size in MB (local mode).";
+              };
+              externalDomain = lib.mkOption {
+                type = lib.types.str;
+                default = "";
+                description = "External transcoding domain (external mode).";
+              };
+            };
+
             preferences = {
               theme = lib.mkOption {
                 type = lib.types.str;
@@ -316,6 +343,7 @@
               wantedBy = [ "multi-user.target" ];
               wants = [ "network-online.target" ];
               after = [ "network-online.target" ];
+              path = lib.mkIf (cfg.gifTranscoding.mode == "local") [ pkgs.ffmpeg-headless ];
               serviceConfig = {
                 DynamicUser = true;
                 LoadCredential = "sessionsFile:${cfg.sessionsFile}";

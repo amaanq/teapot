@@ -3,6 +3,7 @@ mod cache;
 mod config;
 mod error;
 mod routes;
+mod transcode;
 mod types;
 mod utils;
 mod views;
@@ -40,16 +41,21 @@ use crate::{
       SessionPool,
    },
    cache::Cache,
-   config::Config,
+   config::{
+      Config,
+      GifTranscodingMode,
+   },
+   transcode::GifTranscoder,
 };
 
 /// Application state shared across all routes.
 #[derive(Clone)]
 pub struct AppState {
-   pub config:      Arc<Config>,
-   pub cache:       Cache,
-   pub api:         ApiClient,
-   pub http_client: HttpClient,
+   pub config:         Arc<Config>,
+   pub cache:          Cache,
+   pub api:            ApiClient,
+   pub http_client:    HttpClient,
+   pub gif_transcoder: Option<Arc<GifTranscoder>>,
 }
 
 #[tokio::main]
@@ -87,12 +93,36 @@ async fn main() -> eyre::Result<()> {
    // Initialize API client
    let api = ApiClient::new(&config, sessions);
 
+   // Initialize GIF transcoder if local mode
+   let http_client = HttpClient::new(&config.config.proxy, &config.config.proxy_auth);
+   let gif_transcoder = if config.gif_transcoding.mode == GifTranscodingMode::Local {
+      match GifTranscoder::new(http_client.clone(), config.gif_transcoding.clone()).await {
+         Ok(transcoder) => {
+            tracing::info!("GIF transcoder enabled (local mode)");
+            Some(Arc::new(transcoder))
+         },
+         Err(err) => {
+            tracing::error!("Failed to initialize GIF transcoder: {err}");
+            None
+         },
+      }
+   } else {
+      if config.gif_transcoding.mode == GifTranscodingMode::External {
+         tracing::info!(
+            "GIF transcoding enabled (external mode, domain: {})",
+            config.gif_transcoding.external_domain
+         );
+      }
+      None
+   };
+
    // Create application state
    let state = AppState {
       config: Arc::clone(&config),
       cache,
       api,
-      http_client: HttpClient::new(&config.config.proxy, &config.config.proxy_auth),
+      http_client,
+      gif_transcoder,
    };
 
    // Build router - order matters: specific routes first, then static files

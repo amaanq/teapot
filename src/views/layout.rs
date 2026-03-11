@@ -175,12 +175,17 @@ impl<'a> PageLayout<'a> {
                   meta property="og:locale" content="en_US";
                   meta property="og:title" content=(self.title);
                   meta property="og:description" content=(strip_html(self.description));
-                  meta property="og:type" content=(self.og_type);
+                  // head_extra provides its own og:type and twitter:card
+                  // when present (e.g. video/player for GIF embeds).
+                  // Discord takes the first occurrence, so suppress defaults.
+                  @if self.head_extra.is_none() {
+                      meta property="og:type" content=(self.og_type);
+                  }
                   @if !self.og_image.is_empty() {
                       meta property="og:image" content=(self.og_image);
                       meta property="twitter:image:src" content=(self.og_image);
                   }
-                  @if !self.rss.is_empty() {
+                  @if self.head_extra.is_none() && !self.rss.is_empty() {
                       meta name="twitter:card" content="summary";
                   }
 
