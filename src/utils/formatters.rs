@@ -244,6 +244,28 @@ pub fn format_with_commas(num: i64) -> String {
    result
 }
 
+/// Abbreviate a number: 1234 → "1.2K", 1234567 → "1.23M".
+#[expect(
+   clippy::cast_precision_loss,
+   reason = "display-only, precision loss is fine"
+)]
+pub fn abbreviate_number(num: i64) -> String {
+   let abs = num.unsigned_abs() as f64;
+   if abs >= 1_000_000.0 {
+      format!("{:.2}M", abs / 1_000_000.0)
+         .trim_end_matches('0')
+         .trim_end_matches('.')
+         .to_owned()
+   } else if abs >= 1_000.0 {
+      format!("{:.1}K", abs / 1_000.0)
+         .trim_end_matches('0')
+         .trim_end_matches('.')
+         .to_owned()
+   } else {
+      num.to_string()
+   }
+}
+
 /// Parse tweet time from Twitter format.
 /// Twitter uses: "Wed Jun 01 12:00:00 +0000 2009" or "Wed Jun  1 12:00:00 +0000
 /// 2009".
@@ -367,22 +389,22 @@ pub fn format_engagement_text(
    views: i64,
 ) -> String {
    let mut parts = Vec::new();
-   if likes > 0 {
-      parts.push(format!("\u{2764} {}", format_with_commas(likes)));
+   if replies > 0 {
+      parts.push(format!("\u{1F4AC} {}", abbreviate_number(replies)));
    }
    if retweets > 0 {
-      parts.push(format!("\u{1F501} {}", format_with_commas(retweets)));
+      parts.push(format!("\u{1F501} {}", abbreviate_number(retweets)));
    }
-   if replies > 0 {
-      parts.push(format!("\u{1F4AC} {}", format_with_commas(replies)));
+   if likes > 0 {
+      parts.push(format!("\u{2764}\u{FE0F} {}", abbreviate_number(likes)));
    }
    if views > 0 {
-      parts.push(format!("\u{1F441} {}", format_with_commas(views)));
+      parts.push(format!("\u{1F441}\u{FE0F} {}", abbreviate_number(views)));
    }
    if parts.is_empty() {
       String::new()
    } else {
-      parts.join("  ")
+      parts.join("   ")
    }
 }
 

@@ -105,13 +105,14 @@ pub fn gif_with_quote(tweet: &Tweet) -> Option<&Gif> {
 pub fn build_embed_description(tweet: &Tweet) -> String {
    let mut desc = strip_html(&tweet.text);
 
-   // Append quote tweet text
+   // Append quote tweet text with blockquote formatting for Discord
    if let Some(ref quote) = tweet.quote {
       let _ = write!(
          desc,
-         "\n\nQuoting @{}:\n{}",
+         "\n\n> **Quoting {} (@{})**\n> {}",
+         quote.user.fullname,
          quote.user.username,
-         strip_html(&quote.text)
+         strip_html(&quote.text).replace('\n', "\n> ")
       );
    }
 
@@ -524,6 +525,12 @@ pub fn render_status_page(
        // Override OG title/description with tweet-specific values
        meta property="og:title" content=(og_title);
        meta property="og:description" content=(description);
+
+       // Publish time for Discord footer timestamp
+       @if let Some(ts) = tweet.time {
+           @let iso = ts.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+           meta property="article:published_time" content=(iso);
+       }
 
        // Media-specific OG/twitter tags
        (render_media_meta_tags(tweet, config, url_prefix))
