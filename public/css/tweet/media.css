@@ -48,6 +48,24 @@
   }
 }
 
+.alt-text {
+  position: absolute;
+  bottom: 0.5em;
+  left: 0.5em;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.75em;
+  line-height: 1.4;
+  padding: 0.25em 0.5em;
+  border-radius: 4px;
+  max-width: calc(100% - 1em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .gallery-gif video {
   max-height: 530px;
   background-color: #101010;
