@@ -10,7 +10,11 @@ use ring::digest;
 use tokio::{
    fs,
    process::Command,
-   sync::{Mutex, Notify, Semaphore},
+   sync::{
+      Mutex,
+      Notify,
+      Semaphore,
+   },
 };
 
 use crate::{
@@ -28,10 +32,7 @@ pub struct GifTranscoder {
 }
 
 impl GifTranscoder {
-   pub async fn new(
-      http_client: HttpClient,
-      config: GifTranscodingConfig,
-   ) -> eyre::Result<Self> {
+   pub async fn new(http_client: HttpClient, config: GifTranscodingConfig) -> eyre::Result<Self> {
       let cache = GifCache::new(&config.cache_dir, config.cache_max_mb).await?;
       Ok(Self {
          cache,
@@ -71,7 +72,8 @@ impl GifTranscoder {
       }
 
       let notify = Arc::new(Notify::new());
-      self.inflight
+      self
+         .inflight
          .lock()
          .await
          .insert(hash.clone(), Arc::clone(&notify));

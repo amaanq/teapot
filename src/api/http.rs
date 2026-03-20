@@ -22,6 +22,7 @@ use hyper::{
    StatusCode,
    body as hyper_body,
    client::conn::http1,
+   http::uri::PathAndQuery,
 };
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::{
@@ -29,7 +30,10 @@ use hyper_util::{
       Client,
       connect::HttpConnector,
    },
-   rt::TokioExecutor,
+   rt::{
+      TokioExecutor,
+      TokioIo,
+   },
 };
 use serde::de::DeserializeOwned;
 use tokio::{
@@ -39,9 +43,6 @@ use tokio::{
    },
    net::TcpStream,
 };
-
-use hyper::http::uri::PathAndQuery;
-use hyper_util::rt::TokioIo;
 
 use crate::error::{
    Error,
@@ -260,11 +261,9 @@ impl HttpClient {
             .map_err(|err| Error::Internal(format!("proxy TLS handshake: {err}")))?;
 
          // HTTP/1.1 over the TLS tunnel
-         let (mut sender, conn) = http1::handshake(
-            TokioIo::new(tls_stream),
-         )
-         .await
-         .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
+         let (mut sender, conn) = http1::handshake(TokioIo::new(tls_stream))
+            .await
+            .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
 
          tokio::spawn(async move {
             if let Err(err) = conn.await {
@@ -272,9 +271,7 @@ impl HttpClient {
             }
          });
 
-         let path_and_query = parsed
-            .path_and_query()
-            .map_or("/", PathAndQuery::as_str);
+         let path_and_query = parsed.path_and_query().map_or("/", PathAndQuery::as_str);
          let mut builder = hyper::Request::builder()
             .method(method)
             .uri(path_and_query)
@@ -304,11 +301,9 @@ impl HttpClient {
          })
       } else {
          // Plain HTTP through proxy: send request with absolute URI
-         let (mut sender, conn) = http1::handshake(
-            TokioIo::new(stream),
-         )
-         .await
-         .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
+         let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
+            .await
+            .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
 
          tokio::spawn(async move {
             if let Err(err) = conn.await {

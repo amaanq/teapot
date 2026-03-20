@@ -1,7 +1,5 @@
 pub mod gif_cache;
 
-pub use gif_cache::GifCache;
-
 use std::{
    any::Any,
    collections::HashMap,
@@ -14,6 +12,8 @@ use std::{
       Instant,
    },
 };
+
+pub use gif_cache::GifCache;
 
 /// Entry in the cache: type-erased value + expiry.
 struct Entry {

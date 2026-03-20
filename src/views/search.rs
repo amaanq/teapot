@@ -33,7 +33,10 @@ pub fn render_search_page() -> Markup {
 }
 
 /// Render search results page with prefs support.
-#[expect(clippy::too_many_arguments, reason = "search page has many orthogonal display options")]
+#[expect(
+   clippy::too_many_arguments,
+   reason = "search page has many orthogonal display options"
+)]
 pub fn render_search_results_with_prefs(
    query: &str,
    tweets: &Tweets,

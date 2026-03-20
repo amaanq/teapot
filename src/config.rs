@@ -53,16 +53,16 @@ const fn default_gif_cache_max_mb() -> u64 {
    reason = "config field in Config mirrors TOML structure"
 )]
 pub struct Config {
-   pub server:      ServerConfig,
-   pub cache:       CacheConfig,
-   pub config:      AppConfig,
+   pub server:          ServerConfig,
+   pub cache:           CacheConfig,
+   pub config:          AppConfig,
    #[serde(default)]
-   pub preferences:      PreferencesConfig,
+   pub preferences:     PreferencesConfig,
    #[serde(default, rename = "gifTranscoding")]
-   pub gif_transcoding:  GifTranscodingConfig,
+   pub gif_transcoding: GifTranscodingConfig,
    /// Precomputed `{scheme}://{hostname}` — set in `Config::load`.
    #[serde(skip)]
-   pub url_prefix:       String,
+   pub url_prefix:      String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -198,11 +198,7 @@ impl Config {
       // Validate GIF transcoding config
       match config.gif_transcoding.mode {
          GifTranscodingMode::Local => {
-            if Command::new("ffmpeg")
-               .arg("-version")
-               .output()
-               .is_err()
-            {
+            if Command::new("ffmpeg").arg("-version").output().is_err() {
                tracing::error!(
                   "gifTranscoding.mode is 'local' but ffmpeg was not found on PATH — falling back \
                    to 'off'"
@@ -228,10 +224,7 @@ impl Config {
       if url_port == default_port || config.server.hostname.contains(':') {
          config.url_prefix = format!("{scheme}://{}", config.server.hostname);
       } else {
-         config.url_prefix = format!(
-            "{scheme}://{}:{}",
-            config.server.hostname, url_port
-         );
+         config.url_prefix = format!("{scheme}://{}:{}", config.server.hostname, url_port);
       }
       Ok(config)
    }

@@ -131,10 +131,7 @@ async fn activity_pub_status(
       let activity = embed_view::build_activity_pub(&tweet, &state.config);
 
       return Ok((
-         [(
-            header::CONTENT_TYPE,
-            "application/json; charset=utf-8",
-         )],
+         [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
          Json(activity),
       )
          .into_response());

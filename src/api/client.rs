@@ -204,7 +204,8 @@ impl ApiClient {
             );
             headers.insert(
                header::AUTHORIZATION,
-               auth.parse()
+               auth
+                  .parse()
                   .map_err(|_| Error::Internal("invalid OAuth header value".into()))?,
             );
          },
@@ -743,13 +744,15 @@ impl ApiClient {
 
       // Strato endpoint only works with cookie sessions
       if !matches!(session.kind, SessionKind::Cookie) {
-         return Err(Error::Internal("Translation requires cookie session".into()));
+         return Err(Error::Internal(
+            "Translation requires cookie session".into(),
+         ));
       }
 
       let api_path = format!(
          "/i/api/1.1/strato/column/None/tweetId={tweet_id},destinationLanguage=None,\
-          translationSource=Some(Google),feature=None,timeout=None,\
-          onlyCached=None/translation/service/translateTweet"
+          translationSource=Some(Google),feature=None,timeout=None,onlyCached=None/translation/\
+          service/translateTweet"
       );
       let (bearer, tid) = self
          .tid
@@ -812,14 +815,17 @@ impl ApiClient {
          )));
       }
 
-      #[expect(clippy::items_after_statements, reason = "local response type near its use")]
+      #[expect(
+         clippy::items_after_statements,
+         reason = "local response type near its use"
+      )]
       #[derive(Deserialize)]
       struct TranslationResponse {
-         translation:     Option<String>,
+         translation:               Option<String>,
          #[serde(rename = "sourceLanguage")]
-         source_language: Option<String>,
+         source_language:           Option<String>,
          #[serde(rename = "destinationLanguage")]
-         dest_language:   Option<String>,
+         dest_language:             Option<String>,
          #[serde(rename = "localizedSourceLanguage")]
          localized_source_language: Option<String>,
       }

@@ -147,8 +147,7 @@ pub fn list_timeline_vars(rest_id: &str, cursor: Option<&str>) -> String {
 /// Build the Strato translate tweet URL.
 pub fn translate_url(tweet_id: &str) -> String {
    format!(
-      "{STRATO_URL}/tweetId={tweet_id},destinationLanguage=None,\
-       translationSource=Some(Google),feature=None,timeout=None,\
-       onlyCached=None/translation/service/translateTweet"
+      "{STRATO_URL}/tweetId={tweet_id},destinationLanguage=None,translationSource=Some(Google),\
+       feature=None,timeout=None,onlyCached=None/translation/service/translateTweet"
    )
 }

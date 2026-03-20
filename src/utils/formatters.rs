@@ -206,7 +206,10 @@ pub fn get_video_embed_url(config: &Config, tweet_id: i64) -> String {
 /// extension to decide whether to preserve animation.
 pub fn get_gif_url(mp4_url: &str, hmac_key: &str, base64_media: bool) -> String {
    let sig = super::sign(mp4_url, hmac_key);
-   format!("{}.gif", encode_media_url(&format!("/gif/{sig}"), mp4_url, base64_media))
+   format!(
+      "{}.gif",
+      encode_media_url(&format!("/gif/{sig}"), mp4_url, base64_media)
+   )
 }
 
 /// Generate external GIF URL by rewriting the domain.
@@ -382,12 +385,7 @@ pub const fn scale_dimensions_for_embed(width: i32, height: i32) -> (i32, i32) {
 }
 
 /// Format engagement metrics for oEmbed `author_name` field.
-pub fn format_engagement_text(
-   likes: i64,
-   retweets: i64,
-   replies: i64,
-   views: i64,
-) -> String {
+pub fn format_engagement_text(likes: i64, retweets: i64, replies: i64, views: i64) -> String {
    let mut parts = Vec::new();
    if replies > 0 {
       parts.push(format!("\u{1F4AC} {}", abbreviate_number(replies)));

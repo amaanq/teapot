@@ -39,7 +39,8 @@ fn aspect_ratio(width: i32, height: i32) -> f32 {
 
 // ── OG/embed media helpers (extracted from Tweet methods) ──────────────
 
-/// Get images for `OpenGraph` meta tags (photos > video thumb > gif thumb > card image).
+/// Get images for `OpenGraph` meta tags (photos > video thumb > gif thumb >
+/// card image).
 pub fn og_images(tweet: &Tweet) -> Vec<&str> {
    if !tweet.photos.is_empty() {
       return tweet
@@ -53,12 +54,7 @@ pub fn og_images(tweet: &Tweet) -> Vec<&str> {
       .as_ref()
       .map(|vid| vid.thumb.as_str())
       .or_else(|| tweet.gif.as_ref().map(|gif| gif.thumb.as_str()))
-      .or_else(|| {
-         tweet
-            .card
-            .as_ref()
-            .map(|card| card.image.as_str())
-      })
+      .or_else(|| tweet.card.as_ref().map(|card| card.image.as_str()))
       .filter(|th| !th.is_empty());
    thumb.into_iter().collect()
 }
@@ -410,15 +406,21 @@ pub struct MediaDimensions {
 }
 
 /// Create a Mastodon-compatible media attachment.
-fn make_attachment(type_: &str, url: String, preview: Option<String>, width: i32, height: i32) -> MediaAttachment {
+fn make_attachment(
+   type_: &str,
+   url: String,
+   preview: Option<String>,
+   width: i32,
+   height: i32,
+) -> MediaAttachment {
    MediaAttachment {
-      id:          "0".to_owned(),
-      type_:       type_.to_owned(),
+      id: "0".to_owned(),
+      type_: type_.to_owned(),
       url,
       preview_url: preview,
-      remote_url:  None,
+      remote_url: None,
       description: None,
-      meta:        Some(MediaMeta {
+      meta: Some(MediaMeta {
          original: MediaDimensions {
             width,
             height,
@@ -506,14 +508,14 @@ pub fn build_activity_pub(tweet: &Tweet, config: &Config) -> ActivityPubNote {
    let avatar_url = formatters::get_pic_url(&tweet.user.user_pic, config.config.base64_media);
 
    ActivityPubNote {
-      id:                status_url.clone(),
-      url:               status_url.clone(),
-      uri:               status_url,
+      id: status_url.clone(),
+      url: status_url.clone(),
+      uri: status_url,
       created_at,
-      content:           build_mastodon_content(tweet),
-      visibility:        "public".to_owned(),
+      content: build_mastodon_content(tweet),
+      visibility: "public".to_owned(),
       media_attachments: attachments,
-      account:           MastodonAccount {
+      account: MastodonAccount {
          id:           tweet.user.id.to_string(),
          display_name: tweet.user.fullname.clone(),
          username:     tweet.user.username.clone(),
@@ -521,7 +523,7 @@ pub fn build_activity_pub(tweet: &Tweet, config: &Config) -> ActivityPubNote {
          url:          format!("{url_prefix}/{}", tweet.user.username),
          avatar:       format!("{url_prefix}{avatar_url}"),
       },
-      emojis:            vec![],
+      emojis: vec![],
    }
 }
 

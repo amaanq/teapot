@@ -494,11 +494,7 @@ impl TryFrom<&TweetData> for Tweet {
          }
       });
 
-      let lang = legacy
-         .lang
-         .as_deref()
-         .unwrap_or_default()
-         .to_owned();
+      let lang = legacy.lang.as_deref().unwrap_or_default().to_owned();
 
       Ok(Self {
          id,

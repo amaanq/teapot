@@ -147,16 +147,9 @@ pub fn render_list_rss(list: &List, tweets: &Tweets, config: &Config) -> String 
    clippy::module_name_repetitions,
    reason = "public API name is clear and conventional"
 )]
-pub fn render_thread_rss(
-   tweet: &Tweet,
-   thread_tweets: &[&Tweet],
-   config: &Config,
-) -> String {
+pub fn render_thread_rss(tweet: &Tweet, thread_tweets: &[&Tweet], config: &Config) -> String {
    let url_prefix = config.url_prefix();
-   let link = format!(
-      "{url_prefix}/{}/status/{}",
-      tweet.user.username, tweet.id
-   );
+   let link = format!("{url_prefix}/{}/status/{}", tweet.user.username, tweet.id);
    let title = escape_xml(&format!(
       "Thread by @{}: {}",
       tweet.user.username,
@@ -250,7 +243,10 @@ fn get_title(tweet: &Tweet, retweet_username: &str) -> String {
       const MAX_CHARS: usize = 140;
       let truncated: String = text.chars().take(MAX_CHARS + 1).collect();
       let body = if truncated.chars().count() > MAX_CHARS {
-         format!("{}\u{2026}", truncated.chars().take(MAX_CHARS).collect::<String>())
+         format!(
+            "{}\u{2026}",
+            truncated.chars().take(MAX_CHARS).collect::<String>()
+         )
       } else {
          truncated
       };

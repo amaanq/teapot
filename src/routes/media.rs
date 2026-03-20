@@ -206,9 +206,9 @@ async fn serve_gif(state: &AppState, mp4_url: &str) -> Result<Response> {
 
    match transcoder.get_or_transcode(mp4_url).await {
       Ok(path) => {
-         let bytes = fs::read(&path).await.map_err(|err| {
-            Error::Internal(format!("read cached GIF: {err}"))
-         })?;
+         let bytes = fs::read(&path)
+            .await
+            .map_err(|err| Error::Internal(format!("read cached GIF: {err}")))?;
 
          Ok((
             StatusCode::OK,

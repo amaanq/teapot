@@ -43,9 +43,9 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
-   pub cursor:       Option<String>,
+   pub cursor:      Option<String>,
    /// Exclude retweets from list timeline (`?no_retweets=true`).
-   pub no_retweets:  Option<String>,
+   pub no_retweets: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
