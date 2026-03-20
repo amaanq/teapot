@@ -200,6 +200,7 @@ impl<'a> PageLayout<'a> {
                   }
 
                   // Scripts in <head> with defer
+                  script src="/js/htmx.min.js" defer="" {}
                   @if infinite_scroll {
                       script src="/js/infiniteScroll.js" defer="" {}
                   }
