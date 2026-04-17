@@ -61,15 +61,18 @@ pub fn render_profile_with_prefs(
 
    html! {
        div class="profile-tabs" {
-           @if !hide_banner {
-               div class="profile-banner" {
-                   (render_banner(&profile.user.banner, config))
-               }
-           }
-
+           // Left sidebar with profile card and photo rail
            div class=(profile_tab_class) {
-               (render_user_card(&profile.user, config, prefs))
-               // Photo rail
+               div class="profile-header" {
+                   @if !hide_banner {
+                       div class="profile-banner" {
+                           (render_banner(&profile.user.banner, config))
+                       }
+                   }
+                   (render_user_card(&profile.user, config, prefs))
+               }
+
+               // Photo rail positioned on the left side
                @if !profile.photo_rail.is_empty() {
                    (render_photo_rail(&profile.photo_rail, &profile.user, config))
                }
@@ -91,10 +94,7 @@ pub fn render_profile_with_prefs(
                    }
                }
            } @else {
-               // Tabs + timeline wrapped in timeline-container
-               // This is critical for the CSS flexbox layout: profile-tabs has two flex children:
-               // 1. profile-tab (sidebar)
-               // 2. timeline-container (main content with tabs + timeline)
+               // Timeline container - main content area
                div class="timeline-container" {
                    (render_timeline_tabs(timeline_kind, &profile.user.username))
                    (render_timeline_with_pinned_and_prefs(groups, config, cursor, Some(&base_url), pinned, prefs, newer_url))
@@ -126,19 +126,24 @@ pub fn render_profile_page(
 
    html! {
        div class="profile-tabs" {
-           @if !hide_banner {
-               div class="profile-banner" {
-                   (render_banner(&user.banner, config))
-               }
-           }
-
+           // Left sidebar
            div class=(profile_tab_class) {
-               (render_user_card(user, config, Some(prefs)))
+               div class="profile-header" {
+                   @if !hide_banner {
+                       div class="profile-banner" {
+                           (render_banner(&user.banner, config))
+                       }
+                   }
+                   (render_user_card(user, config, Some(prefs)))
+               }
+
+               // Photo rail on the left sidebar
                @if !photo_rail.is_empty() {
                    (render_photo_rail(photo_rail, user, config))
                }
            }
 
+           // Main content area
            div class="timeline-container" {
                (render_timeline_tabs(tab, &user.username))
                (timeline_content)
@@ -189,18 +194,17 @@ fn render_user_card(user: &User, config: &Config, prefs: Option<&Prefs>) -> Mark
 
    html! {
        div class="profile-card" {
-           div class="profile-card-info" {
-               a class="profile-card-avatar" href=(orig_avatar_url) target="_blank" {
-                   (gen_img(&avatar_pic, avatar_class, config))
-               }
+           a class="profile-card-avatar" href=(orig_avatar_url) target="_blank" {
+               (gen_img(&avatar_pic, avatar_class, config))
+           }
 
-               div class="profile-card-tabs-name" {
+           div class="profile-card-identity" {
+               div {
                    (link_user(user, "profile-card-fullname"))
                    " "
                    (verified_icon(user))
-                   " "
-                   (link_user(user, "profile-card-username"))
                }
+               (link_user(user, "profile-card-username"))
            }
 
            div class="profile-card-extra" {
@@ -215,12 +219,17 @@ fn render_user_card(user: &User, config: &Config, prefs: Option<&Prefs>) -> Mark
                        span { (icon("location", "", "", "", "")) }
                        " "
                        @let (place, url) = parse_location(&user.location);
+                       @let display_place = if place.chars().count() > 40 {
+                           format!("{}…", place.chars().take(40).collect::<String>())
+                       } else {
+                           place.clone()
+                       };
                        @if !url.is_empty() {
-                           a href=(url) { (place) }
+                           a href=(url) title=(place) { (display_place) }
                        } @else if place.contains("://") {
-                           a href=(place) { (place) }
+                           a href=(place) title=(place) { (display_place) }
                        } @else {
-                           span { (place) }
+                           span title=(place) { (display_place) }
                        }
                    }
                }
@@ -287,25 +296,34 @@ fn render_banner(banner: &str, config: &Config) -> Markup {
 /// Render photo rail showing recent media.
 fn render_photo_rail(photos: &[GalleryPhoto], user: &User, config: &Config) -> Markup {
    let count = formatters::format_with_commas(user.media);
-   let header_text = format!("{count} Photos and videos");
 
    html! {
        div class="photo-rail-card" {
            div class="photo-rail-header" {
                a href=(format!("/{}/media", user.username)) {
-                   (icon("picture", &header_text, "", "", ""))
+                   span class="photo-rail-icon-wrap" {
+                       span class="material-symbols-outlined photo-rail-media-icon" { "photo_library" }
+                       span class="photo-rail-media-badge" { (count) }
+                   }
+                   span class="photo-rail-media-label" { "Media" }
                }
            }
 
            // Mobile toggle
            input id="photo-rail-grid-toggle" type="checkbox";
            label for="photo-rail-grid-toggle" class="photo-rail-header-mobile" {
-               (icon("picture", &header_text, "", "", ""))
+               div class="photo-rail-header-mobile-inner" {
+                   span class="photo-rail-icon-wrap" {
+                       span class="material-symbols-outlined photo-rail-media-icon" { "photo_library" }
+                       span class="photo-rail-media-badge" { (count) }
+                   }
+                   span { "Media" }
+               }
                (icon("down", "", "", "", ""))
            }
 
            div class="photo-rail-grid" {
-               @for photo in photos.iter().take(16) {
+               @for photo in photos.iter().take(10) {
                    @let photo_suffix = if photo.url.contains("format") || photo.url.contains("placeholder") { "" } else { ":thumb" };
                    a href=(format!("/{}/status/{}#m", user.username, photo.tweet_id)) {
                        (gen_img(&format!("{}{}", photo.url, photo_suffix), "", config))

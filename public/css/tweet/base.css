@@ -56,7 +56,7 @@
   flex-shrink: 2;
   max-width: 80%;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--fg_color);
 }
 
@@ -78,7 +78,7 @@
 .tweet-date a,
 .username,
 .show-more a {
-  color: var(--fg_dark);
+  color: var(--tp-accent-blue);
 }
 
 .tweet-published {
@@ -282,16 +282,12 @@ a.tweet-stat {
 }
 
 .translate-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 0.85em;
-  color: var(--accent);
   cursor: pointer;
-  pointer-events: all !important;
+  pointer-events: all;
   margin-top: 4px;
   display: block;
+  clear: both;
+  width: 100%;
 }
 
 .translate-btn.htmx-request {
@@ -332,5 +328,6 @@ a.tweet-stat {
 
   &:hover {
     background-color: var(--bg_hover);
+		border-radius: 10px;
   }
 }

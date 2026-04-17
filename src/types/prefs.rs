@@ -52,7 +52,7 @@ impl Prefs {
          hide_pins:            false,
          hide_replies:         false,
          hide_community_notes: false,
-         square_avatars:       false,
+         square_avatars:       true,
          use_twemoji:          true,
          sticky_nav:           true,
          proxy_media:          true,

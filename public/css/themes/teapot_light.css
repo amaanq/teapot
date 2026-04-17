@@ -1,0 +1,95 @@
+/*
+ * Teapot Light - Light Theme for Teapot
+ * Warm Coral palette
+ */
+
+body {
+  --tp-primary: #9c4238;
+  --tp-on-primary: #ffffff;
+  --tp-primary-container: #ffdad4;
+  --tp-on-primary-container: #3a0a06;
+
+  --tp-secondary: #4a635e;
+  --tp-on-secondary: #ffffff;
+  --tp-secondary-container: #cce8e2;
+  --tp-on-secondary-container: #051f1b;
+
+  --tp-surface: #fff8f6;
+  --tp-surface-dim: #ebd5d1;
+  --tp-surface-container-lowest: #ffffff;
+  --tp-surface-container-low: #fff0ed;
+  --tp-surface-container: #ffe9e5;
+  --tp-surface-container-high: #fce3de;
+  --tp-surface-container-highest: #f6ddd9;
+  --tp-on-surface: #231918;
+  --tp-on-surface-variant: #544340;
+
+  --tp-outline: #897370;
+  --tp-outline-variant: #dcc6c2;
+
+  --tp-error: #ba1a1a;
+  --tp-error-container: #ffdad6;
+  --tp-on-error-container: #410002;
+
+  --tp-accent-red: #ba1a1a;
+  --tp-accent-green: #4a635e;
+  --tp-accent-yellow: #e6a23c;
+  --tp-accent-blue: #4a90d9;
+  --tp-accent-magenta: #9c4238;
+  --tp-accent-cyan: #4a635e;
+
+  --elevation-0: none;
+  --elevation-1: 0 1px 3px rgba(60, 30, 25, 0.12), 0 1px 2px rgba(60, 30, 25, 0.08);
+  --elevation-2: 0 3px 6px rgba(60, 30, 25, 0.15), 0 2px 4px rgba(60, 30, 25, 0.10);
+  --elevation-3: 0 6px 12px rgba(60, 30, 25, 0.18), 0 4px 8px rgba(60, 30, 25, 0.12);
+
+  --bg_color: #fff8f6;
+  --fg_color: #231918;
+  --fg_faded: #544340;
+  --fg_dark: #9c4238;
+  --fg_nav: #9c4238;
+
+  --bg_panel: #fff0ed;
+  --bg_elements: #ffe9e5;
+  --bg_overlays: #fce3de;
+  --bg_hover: #fce3de;
+
+  --grey: #544340;
+  --dark_grey: #dcc6c2;
+  --darker_grey: #dcc6c2;
+  --darkest_grey: #f6ddd9;
+  --border_grey: #dcc6c2;
+
+  --accent: #9c4238;
+  --accent_light: #ff8a7a;
+  --accent_dark: #7a332b;
+  --accent_border: #ffdad4;
+
+  --play_button: #9c4238;
+  --play_button_hover: #3a0a06;
+  --more_replies_dots: #9c4238;
+  --error_red: #ffdad6;
+
+  --verified_blue: #4a90d9;
+  --verified_business: #e6a23c;
+  --verified_government: #8a8a8a;
+  --icon_text: #ffffff;
+
+  --tab: #544340;
+  --tab_selected: #9c4238;
+  --profile_stat: #231918;
+
+  --shadow: rgba(60, 30, 25, 0.12);
+  --shadow_dark: rgba(60, 30, 25, 0.24);
+
+  background-color: var(--bg_color);
+  color: var(--fg_color);
+}
+
+nav {
+  background-color: var(--tp-surface-container-low);
+}
+
+.search-bar > form:focus-within {
+  background-color: var(--tp-surface-container-lowest);
+}

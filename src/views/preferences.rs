@@ -79,74 +79,101 @@ pub fn render_preferences_form(
    prefs_url: &str,
 ) -> Markup {
    html! {
-       div class="overlay-panel" {
+       div class="overlay-panel preferences-panel" {
            fieldset class="preferences" {
-               form method="post" action="/saveprefs" autocomplete="off" {
+               // Close button for animated panel
+               a href=(referer) class="preferences-close" {
+                   span class="icon-close" {}
+               }
+
+               // Header with animation
+               div class="preferences-header" {
+                   h2 { "Preferences" }
+                   p { "Customize your teapot experience" }
+               }
+
+               form method="post" action="/saveprefs" autocomplete="off" class="preferences-form" id="saveprefs-form" {
                    input type="hidden" name="referer" value=(referer);
 
                    // Display section
-                   legend { "Display" }
-                   (gen_select("theme", "Theme", &prefs.theme,
-                       &themes.iter().map(|theme| (theme.as_str(), theme.as_str())).collect::<Vec<_>>()))
-                   (gen_checkbox("infiniteScroll", "Infinite scrolling (experimental, requires JavaScript)", prefs.infinite_scroll))
-                   (gen_checkbox("stickyProfile", "Make profile sidebar stick to top", prefs.sticky_profile))
-                   (gen_checkbox("stickyNav", "Keep navbar fixed to top", prefs.sticky_nav))
-                   (gen_checkbox("bidiSupport", "Support bidirectional text (makes clicking on tweets harder)", prefs.bidi_support))
-                   (gen_checkbox("hideTweetStats", "Hide tweet stats (replies, retweets, likes)", prefs.hide_tweet_stats))
-                   (gen_checkbox("hideBanner", "Hide profile banner", prefs.hide_banner))
-                   (gen_checkbox("hidePins", "Hide pinned tweets", prefs.hide_pins))
-                   (gen_checkbox("hideReplies", "Hide tweet replies", prefs.hide_replies))
-                   (gen_checkbox("hideCommunityNotes", "Hide community notes", prefs.hide_community_notes))
-                   (gen_checkbox("squareAvatars", "Square profile pictures", prefs.square_avatars))
-                   (gen_checkbox("useTwemoji", "Use Twitter emoji (Twemoji)", prefs.use_twemoji))
+                   div class="pref-section" data-section="display" {
+                       legend { "Display" }
+                       div class="pref-grid" {
+                           (gen_select("theme", "Theme", &prefs.theme, &themes.iter().map(|t| (t.as_str(), t.as_str())).collect::<Vec<_>>()))
+                           (gen_checkbox("infiniteScroll", "Infinite scrolling (experimental, requires JavaScript)", prefs.infinite_scroll))
+                           (gen_checkbox("stickyProfile", "Make profile sidebar stick to top", prefs.sticky_profile))
+                           (gen_checkbox("stickyNav", "Keep navbar fixed to top", prefs.sticky_nav))
+                           (gen_checkbox("bidiSupport", "Support bidirectional text", prefs.bidi_support))
+                           (gen_checkbox("hideTweetStats", "Hide tweet stats", prefs.hide_tweet_stats))
+                           (gen_checkbox("hideBanner", "Hide profile banner", prefs.hide_banner))
+                           (gen_checkbox("hidePins", "Hide pinned tweets", prefs.hide_pins))
+                           (gen_checkbox("hideReplies", "Hide tweet replies", prefs.hide_replies))
+                           (gen_checkbox("hideCommunityNotes", "Hide community notes", prefs.hide_community_notes))
+                           (gen_checkbox("squareAvatars", "Square profile pictures", prefs.square_avatars))
+                           (gen_checkbox("useTwemoji", "Use Twitter emoji (Twemoji)", prefs.use_twemoji))
+                       }
+                   }
 
                    // Media section
-                   legend { "Media" }
-                   (gen_checkbox("mp4Playback", "Enable mp4 video playback", prefs.mp4_playback))
-                   (gen_checkbox("muteVideos", "Mute videos by default", prefs.mute_videos))
-                   (gen_checkbox("autoplayGifs", "Autoplay gifs", prefs.autoplay_gifs))
-                   (gen_checkbox("proxyMedia", "Proxy media through instance (recommended for privacy)", prefs.proxy_media))
-
-                   // Accessibility section
-                   legend { "Accessibility" }
-                   (gen_font_size_select(&prefs.font_size))
+                   div class="pref-section" data-section="media" {
+                       legend { "Media" }
+                       div class="pref-grid" {
+                           (gen_checkbox("mp4Playback", "Enable mp4 video playback", prefs.mp4_playback))
+                           (gen_checkbox("muteVideos", "Mute videos by default", prefs.mute_videos))
+                           (gen_checkbox("autoplayGifs", "Autoplay gifs", prefs.autoplay_gifs))
+                       }
+                   }
 
                    // Link replacements section
-                   legend { "Link replacements (blank to disable)" }
-                   (gen_input("replaceTwitter", "Twitter -> teapot", &prefs.replace_twitter, "teapot hostname"))
-                   (gen_input("replaceYouTube", "YouTube -> Piped/Invidious", &prefs.replace_youtube, "Piped hostname"))
-                   (gen_input("replaceReddit", "Reddit -> Teddit/Libreddit", &prefs.replace_reddit, "Teddit hostname"))
+                   div class="pref-section" data-section="links" {
+                       legend { "Link replacements (blank to disable)" }
+                       (gen_input("replaceTwitter", "Twitter -> teapot", &prefs.replace_twitter, "teapot hostname"))
+                       (gen_input("replaceYouTube", "YouTube -> Piped/Invidious", &prefs.replace_youtube, "Piped hostname"))
+                       (gen_input("replaceReddit", "Reddit -> Teddit/Libreddit", &prefs.replace_reddit, "Teddit hostname"))
+                   }
 
                    // Translation section
-                   legend { "Translation" }
-                   (gen_input("kagiToken", "Kagi session token", &prefs.kagi_token, "Paste session token here"))
-                   p class="bookmark-note" {
-                       "Uses Kagi Translate instead of Twitter. "
-                       a href="https://kagi.com/settings?p=user_details" target="_blank" { "Get your token here" }
-                       " (Session Link → copy token)"
+                   div class="pref-section" data-section="translation" {
+                       legend { "Translation" }
+                       (gen_input("kagiToken", "Kagi session token", &prefs.kagi_token, "Paste session token here"))
+                       p class="bookmark-note" {
+                           "Uses Kagi Translate instead of Twitter. "
+                           a href="https://kagi.com/settings?p=user_details" target="_blank" { "Get your token here" }
+                           " (Session Link → copy token)"
+                       }
                    }
 
                    // Bookmark section
-                   legend { "Bookmark" }
-                   p class="bookmark-note" {
-                       "Save this URL to restore your preferences (?prefs works on all pages)"
-                   }
-                   pre class="prefs-code" {
-                       (prefs_url)
-                   }
-                   p class="bookmark-note" {
-                       (PreEscaped("You can override preferences with query parameters (e.g. <code>?mp4Playback=on</code>). These overrides aren't saved to cookies, and links won't retain the parameters. Intended for configuring RSS feeds and other cookieless environments. Hover over a preference to see its name."))
+                   div class="pref-section pref-section-bookmark" data-section="bookmark" {
+                       legend { "Bookmark" }
+                       p class="bookmark-note" {
+                           "Save this URL to restore your preferences (?prefs works on all pages)"
+                       }
+                       div class="prefs-code-wrapper" {
+                           pre class="prefs-code" {
+                               code { (prefs_url) }
+                           }
+                           button type="button" class="copy-prefs-btn" data-clipboard=(prefs_url) {
+                               span class="icon-copy" {}
+                           }
+                       }
+                       p class="bookmark-note" {
+                           (PreEscaped("You can override preferences with query parameters (e.g. <code>?mp4Playback=on</code>). These overrides aren't saved to cookies."))
+                       }
                    }
 
-                   h4 class="note" { "Preferences are stored client-side using cookies without any personal information." }
-
-                   button type="submit" class="pref-submit" { "Save preferences" }
                }
 
-               form method="post" action="/resetprefs" class="pref-reset" {
-                   input type="hidden" name="referer" value=(referer);
-                   button type="submit" { "Reset preferences" }
+               // Actions row — reset and save side by side
+               div class="preferences-actions" {
+                   form method="post" action="/resetprefs" class="pref-reset-form" {
+                       input type="hidden" name="referer" value=(referer);
+                       button type="submit" class="pref-reset" { "Reset preferences" }
+                   }
+                   button type="submit" form="saveprefs-form" class="pref-submit" { "Save preferences" }
                }
+
+               h4 class="note preferences-footer-note" { "Preferences are stored client-side using cookies without any personal information." }
            }
        }
    }

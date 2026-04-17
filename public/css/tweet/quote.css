@@ -1,6 +1,6 @@
 .quote {
   margin-top: 10px;
-  border: solid 1px var(--dark_grey);
+  border: solid 1px var(--bg_panel);
   border-radius: 10px;
   background-color: var(--bg_elements);
   overflow: hidden;

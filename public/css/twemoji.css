@@ -3,6 +3,3 @@
   src: url('/fonts/Twemoji.woff2') format('woff2');
   font-display: swap;
 }
-body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, Twemoji, fontello;
-}

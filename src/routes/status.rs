@@ -121,7 +121,8 @@ async fn status_media_redirect(Path((username, id)): Path<(String, String)>) -> 
 
 #[expect(
    clippy::cognitive_complexity,
-   reason = "status handler has many conditional branches for caching, scrolling, pagination, and translation"
+   reason = "status handler has many conditional branches for caching, scrolling, pagination, and \
+             translation"
 )]
 async fn status(
    State(state): State<AppState>,
@@ -534,10 +535,7 @@ async fn translate(
          (!server_token.is_empty()).then(|| server_token.clone())
       });
 
-   let result = state
-      .api
-      .translate_auto(&id, kagi_token.as_deref())
-      .await;
+   let result = state.api.translate_auto(&id, kagi_token.as_deref()).await;
 
    match result {
       Ok(tl) if !tl.text.is_empty() => {

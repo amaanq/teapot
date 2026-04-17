@@ -2,72 +2,140 @@
 @import "photo-rail.css";
 
 .profile-tabs {
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
-  float: none;
-  border-radius: 0;
-  position: relative;
-  width: auto;
-
-  & .timeline-container {
-    float: right;
-    width: 68% !important;
-    max-width: unset;
-  }
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  padding: 8px;
+  align-items: flex-start;
 }
 
+/* Left sidebar containing profile card and photo rail */
+.profile-sidebar {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+
 .profile-banner {
-  margin-bottom: 4px;
-  background-color: var(--bg_panel);
+  width: 100%;
+  background-color: var(--tp-surface-container);
+  overflow: hidden;
+}
 
-  & a {
-    display: block;
-    position: relative;
-    padding: 33.34% 0 0 0;
-  }
+.profile-banner a {
+  display: block;
+  position: relative;
+  padding: 33.34% 0 0 0;
+}
 
-  & img {
-    max-width: 100%;
-    position: absolute;
-    top: 0;
-  }
+.profile-banner img {
+  max-width: 100%;
+  position: absolute;
+  top: 0;
+}
+
+.profile-header {
+  position: relative;
 }
 
 .profile-tab {
-  padding: 0 4px 0 0;
+  flex: 0 0 400px;
   box-sizing: border-box;
-  display: inline-block;
+  padding: 0;
   font-size: 14px;
   text-align: left;
-  vertical-align: top;
-  max-width: 32%;
-  top: 50px;
+}
+
+.profile-tab.sticky {
+  position: sticky;
+  top: 72px;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tp-outline-variant) transparent;
+}
+
+.profile-tab.sticky::-webkit-scrollbar {
+  width: 6px;
+}
+
+.profile-tab.sticky::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.profile-tab.sticky::-webkit-scrollbar-thumb {
+  background: var(--tp-outline-variant);
+  border-radius: 3px;
+}
+
+/* Timeline container - main content area */
+.timeline-container {
+  flex: 1;
+  min-width: 0;
+  max-width: 600px;
 }
 
 .profile-result {
   min-height: 54px;
+}
 
-  & .username {
-    margin: 0 !important;
+.profile-result .username {
+  margin: 0 !important;
+}
+
+.profile-result .tweet-header {
+  margin-bottom: unset;
+}
+
+/* Responsive layout */
+@media (max-width: 900px) {
+  .profile-tabs {
+    flex-direction: column;
+    padding: 8px;
+    gap: 16px;
   }
 
-  & .tweet-header {
-    margin-bottom: unset;
+  .profile-sidebar,
+  .profile-tab {
+    flex: 1;
+    width: 100%;
+    max-width: unset;
+  }
+
+  .profile-tab.sticky {
+    position: relative;
+    top: unset;
+    max-height: unset;
+    overflow-y: visible;
+  }
+
+  .timeline-container {
+    max-width: unset;
+    width: 100%;
+  }
+
+  .profile-banner {
+    margin: 0;
   }
 }
 
 @media (max-width: 700px) {
   .profile-tabs {
-    width: 100vw;
+    width: 100%;
     max-width: 600px;
+    padding: 0 8px;
+  }
 
-    & .timeline-container {
-      width: 100% !important;
+  .timeline-container {
+    width: 100%;
+  }
 
-      & .tab-item wide {
-        flex-grow: 1.4;
-      }
-    }
+  .timeline-container .tab-item wide {
+    flex-grow: 1.4;
   }
 
   .profile-tab {
@@ -76,10 +144,27 @@
     position: initial !important;
     padding: 0;
   }
+
+  .profile-banner {
+    border-radius: 0;
+    /* margin-left: -8px; */
+    /* margin-right: -8px; */
+  }
 }
 
-@media (min-height: 900px) {
+@media (min-height: 900px) and (min-width: 900px) {
   .profile-tab.sticky {
     position: sticky;
+		border-radius: 10px;
   }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .profile-tabs,
+  .profile-sidebar > *,
+  .timeline-container {
+    animation: none;
+  }
+
 }

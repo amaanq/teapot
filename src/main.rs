@@ -155,10 +155,10 @@ async fn main() -> eyre::Result<()> {
             HeaderValue::from_static(
                 "default-src 'none'; \
                  script-src 'self'; \
-                 style-src 'self' 'unsafe-inline'; \
+                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
                  img-src 'self' data:; \
                  media-src 'self' blob:; \
-                 font-src 'self'; \
+                 font-src 'self' https://fonts.gstatic.com; \
                  connect-src 'self'; \
                  form-action 'self'; \
                  base-uri 'self'; \
