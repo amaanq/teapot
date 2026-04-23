@@ -163,7 +163,7 @@
           options.services.teapot = {
             enable = lib.mkEnableOption "teapot, a privacy-focused Twitter/X frontend";
 
-            package = lib.mkPackageOption self.packages.${pkgs.system} "default" { };
+            package = lib.mkPackageOption self.packages.${pkgs.stdenv.hostPlatform.system} "default" { };
 
             server = {
               hostname = lib.mkOption {
@@ -371,7 +371,8 @@
                 DynamicUser = true;
                 LoadCredential = [
                   "sessionsFile:${cfg.sessionsFile}"
-                ] ++ lib.optional (cfg.kagiTokenFile != null) "kagiToken:${cfg.kagiTokenFile}";
+                ]
+                ++ lib.optional (cfg.kagiTokenFile != null) "kagiToken:${cfg.kagiTokenFile}";
                 StateDirectory = "teapot";
                 Environment = [
                   "TEAPOT_CONF_FILE=/var/lib/teapot/teapot.toml"
