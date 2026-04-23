@@ -21,20 +21,27 @@ struct Entry {
    expires: Instant,
 }
 
-/// In-process cache with TTL-based expiry.
+/// In-process cache with TTL-based expiry and a hard entry-count cap.
 ///
 /// Uses `std::sync::RwLock` (not tokio) because the lock is never held across
 /// `.await` — all operations are plain `HashMap` lookups/inserts.
 /// Stores values as `Arc<dyn Any>` to avoid JSON serialization overhead.
+///
+/// Eviction: on insert, if the map exceeds `max_entries`, expired entries are
+/// purged first; if still over cap, the entries with the soonest expiry are
+/// dropped until the map is back to 75% of `max_entries`. This approximates
+/// LRU for workloads with uniform TTLs without mutating on `get`.
 #[derive(Clone)]
 pub struct Cache {
-   inner: Arc<RwLock<HashMap<String, Entry>>>,
+   inner:       Arc<RwLock<HashMap<String, Entry>>>,
+   max_entries: usize,
 }
 
 impl Cache {
-   pub fn new() -> Self {
+   pub fn new(max_entries: usize) -> Self {
       Self {
-         inner: Arc::new(RwLock::new(HashMap::new())),
+         inner:       Arc::new(RwLock::new(HashMap::new())),
+         max_entries: max_entries.max(16),
       }
    }
 
@@ -59,10 +66,20 @@ impl Cache {
       if let Ok(mut map) = self.inner.write() {
          map.insert(key.to_owned(), entry);
 
-         // Lazy eviction: purge expired entries when map grows large
-         if map.len() > 4096 {
+         if map.len() > self.max_entries {
             let now = Instant::now();
             map.retain(|_, cached| cached.expires > now);
+
+            if map.len() > self.max_entries {
+               let target = self.max_entries * 3 / 4;
+               let drop_n = map.len() - target;
+               let mut by_expiry: Vec<(Instant, String)> =
+                  map.iter().map(|(k, e)| (e.expires, k.clone())).collect();
+               by_expiry.select_nth_unstable_by_key(drop_n, |&(t, _)| t);
+               for (_, k) in by_expiry.into_iter().take(drop_n) {
+                  map.remove(&k);
+               }
+            }
          }
       }
    }

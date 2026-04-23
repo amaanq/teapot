@@ -12,8 +12,9 @@ staticDir = "./public"
 
 [cache]
 # Cache TTL settings (in-process cache, no external dependencies)
-listMinutes = 240  # How long to cache list info
-rssMinutes = 10    # How long to cache RSS queries
+listMinutes = 240   # How long to cache list info
+rssMinutes = 10     # How long to cache RSS queries
+maxEntries = 50000  # Cap on in-memory entries; over cap, soonest-expiring are evicted
 
 [config]
 # Secret key for cryptographic signing of video URLs

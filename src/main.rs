@@ -83,7 +83,7 @@ async fn main() -> eyre::Result<()> {
    );
 
    // Initialize cache
-   let cache = Cache::new();
+   let cache = Cache::new(config.cache.max_entries);
 
    // Initialize session pool
    let sessions_path =

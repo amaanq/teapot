@@ -94,6 +94,8 @@ pub struct CacheConfig {
    pub list_minutes: u64,
    #[serde(default = "default_rss_minutes", rename = "rssMinutes")]
    pub rss_minutes:  u64,
+   #[serde(default = "default_max_entries", rename = "maxEntries")]
+   pub max_entries:  usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -170,6 +172,9 @@ const fn default_list_minutes() -> u64 {
 }
 const fn default_rss_minutes() -> u64 {
    10
+}
+const fn default_max_entries() -> usize {
+   50_000
 }
 fn default_hmac_key() -> String {
    "secretkey".to_owned()
