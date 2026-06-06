@@ -1,5 +1,5 @@
 {
-  description = "teapot - A privacy-focused Twitter/X frontend written in Rust";
+  description = "A privacy-focused Twitter/X frontend written in Rust";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -10,68 +10,33 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      fenix,
-    }:
+    { nixpkgs, fenix, ... }:
     let
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
+      inherit (nixpkgs) lib;
+      forAllSystems = lib.genAttrs (lib.systems.doubles.linux ++ lib.systems.doubles.darwin);
+      pkgsFor = system: nixpkgs.legacyPackages.${system} or (import nixpkgs { inherit system; });
+
+      hasFenix = system: fenix.packages ? ${system};
+      rustPlatformFor =
+        system:
+        let
+          pkgs = pkgsFor system;
+          fenixPkgs = fenix.packages.${system}.latest;
+        in
+        if hasFenix system then
+          pkgs.makeRustPlatform { inherit (fenixPkgs) cargo rustc; }
+        else
+          pkgs.rustPlatform;
     in
     {
       packages = forAllSystems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
-          fenixPkgs = fenix.packages.${system}.latest;
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = fenixPkgs.cargo;
-            rustc = fenixPkgs.rustc;
-          };
+          pkgs = pkgsFor system;
         in
         {
-          default = rustPlatform.buildRustPackage {
-            pname = "teapot";
-            version = "0.1.0";
-
-            src = pkgs.lib.fileset.toSource {
-              root = ./.;
-              fileset = pkgs.lib.fileset.unions [
-                ./Cargo.toml
-                ./Cargo.lock
-                ./src
-                ./public
-                ./config
-              ];
-            };
-
-            cargoLock.lockFile = ./Cargo.lock;
-
-            nativeBuildInputs = [
-              pkgs.pkg-config
-            ];
-
-            doCheck = false;
-            stripAllList = [ "bin" ];
-
-            postInstall = ''
-              mkdir -p $out/share/teapot
-              cp -r public $out/share/teapot/
-              cp -r config $out/share/teapot/
-            '';
-
-            meta = with pkgs.lib; {
-              description = "A privacy-focused Twitter/X frontend written in Rust";
-              homepage = "https://github.com/amaanq/teapot";
-              license = licenses.agpl3Only;
-              mainProgram = "teapot";
-            };
+          default = pkgs.callPackage ./nix/package.nix {
+            rustPlatform = rustPlatformFor system;
           };
         }
       );
@@ -79,13 +44,20 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
-          toolchain = fenix.packages.${system}.latest.toolchain;
+          pkgs = pkgsFor system;
+          toolchain =
+            if hasFenix system then
+              [ fenix.packages.${system}.latest.toolchain ]
+            else
+              (with pkgs; [
+                cargo
+                rustc
+                rustfmt
+              ]);
         in
         {
           default = pkgs.mkShell {
-            buildInputs = [
-              toolchain
+            buildInputs = toolchain ++ [
               pkgs.rust-analyzer
               pkgs.pkg-config
               pkgs.mold
@@ -163,7 +135,14 @@
           options.services.teapot = {
             enable = lib.mkEnableOption "teapot, a privacy-focused Twitter/X frontend";
 
-            package = lib.mkPackageOption self.packages.${pkgs.stdenv.hostPlatform.system} "default" { };
+            package = lib.mkOption {
+              type = lib.types.package;
+              # built from the caller's pkgs, including cross stdenvs, so any
+              # host platform works without the flake having to enumerate it
+              default = pkgs.callPackage ./nix/package.nix { };
+              defaultText = lib.literalExpression "pkgs.callPackage ./nix/package.nix { }";
+              description = "The teapot package to use.";
+            };
 
             server = {
               hostname = lib.mkOption {

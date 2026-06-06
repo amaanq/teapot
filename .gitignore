@@ -29,3 +29,5 @@
 # Nix
 !flake.lock
 !flake.nix
+!nix/
+!nix/package.nix
