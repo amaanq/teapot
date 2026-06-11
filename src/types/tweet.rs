@@ -71,6 +71,30 @@ impl Video {
          .map(|variant| variant.url.as_str())
    }
 
+   /// Parse dimensions from Twitter video URLs (`/vid/WIDTHxHEIGHT/` or
+   /// `/vid/avc1/WIDTHxHEIGHT/`).
+   fn dimensions_from_url(url: &str) -> Option<(i32, i32)> {
+      let after_vid = url.split("/vid/").nth(1)?;
+      for segment in after_vid.split('/') {
+         let dims = segment
+            .split_once('?')
+            .map_or(segment, |(before_query, _)| before_query);
+         let Some((width, height)) = dims.split_once('x') else {
+            continue;
+         };
+         let Ok(width) = width.parse::<i32>() else {
+            continue;
+         };
+         let Ok(height) = height.parse::<i32>() else {
+            continue;
+         };
+         if width > 0 && height > 0 {
+            return Some((width, height));
+         }
+      }
+      None
+   }
+
    /// Get the best video dimensions.
    #[expect(
       clippy::cast_possible_truncation,
@@ -87,8 +111,9 @@ impl Video {
          .filter(|variant| matches!(variant.content_type, VideoType::Mp4))
          .max_by_key(|variant| variant.resolution)
          .map_or((1280, 720), |variant| {
-            // Try to parse width from URL (format: /vid/WIDTHxHEIGHT/)
-            // Default to 16:9 aspect ratio based on resolution
+            if let Some(dimensions) = Self::dimensions_from_url(&variant.url) {
+               return dimensions;
+            }
             let height = variant.resolution;
             let width = (height as f32 * 16.0 / 9.0) as i32;
             (width, height)

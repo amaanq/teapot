@@ -80,7 +80,8 @@ async fn tweet_embed(
    Path((_username, id)): Path<(String, String)>,
 ) -> Result<Response> {
    // Fetch tweet from API
-   let tweet = state.api.get_tweet(&id).await?;
+   let mut tweet = state.api.get_tweet(&id).await?;
+   state.api.resolve_unavailable_quote(&mut tweet).await;
 
    let markup = embed_view::render_tweet_embed(&tweet, &state.config);
    Ok(Html(markup.into_string()).into_response())
@@ -89,9 +90,10 @@ async fn tweet_embed(
 /// Video embed endpoint - returns HTML with video player.
 async fn video_embed(State(state): State<AppState>, Path(id): Path<String>) -> Result<Response> {
    // Fetch tweet from API
-   let tweet = state.api.get_tweet(&id).await?;
+   let mut tweet = state.api.get_tweet(&id).await?;
+   state.api.resolve_unavailable_quote(&mut tweet).await;
 
-   if tweet.video.is_none() && tweet.gif.is_none() {
+   if !embed_view::has_playable_video(&tweet) {
       return Err(Error::NotFound("No video found".into()));
    }
 
@@ -125,7 +127,8 @@ async fn activity_pub_status(
       || accept.contains("application/ld+json")
    {
       // Fetch tweet from API
-      let tweet = state.api.get_tweet(&id).await?;
+      let mut tweet = state.api.get_tweet(&id).await?;
+      state.api.resolve_unavailable_quote(&mut tweet).await;
 
       // Build ActivityPub JSON
       let activity = embed_view::build_activity_pub(&tweet, &state.config);

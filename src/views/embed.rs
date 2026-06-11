@@ -59,17 +59,17 @@ pub fn og_images(tweet: &Tweet) -> Vec<&str> {
    thumb.into_iter().collect()
 }
 
-/// Try `f` on the tweet, falling back to the quote tweet when this tweet has
-/// no media.
-fn with_quote_fallback<'a, T>(
+/// Try `f` on the tweet and keep track of which tweet supplied the media.
+fn with_quote_media_source<'a, T>(
    tweet: &'a Tweet,
-   func: impl Fn(&'a Tweet) -> Option<T>,
-) -> Option<T> {
-   func(tweet).or_else(|| {
+   func: impl Fn(&'a Tweet) -> Option<&'a T>,
+) -> Option<(&'a Tweet, &'a T)> {
+   func(tweet).map(|media| (tweet, media)).or_else(|| {
       if tweet.has_media() {
          return None;
       }
-      func(tweet.quote.as_deref()?)
+      let quote = tweet.quote.as_deref()?;
+      func(quote).map(|media| (quote, media))
    })
 }
 
@@ -86,14 +86,54 @@ pub fn og_images_with_quote(tweet: &Tweet) -> Vec<&str> {
       .map_or_else(Vec::new, og_images)
 }
 
-/// Get the video, falling back to quote tweet.
-pub fn video_with_quote(tweet: &Tweet) -> Option<&Video> {
-   with_quote_fallback(tweet, |tw| tw.video.as_ref())
+/// Get the video source tweet and media, falling back to quote tweet.
+fn video_source_with_quote(tweet: &Tweet) -> Option<(&Tweet, &Video)> {
+   with_quote_media_source(tweet, |tw| tw.video.as_ref())
 }
 
-/// Get the gif, falling back to quote tweet.
-pub fn gif_with_quote(tweet: &Tweet) -> Option<&Gif> {
-   with_quote_fallback(tweet, |tw| tw.gif.as_ref())
+/// Get the GIF source tweet and media, falling back to quote tweet.
+fn gif_source_with_quote(tweet: &Tweet) -> Option<(&Tweet, &Gif)> {
+   with_quote_media_source(tweet, |tw| tw.gif.as_ref())
+}
+
+struct VideoEmbedMedia<'a> {
+   thumbnail_url: &'a str,
+   stream_url:    &'a str,
+   width:         i32,
+   height:        i32,
+   is_gif:        bool,
+}
+
+fn video_embed_media(tweet: &Tweet) -> Option<VideoEmbedMedia<'_>> {
+   if let Some((_, video)) = video_source_with_quote(tweet)
+      && let Some(stream_url) = video.best_mp4_url()
+   {
+      let (width, height) = video.best_dimensions();
+      return Some(VideoEmbedMedia {
+         thumbnail_url: video.thumb.as_str(),
+         stream_url,
+         width,
+         height,
+         is_gif: false,
+      });
+   }
+
+   let (_, gif) = gif_source_with_quote(tweet)?;
+   if gif.url.is_empty() {
+      return None;
+   }
+   Some(VideoEmbedMedia {
+      thumbnail_url: gif.thumb.as_str(),
+      stream_url:    gif.url.as_str(),
+      width:         480,
+      height:        480,
+      is_gif:        true,
+   })
+}
+
+/// Whether `/i/videos/tweet/{id}` can render playable media for this tweet.
+pub fn has_playable_video(tweet: &Tweet) -> bool {
+   video_embed_media(tweet).is_some()
 }
 
 /// Build a rich embed description from a tweet, including quote tweets and
@@ -161,10 +201,12 @@ pub fn build_embed_description(tweet: &Tweet) -> String {
 /// Shared between `render_tweet_embed` and `render_status_page`.
 fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> Markup {
    let images = og_images_with_quote(tweet);
-   let has_video = video_with_quote(tweet).is_some();
+   let video_source = video_source_with_quote(tweet);
+   let has_video = video_source.is_some();
    // GIF tweets provide their own og:image (the transcoded .gif URL)
    // in the GIF branch below, so skip the thumbnail from the image loop.
-   let has_gif = gif_with_quote(tweet).is_some();
+   let gif_source = gif_source_with_quote(tweet);
+   let has_gif = gif_source.is_some();
 
    html! {
        @if has_video {
@@ -195,10 +237,10 @@ fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> M
        }
 
        // Video meta tags for inline playback
-       @if let Some(video) = video_with_quote(tweet) {
+       @if let Some((media_tweet, video)) = video_source {
            @let (raw_w, raw_h) = video.best_dimensions();
            @let (width, height) = formatters::scale_dimensions_for_embed(raw_w, raw_h);
-           @let embed_url = formatters::get_video_embed_url(config, tweet.id);
+           @let embed_url = formatters::get_video_embed_url(config, media_tweet.id);
 
            @if let Some(mp4_url) = video.best_mp4_url() {
                @let vid_url = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
@@ -217,7 +259,7 @@ fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> M
                meta name="twitter:player:stream" content=(full_vid_url);
                meta name="twitter:player:stream:content_type" content="video/mp4";
            }
-       } @else if let Some(gif) = gif_with_quote(tweet) {
+       } @else if let Some((_, gif)) = gif_source {
            // GIF tweets: point og:image directly at the transcoded GIF.
            // Discord's image proxy will fetch it, get image/gif content,
            // and render it animated.
@@ -318,14 +360,30 @@ pub fn render_tweet_embed(tweet: &Tweet, config: &Config) -> Markup {
 pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
    let url_prefix = config.url_prefix();
 
-   let video = tweet.video.as_ref();
-   let thumbnail = video
-      .map(|vid| format!("{url_prefix}/pic/{}", vid.thumb))
+   let media = video_embed_media(tweet);
+   let thumbnail_path = media
+      .as_ref()
+      .map(|media| formatters::get_pic_url(media.thumbnail_url, config.config.base64_media))
       .unwrap_or_default();
-
-   let (width, height) = video.map_or((1280, 720), Video::best_dimensions);
-
-   let mp4_url = video.and_then(|vid| vid.best_mp4_url());
+   let thumbnail_url = if thumbnail_path.is_empty() {
+      String::new()
+   } else {
+      format!("{url_prefix}{thumbnail_path}")
+   };
+   let stream_path = media.as_ref().map(|media| {
+      formatters::get_vid_url(
+         media.stream_url,
+         &config.config.hmac_key,
+         config.config.base64_media,
+      )
+   });
+   let stream_url = stream_path
+      .as_ref()
+      .map(|path| format!("{url_prefix}{path}"));
+   let (width, height) = media
+      .as_ref()
+      .map_or((1280, 720), |media| (media.width, media.height));
+   let is_gif = media.as_ref().is_some_and(|media| media.is_gif);
 
    html! {
        (DOCTYPE)
@@ -335,8 +393,8 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
                meta name="viewport" content="width=device-width, initial-scale=1.0";
 
                meta property="og:type" content="video";
-               @if !thumbnail.is_empty() {
-                   meta property="og:image" content=(thumbnail);
+               @if !thumbnail_url.is_empty() {
+                   meta property="og:image" content=(thumbnail_url);
                }
 
                // Twitter player card
@@ -344,8 +402,8 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
                meta name="twitter:player:width" content=(width);
                meta name="twitter:player:height" content=(height);
 
-               @if let Some(url) = mp4_url {
-                   meta name="twitter:player:stream" content=(format!("{url_prefix}/video/{url}"));
+               @if let Some(url) = stream_url.as_deref() {
+                   meta name="twitter:player:stream" content=(url);
                    meta name="twitter:player:stream:content_type" content="video/mp4";
                }
 
@@ -355,9 +413,9 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
            }
            body {
                div class="embed-video" {
-                   video controls="" preload="metadata" poster=(thumbnail) {
-                       @if let Some(url) = mp4_url {
-                           source src=(format!("{url_prefix}/video/{url}")) type="video/mp4";
+                   video controls="" preload="metadata" poster=(thumbnail_path) autoplay[is_gif] muted[is_gif] loop[is_gif] playsinline[is_gif] {
+                       @if let Some(path) = stream_path.as_deref() {
+                           source src=(path) type="video/mp4";
                        }
                    }
                }
@@ -442,18 +500,37 @@ fn make_attachment(
    }
 }
 
+fn full_media_url(url_prefix: &str, path: &str) -> String {
+   format!("{url_prefix}{path}")
+}
+
 /// Build media attachments for a single tweet's photos/video/gif.
-fn build_media_attachments(tweet: &Tweet, url_prefix: &str) -> Vec<MediaAttachment> {
+fn build_media_attachments(
+   tweet: &Tweet,
+   config: &Config,
+   url_prefix: &str,
+) -> Vec<MediaAttachment> {
    let mut attachments = Vec::new();
 
    for photo in &tweet.photos {
       attachments.push(make_attachment(
          "image",
-         format!("{url_prefix}/pic/orig/{}", photo.url),
-         Some(format!("{url_prefix}/pic/{}", photo.url)),
+         full_media_url(
+            url_prefix,
+            &formatters::get_orig_pic_url(&photo.url, config.config.base64_media),
+         ),
+         Some(full_media_url(
+            url_prefix,
+            &formatters::get_pic_url(&photo.url, config.config.base64_media),
+         )),
          1200,
          675,
       ));
+      if let Some(last) = attachments.last_mut()
+         && !photo.alt_text.is_empty()
+      {
+         last.description = Some(photo.alt_text.clone());
+      }
    }
 
    if let Some(ref video) = tweet.video {
@@ -461,19 +538,41 @@ fn build_media_attachments(tweet: &Tweet, url_prefix: &str) -> Vec<MediaAttachme
       if let Some(mp4_url) = video.best_mp4_url() {
          attachments.push(make_attachment(
             "video",
-            format!("{url_prefix}/video/{mp4_url}"),
-            Some(format!("{url_prefix}/pic/{}", video.thumb)),
+            full_media_url(
+               url_prefix,
+               &formatters::get_vid_url(
+                  mp4_url,
+                  &config.config.hmac_key,
+                  config.config.base64_media,
+               ),
+            ),
+            Some(full_media_url(
+               url_prefix,
+               &formatters::get_pic_url(&video.thumb, config.config.base64_media),
+            )),
             width,
             height,
          ));
       }
    }
 
-   if let Some(ref gif) = tweet.gif {
+   if let Some(ref gif) = tweet.gif
+      && !gif.url.is_empty()
+   {
       attachments.push(make_attachment(
          "video",
-         format!("{url_prefix}/pic/{}", gif.url),
-         Some(format!("{url_prefix}/pic/{}", gif.thumb)),
+         full_media_url(
+            url_prefix,
+            &formatters::get_vid_url(
+               &gif.url,
+               &config.config.hmac_key,
+               config.config.base64_media,
+            ),
+         ),
+         Some(full_media_url(
+            url_prefix,
+            &formatters::get_pic_url(&gif.thumb, config.config.base64_media),
+         )),
          480,
          480,
       ));
@@ -506,6 +605,16 @@ fn build_mastodon_content(tweet: &Tweet) -> String {
       );
    }
 
+   if !tweet.reply.is_empty() {
+      let replies = tweet
+         .reply
+         .iter()
+         .map(|username| format!("@{username}"))
+         .collect::<Vec<_>>()
+         .join(" ");
+      content = format!("<sub>↩ Replying to {replies}</sub><br>{content}");
+   }
+
    content
 }
 
@@ -513,12 +622,12 @@ fn build_mastodon_content(tweet: &Tweet) -> String {
 pub fn build_activity_pub(tweet: &Tweet, config: &Config) -> ActivityPubNote {
    let url_prefix = config.url_prefix();
 
-   let mut attachments = build_media_attachments(tweet, url_prefix);
+   let mut attachments = build_media_attachments(tweet, config, url_prefix);
 
    if !tweet.has_media()
       && let Some(ref quote) = tweet.quote
    {
-      attachments.extend(build_media_attachments(quote, url_prefix));
+      attachments.extend(build_media_attachments(quote, config, url_prefix));
    }
 
    let created_at = tweet.time.map_or_else(
@@ -538,7 +647,7 @@ pub fn build_activity_pub(tweet: &Tweet, config: &Config) -> ActivityPubNote {
       visibility: "public".to_owned(),
       media_attachments: attachments,
       account: MastodonAccount {
-         id:           tweet.user.id.to_string(),
+         id:           tweet.user.id.clone(),
          display_name: tweet.user.fullname.clone(),
          username:     tweet.user.username.clone(),
          acct:         tweet.user.username.clone(),
@@ -587,7 +696,7 @@ pub fn render_status_page(
 
        // Publish time for Discord footer timestamp
        @if let Some(ts) = tweet.time {
-           @let iso = ts.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+           @let iso = ts.format(&Rfc3339).unwrap_or_default();
            meta property="article:published_time" content=(iso);
        }
 
@@ -615,4 +724,186 @@ pub fn render_status_page(
       .referer(&referer)
       .head_extra(&head_extra)
       .render()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::{
+      config::{
+         AppConfig,
+         CacheConfig,
+         GifTranscodingConfig,
+         PreferencesConfig,
+         ServerConfig,
+      },
+      types::{
+         Photo,
+         User,
+         VideoType,
+         VideoVariant,
+      },
+   };
+
+   fn test_config() -> Config {
+      Config {
+         server:          ServerConfig {
+            hostname:             "teapot.test".to_owned(),
+            title:                "teapot".to_owned(),
+            address:              "127.0.0.1".to_owned(),
+            port:                 443,
+            public_port:          None,
+            https:                true,
+            http_max_connections: 100,
+            static_dir:           "./public".to_owned(),
+         },
+         cache:           CacheConfig {
+            list_minutes: 120,
+            rss_minutes:  10,
+            max_entries:  50_000,
+         },
+         config:          AppConfig {
+            hmac_key:            "0123456789abcdef0123456789abcdef".to_owned(),
+            base64_media:        true,
+            enable_rss:          true,
+            enable_debug:        false,
+            debug_token:         String::new(),
+            proxy:               String::new(),
+            proxy_auth:          String::new(),
+            api_proxy:           String::new(),
+            disable_tid:         false,
+            max_concurrent_reqs: 2,
+            paid_emoji:          ":paid:".to_owned(),
+            ai_emoji:            ":ai:".to_owned(),
+            kagi_token:          String::new(),
+            kagi_token_file:     String::new(),
+         },
+         preferences:     PreferencesConfig::default(),
+         gif_transcoding: GifTranscodingConfig::default(),
+         url_prefix:      "https://teapot.test".to_owned(),
+      }
+   }
+
+   fn user(username: &str) -> User {
+      User {
+         id: username.to_owned(),
+         username: username.to_owned(),
+         fullname: username.to_owned(),
+         user_pic: "https://pbs.twimg.com/profile_images/avatar.jpg".to_owned(),
+         ..User::default()
+      }
+   }
+
+   fn tweet(id: i64, username: &str, text: &str) -> Tweet {
+      Tweet {
+         id,
+         user: user(username),
+         text: text.to_owned(),
+         available: true,
+         ..Tweet::default()
+      }
+   }
+
+   fn video() -> Video {
+      Video {
+         thumb: "https://pbs.twimg.com/ext_tw_video_thumb/thumb.jpg".to_owned(),
+         variants: vec![VideoVariant {
+            content_type: VideoType::Mp4,
+            url:          "https://video.twimg.com/ext_tw_video/1/pu/vid/720x1280/video.mp4?tag=12"
+               .to_owned(),
+            bitrate:      2_176_000,
+            resolution:   1280,
+         }],
+         ..Video::default()
+      }
+   }
+
+   fn quoted_video_tweet() -> Tweet {
+      let mut outer = tweet(100, "outer", "outer text");
+      let mut quote = tweet(200, "quote", "quote text");
+      quote.video = Some(video());
+      outer.quote = Some(Box::new(quote));
+      outer
+   }
+
+   #[test]
+   fn quoted_video_player_uses_quote_tweet_id() {
+      let html = render_tweet_embed(&quoted_video_tweet(), &test_config()).into_string();
+
+      assert!(
+         html.contains(r#"name="twitter:player" content="https://teapot.test/i/videos/tweet/200""#)
+      );
+      assert!(
+         !html
+            .contains(r#"name="twitter:player" content="https://teapot.test/i/videos/tweet/100""#)
+      );
+      assert!(html.contains(r#"name="twitter:player:stream" content="https://teapot.test/video/"#));
+      assert!(html.contains("/enc/"));
+   }
+
+   #[test]
+   fn video_embed_uses_signed_proxy_for_quoted_video() {
+      let tweet = quoted_video_tweet();
+      let html = render_video_embed(&tweet, &test_config()).into_string();
+
+      assert!(has_playable_video(&tweet));
+      assert!(html.contains(r#"poster="/pic/enc/"#));
+      assert!(html.contains(r#"<source src="/video/"#));
+      assert!(html.contains(r#"name="twitter:player:stream" content="https://teapot.test/video/"#));
+      assert!(html.contains("/enc/"));
+      assert!(!html.contains("https://teapot.test/video/https://video.twimg.com"));
+   }
+
+   #[test]
+   fn activity_pub_quote_fallback_uses_signed_media_urls() {
+      let mut tweet = quoted_video_tweet();
+      tweet.reply = vec!["parent".to_owned()];
+
+      let activity = build_activity_pub(&tweet, &test_config());
+      let attachment = activity.media_attachments.first().unwrap();
+
+      assert_eq!(activity.media_attachments.len(), 1);
+      assert_eq!(attachment.type_, "video");
+      assert!(attachment.url.starts_with("https://teapot.test/video/"));
+      assert!(attachment.url.contains("/enc/"));
+      assert!(!attachment.url.contains("/video/https://video.twimg.com"));
+      assert!(
+         attachment
+            .preview_url
+            .as_ref()
+            .is_some_and(|url| url.starts_with("https://teapot.test/pic/enc/"))
+      );
+      assert!(activity.content.contains("Replying to @parent"));
+   }
+
+   #[test]
+   fn activity_pub_photo_urls_are_encoded_and_keep_alt_text() {
+      let mut tweet = tweet(300, "photos", "photo text");
+      tweet.photos.push(Photo {
+         url:      "https://pbs.twimg.com/media/photo.jpg?format=jpg&name=large".to_owned(),
+         alt_text: "alt text".to_owned(),
+      });
+
+      let activity = build_activity_pub(&tweet, &test_config());
+      let attachment = activity.media_attachments.first().unwrap();
+
+      assert_eq!(attachment.type_, "image");
+      assert!(
+         attachment
+            .url
+            .starts_with("https://teapot.test/pic/orig/enc/")
+      );
+      assert!(
+         attachment
+            .preview_url
+            .as_ref()
+            .is_some_and(|url| url.starts_with("https://teapot.test/pic/enc/"))
+      );
+      assert_eq!(attachment.description.as_deref(), Some("alt text"));
+   }
+
+   #[test]
+   fn best_dimensions_parse_non_widescreen_video_url() {
+      assert_eq!(video().best_dimensions(), (720, 1280));
+   }
 }
