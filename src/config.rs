@@ -6,7 +6,10 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::error::Result;
+use crate::error::{
+   Error,
+   Result,
+};
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -104,7 +107,7 @@ pub struct CacheConfig {
    reason = "mirrors TOML config booleans"
 )]
 pub struct AppConfig {
-   #[serde(default = "default_hmac_key", rename = "hmacKey")]
+   #[serde(rename = "hmacKey")]
    pub hmac_key:            String,
    #[serde(default, rename = "base64Media")]
    pub base64_media:        bool,
@@ -112,6 +115,8 @@ pub struct AppConfig {
    pub enable_rss:          bool,
    #[serde(default, rename = "enableDebug")]
    pub enable_debug:        bool,
+   #[serde(default, rename = "debugToken")]
+   pub debug_token:         String,
    #[serde(default)]
    pub proxy:               String,
    #[serde(default, rename = "proxyAuth")]
@@ -176,9 +181,6 @@ const fn default_rss_minutes() -> u64 {
 const fn default_max_entries() -> usize {
    50_000
 }
-fn default_hmac_key() -> String {
-   "secretkey".to_owned()
-}
 const fn default_max_concurrent_reqs() -> u32 {
    2
 }
@@ -200,11 +202,17 @@ impl Config {
    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
       let content = fs::read_to_string(path)?;
       let mut config = toml::from_str::<Self>(&content)?;
-      if config.config.hmac_key == "secretkey" {
-         tracing::warn!(
-            "Using default HMAC key — video proxy URLs are forgeable. Set config.hmacKey in your \
-             config"
-         );
+      let hmac_key = config.config.hmac_key.trim();
+      if hmac_key.is_empty() || hmac_key == "secretkey" || hmac_key.len() < 32 {
+         return Err(Error::InvalidConfig(
+            "config.hmacKey must be a non-default secret with at least 32 characters".into(),
+         ));
+      }
+      if config.config.enable_debug && config.config.debug_token.len() < 32 {
+         return Err(Error::InvalidConfig(
+            "config.debugToken must be set to at least 32 characters when enableDebug is true"
+               .into(),
+         ));
       }
       // Validate GIF transcoding config
       match config.gif_transcoding.mode {

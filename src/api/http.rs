@@ -51,6 +51,8 @@ use crate::error::{
 
 type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
 
+const DEFAULT_BODY_LIMIT: usize = 32 * 1024 * 1024; // 32 MiB
+
 /// Parsed proxy configuration.
 #[derive(Clone)]
 struct ProxyConfig {
@@ -388,29 +390,53 @@ impl Response {
       &self.headers
    }
 
+   pub fn into_body(self) -> hyper_body::Incoming {
+      self.body
+   }
+
    /// Collect the response body as bytes, decompressing gzip if needed.
    pub async fn bytes(self) -> Result<Bytes> {
+      self.bytes_limited(DEFAULT_BODY_LIMIT).await
+   }
+
+   /// Collect the response body as bytes, rejecting oversized bodies.
+   pub async fn bytes_limited(self, max_bytes: usize) -> Result<Bytes> {
       let is_gzip = self
          .headers
          .get(header::CONTENT_ENCODING)
          .and_then(|val| val.to_str().ok())
          .is_some_and(|val| val.contains("gzip"));
 
-      let collected = self
-         .body
-         .collect()
-         .await
-         .map_err(|err| Error::Internal(format!("read body: {err}")))?
-         .to_bytes();
+      let mut body = self.body;
+      let mut collected = Vec::new();
+      while let Some(frame) = body.frame().await {
+         let frame = frame.map_err(|err| Error::Internal(format!("read body: {err}")))?;
+         let Ok(chunk) = frame.into_data() else {
+            continue;
+         };
+         if collected.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(Error::Internal(format!(
+               "response body exceeded {max_bytes} bytes"
+            )));
+         }
+         collected.extend_from_slice(&chunk);
+      }
 
       if is_gzip {
-         let mut gz = GzDecoder::new(&*collected);
+         let gz = GzDecoder::new(&*collected);
          let mut decoded = Vec::new();
-         gz.read_to_end(&mut decoded)
+         let mut limited = gz.take(max_bytes.saturating_add(1) as u64);
+         limited
+            .read_to_end(&mut decoded)
             .map_err(|err| Error::Internal(format!("gzip decode: {err}")))?;
+         if decoded.len() > max_bytes {
+            return Err(Error::Internal(format!(
+               "decoded response body exceeded {max_bytes} bytes"
+            )));
+         }
          Ok(Bytes::from(decoded))
       } else {
-         Ok(collected)
+         Ok(Bytes::from(collected))
       }
    }
 

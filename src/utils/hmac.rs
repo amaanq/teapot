@@ -1,12 +1,14 @@
 use data_encoding::HEXLOWER;
 use ring::hmac;
 
-/// Sign a URL using HMAC-SHA256, truncated to 13 hex chars.
+const SIGNATURE_HEX_LEN: usize = 32;
+
+/// Sign a URL using HMAC-SHA256, truncated to 128 bits.
 pub fn sign(url: &str, key: &str) -> String {
    let key = hmac::Key::new(hmac::HMAC_SHA256, key.as_bytes());
    let tag = hmac::sign(&key, url.as_bytes());
    let full = HEXLOWER.encode(tag.as_ref());
-   full[..13].to_string()
+   full[..SIGNATURE_HEX_LEN].to_owned()
 }
 
 /// Verify an HMAC signature.

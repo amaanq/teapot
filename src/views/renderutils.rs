@@ -225,7 +225,7 @@ pub fn render_community_note(note: Option<&CommunityNote>, hide_notes: bool) -> 
 /// ranges with `<a>` tags, preserving the rest as plain text.
 pub fn community_note_to_html(note: &CommunityNote) -> String {
    if note.links.is_empty() {
-      return note.text.clone();
+      return html_escape(&note.text).into_owned();
    }
 
    let mut result = String::new();
@@ -235,9 +235,14 @@ pub fn community_note_to_html(note: &CommunityNote) -> String {
 
    let mut pos = 0;
    for &(from, to, ref url) in &sorted_links {
+      let from = from.min(chars.len());
       let to = to.min(chars.len());
+      if from < pos || from >= to {
+         continue;
+      }
       if from > pos {
-         result.extend(&chars[pos..from]);
+         let plain = chars[pos..from].iter().collect::<String>();
+         result.push_str(&html_escape(&plain));
       }
       let display = chars[from..to].iter().collect::<String>();
       let url = html_escape(url);
@@ -246,7 +251,8 @@ pub fn community_note_to_html(note: &CommunityNote) -> String {
       pos = to;
    }
    if pos < chars.len() {
-      result.extend(&chars[pos..]);
+      let plain = chars[pos..].iter().collect::<String>();
+      result.push_str(&html_escape(&plain));
    }
    result
 }
@@ -264,4 +270,37 @@ pub fn render_bio_html(bio: &str, config: &Config) -> String {
 /// Shorten a URL for display (remove protocol + www, no truncation).
 pub fn short_link(url: &str) -> String {
    short_url(url, 0)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::community_note_to_html;
+   use crate::api::schema::CommunityNote;
+
+   #[test]
+   fn community_note_escapes_plain_text() {
+      let note = CommunityNote {
+         text:  "<img src=x onerror=alert(1)>".to_owned(),
+         links: Vec::new(),
+      };
+
+      let rendered = community_note_to_html(&note);
+
+      assert_eq!(rendered, "&lt;img src=x onerror=alert(1)&gt;");
+   }
+
+   #[test]
+   fn community_note_escapes_text_around_links() {
+      let note = CommunityNote {
+         text:  "<b>link</b>".to_owned(),
+         links: vec![(3, 7, r#"https://example.com/?q="x""#.to_owned())],
+      };
+
+      let rendered = community_note_to_html(&note);
+
+      assert_eq!(
+         rendered,
+         r#"&lt;b&gt;<a href="https://example.com/?q=&quot;x&quot;">link</a>&lt;/b&gt;"#
+      );
+   }
 }

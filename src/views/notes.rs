@@ -320,7 +320,7 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
          .get(start..end)
          .map(|slice| slice.iter().collect())
          .unwrap_or_default();
-      return html! { (PreEscaped(text)) };
+      return html! { (text) };
    }
 
    let mut parts = Vec::new();
@@ -361,7 +361,7 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
          .map(|slice| slice.iter().collect())
          .unwrap_or_default();
 
-      let mut markup = html! { (PreEscaped(&chunk)) };
+      let mut markup = html! { (chunk) };
       if is_strike {
          markup = html! { s { (markup) } };
       }

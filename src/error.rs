@@ -29,6 +29,9 @@ pub enum Error {
    #[error("Configuration error: {0}")]
    Config(#[from] TomlError),
 
+   #[error("Configuration error: {0}")]
+   InvalidConfig(String),
+
    #[error("IO error: {0}")]
    Io(#[from] io::Error),
 

@@ -2,23 +2,24 @@
 
 [server]
 # Domain for generating links - change this to your own domain/ip
-hostname = "localhost"
-title = "teapot"
-address = "0.0.0.0"
-port = 8080
-https = false  # Set to true when using HTTPS
+address            = "0.0.0.0"
+hostname           = "localhost"
 httpMaxConnections = 100
-staticDir = "./public"
+https              = false       # Set to true when using HTTPS
+port               = 8080
+staticDir          = "./public"
+title              = "teapot"
 
 [cache]
 # Cache TTL settings (in-process cache, no external dependencies)
 listMinutes = 240   # How long to cache list info
-rssMinutes = 10     # How long to cache RSS queries
-maxEntries = 50000  # Cap on in-memory entries; over cap, soonest-expiring are evicted
+maxEntries  = 50000 # Cap on in-memory entries; over cap, soonest-expiring are evicted
+rssMinutes  = 10    # How long to cache RSS queries
 
 [config]
-# Secret key for cryptographic signing of video URLs
-hmacKey = "secretkey"
+# Secret key for cryptographic signing of media URLs.
+# Generate a unique value for every instance, e.g. with openssl rand -hex 32
+hmacKey = ""
 
 # Use base64 encoding for proxied media URLs
 base64Media = false
@@ -26,11 +27,15 @@ base64Media = false
 # Enable RSS feeds
 enableRSS = true
 
-# Enable debug endpoints (/.sessions)
+# Enable debug endpoints (/.health, /.sessions)
 enableDebug = false
 
+# Bearer token required for debug endpoints when enableDebug = true.
+# Generate a unique value with at least 32 characters.
+debugToken = ""
+
 # HTTP/HTTPS proxy (SOCKS proxies not supported)
-proxy = ""
+proxy     = ""
 proxyAuth = ""
 
 # API proxy host, e.g. localhost:7000
@@ -45,7 +50,7 @@ maxConcurrentReqs = 2
 # Kagi Translate: server-side translation for non-English tweets
 # Set either kagiToken (inline) or kagiTokenFile (path to file)
 # Get your token from kagi.com/settings → Session Link
-kagiToken = ""
+kagiToken     = ""
 kagiTokenFile = ""
 
 [gifTranscoding]
@@ -64,8 +69,8 @@ externalDomain = ""
 theme = "teapot"
 
 # URL replacements for privacy
+replaceReddit  = ""
 replaceTwitter = ""
 replaceYouTube = ""
-replaceReddit = ""
 
 infiniteScroll = false

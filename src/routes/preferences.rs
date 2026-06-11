@@ -28,6 +28,11 @@ use axum::{
 use axum_extra::extract::cookie::{
    Cookie,
    CookieJar,
+   SameSite,
+};
+use percent_encoding::{
+   NON_ALPHANUMERIC,
+   utf8_percent_encode,
 };
 use serde::Deserialize;
 use time::Duration;
@@ -44,11 +49,12 @@ use crate::{
 };
 
 /// Convert preferences to HTTP cookies for storage.
-fn prefs_to_cookies(prefs: &Prefs) -> Vec<Cookie<'static>> {
+fn prefs_to_cookies(prefs: &Prefs, config: &Config) -> Vec<Cookie<'static>> {
    let max_age = Duration::days(365);
+   let secure = config.server.https;
    let bool_cookie =
-      |name: &str, val: bool| make_cookie(name, if val { "on" } else { "" }, max_age);
-   let str_cookie = |name: &str, val: &str| make_cookie(name, val, max_age);
+      |name: &str, val: bool| make_cookie(name, if val { "on" } else { "" }, max_age, secure);
+   let str_cookie = |name: &str, val: &str| make_cookie(name, val, max_age, secure);
 
    vec![
       str_cookie("theme", &prefs.theme),
@@ -123,17 +129,19 @@ fn encode_prefs(prefs: &Prefs, config: &Config) -> String {
    enc_string!("replaceTwitter", replace_twitter);
    enc_string!("replaceYouTube", replace_youtube);
    enc_string!("replaceReddit", replace_reddit);
-   enc_string!("kagiToken", kagi_token);
-
    pairs.join(",")
 }
 
-fn make_cookie(name: &str, value: &str, max_age: Duration) -> Cookie<'static> {
-   Cookie::build((name.to_owned(), value.to_owned()))
+fn make_cookie(name: &str, value: &str, max_age: Duration, secure: bool) -> Cookie<'static> {
+   let mut builder = Cookie::build((name.to_owned(), value.to_owned()))
       .path("/")
       .max_age(max_age)
       .http_only(true)
-      .build()
+      .same_site(SameSite::Lax);
+   if secure {
+      builder = builder.secure(true);
+   }
+   builder.build()
 }
 
 pub fn router() -> Router<AppState> {
@@ -236,10 +244,11 @@ async fn settings(
    let prefs = Prefs::from_cookies(&jar, &state.config);
    let themes = find_themes(&state.config.server.static_dir);
 
-   let referer = query.referer.as_deref().unwrap_or("/");
+   let referer = local_redirect_target(query.referer.as_deref(), "/");
    let prefs_code = encode_prefs(&prefs, &state.config);
-   let prefs_url = format!("{}/?prefs={}", state.config.url_prefix(), prefs_code);
-   let content = pref_view::render_preferences_form(&prefs, &themes, referer, &prefs_url);
+   let encoded_prefs = utf8_percent_encode(&prefs_code, NON_ALPHANUMERIC).to_string();
+   let prefs_url = format!("{}/?prefs={encoded_prefs}", state.config.url_prefix());
+   let content = pref_view::render_preferences_form(&prefs, &themes, &referer, &prefs_url);
    let markup = layout::PageLayout::new(&state.config, "Settings", content)
       .description("Customize your teapot experience")
       .prefs(&prefs)
@@ -254,7 +263,7 @@ async fn save_prefs(
    Form(form): Form<PrefsForm>,
 ) -> Result<Response> {
    let prefs = form.to_prefs(&state.config);
-   let cookies = prefs_to_cookies(&prefs);
+   let cookies = prefs_to_cookies(&prefs, &state.config);
 
    // Add all cookies to the jar
    let mut updated_jar = jar;
@@ -263,9 +272,9 @@ async fn save_prefs(
    }
 
    // Redirect back to referer or settings page
-   let redirect_to = form.referer.as_deref().unwrap_or("/settings");
+   let redirect_to = local_redirect_target(form.referer.as_deref(), "/settings");
 
-   Ok((updated_jar, Redirect::to(redirect_to)).into_response())
+   Ok((updated_jar, Redirect::to(&redirect_to)).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -285,8 +294,8 @@ async fn reset_prefs(jar: CookieJar, Form(form): Form<ResetPrefsForm>) -> Result
    }
 
    // Redirect to referer or settings page
-   let redirect_to = form.referer.as_deref().unwrap_or("/settings");
-   Ok((updated_jar, Redirect::to(redirect_to)).into_response())
+   let redirect_to = local_redirect_target(form.referer.as_deref(), "/settings");
+   Ok((updated_jar, Redirect::to(&redirect_to)).into_response())
 }
 
 async fn enable_mp4(jar: CookieJar, headers: HeaderMap) -> Result<Response> {
@@ -300,9 +309,23 @@ async fn enable_mp4(jar: CookieJar, headers: HeaderMap) -> Result<Response> {
    let referer = headers
       .get(REFERER)
       .and_then(|hv| hv.to_str().ok())
+      .filter(|value| is_local_path(value))
       .unwrap_or("/settings");
 
    Ok((updated_jar, Redirect::to(referer)).into_response())
+}
+
+fn local_redirect_target(value: Option<&str>, fallback: &str) -> String {
+   value
+      .filter(|target| is_local_path(target))
+      .unwrap_or(fallback)
+      .to_owned()
+}
+
+fn is_local_path(value: &str) -> bool {
+   value.starts_with('/')
+      && !value.starts_with("//")
+      && !value.chars().any(|ch| matches!(ch, '\r' | '\n'))
 }
 
 /// Discover available themes from CSS files in the static directory.

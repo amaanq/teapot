@@ -31,7 +31,10 @@ use axum::{
 };
 use axum_extra::extract::{
    CookieJar,
-   cookie::Cookie,
+   cookie::{
+      Cookie,
+      SameSite,
+   },
 };
 use maud::html;
 use time::Duration;
@@ -110,7 +113,7 @@ pub async fn prefs_middleware(request: Request, next: Next) -> Response {
    if let Some(prefs_value) = prefs_param {
       // Parse prefs: "key=val,key2=val2"
       let mut jar = CookieJar::new();
-      let pref_names = Prefs::COOKIE_NAMES;
+      let pref_names = Prefs::URL_PREF_NAMES;
 
       for pair in prefs_value.split(',') {
          let (key, value) = match pair.split_once('=') {
@@ -124,6 +127,7 @@ pub async fn prefs_middleware(request: Request, next: Next) -> Response {
                .path("/")
                .max_age(Duration::days(365))
                .http_only(true)
+               .same_site(SameSite::Lax)
                .build();
             jar = jar.add(cookie);
          }

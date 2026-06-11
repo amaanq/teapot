@@ -8,6 +8,7 @@ use axum::{
    http::{
       HeaderMap,
       StatusCode,
+      Uri,
       header,
    },
    response::{
@@ -16,6 +17,7 @@ use axum::{
    },
    routing::get,
 };
+use http_body_util::Limited;
 use tokio::fs;
 
 use crate::{
@@ -29,6 +31,16 @@ use crate::{
       hmac,
    },
 };
+
+const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+const MAX_VIDEO_BYTES: usize = 1024 * 1024 * 1024;
+const MAX_GIF_BYTES: u64 = 100 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+enum MediaKind {
+   Image,
+   Video,
+}
 
 pub fn router() -> Router<AppState> {
    Router::new()
@@ -124,17 +136,21 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
       return Err(Error::InvalidUrl("Empty image URL".into()));
    }
 
-   let full_url = if url.starts_with("http") {
+   let full_url = if url.starts_with("http://") || url.starts_with("https://") {
       url.to_owned()
-   } else {
+   } else if url.starts_with('/') {
       format!("https://pbs.twimg.com{url}")
+   } else {
+      return Err(Error::InvalidUrl("Invalid image URL".into()));
    };
 
    let full_url = if original {
-      format!("{full_url}?name=orig")
+      let separator = if full_url.contains('?') { '&' } else { '?' };
+      format!("{full_url}{separator}name=orig")
    } else {
       full_url
    };
+   validate_media_url(&full_url, MediaKind::Image)?;
 
    let response = state.http_client.get(&full_url).await?;
 
@@ -151,18 +167,16 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
       .and_then(|hv| hv.to_str().ok())
       .unwrap_or("image/jpeg")
       .to_owned();
+   ensure_content_length_under(response.headers(), MAX_IMAGE_BYTES as u64)?;
 
-   let bytes = response.bytes().await?;
+   let body = Body::new(Limited::new(response.into_body(), MAX_IMAGE_BYTES));
 
-   Ok((
-      StatusCode::OK,
-      [
-         (header::CONTENT_TYPE, content_type),
-         (header::CACHE_CONTROL, "public, max-age=604800".to_owned()),
-      ],
-      bytes,
-   )
-      .into_response())
+   Response::builder()
+      .status(StatusCode::OK)
+      .header(header::CONTENT_TYPE, content_type)
+      .header(header::CACHE_CONTROL, "public, max-age=604800")
+      .body(body)
+      .map_err(|err| Error::Internal(format!("build image response: {err}")))
 }
 
 async fn gif_proxy(
@@ -179,6 +193,7 @@ async fn gif_proxy(
    if !hmac::verify(&decoded_url, &sig, &state.config.config.hmac_key) {
       return Err(Error::HmacVerification);
    }
+   validate_media_url(&decoded_url, MediaKind::Video)?;
 
    serve_gif(&state, &decoded_url).await
 }
@@ -194,6 +209,7 @@ async fn gif_proxy_encoded(
    if !hmac::verify(&decoded, &sig, &state.config.config.hmac_key) {
       return Err(Error::HmacVerification);
    }
+   validate_media_url(&decoded, MediaKind::Video)?;
 
    serve_gif(&state, &decoded).await
 }
@@ -206,6 +222,12 @@ async fn serve_gif(state: &AppState, mp4_url: &str) -> Result<Response> {
 
    match transcoder.get_or_transcode(mp4_url).await {
       Ok(path) => {
+         let meta = fs::metadata(&path)
+            .await
+            .map_err(|err| Error::Internal(format!("stat cached GIF: {err}")))?;
+         if meta.len() > MAX_GIF_BYTES {
+            return Err(Error::Internal("cached GIF exceeds response limit".into()));
+         }
          let bytes = fs::read(&path)
             .await
             .map_err(|err| Error::Internal(format!("read cached GIF: {err}")))?;
@@ -229,6 +251,8 @@ async fn serve_gif(state: &AppState, mp4_url: &str) -> Result<Response> {
 }
 
 async fn proxy_video(state: &AppState, url: &str, req_headers: &HeaderMap) -> Result<Response> {
+   validate_media_url(url, MediaKind::Video)?;
+
    // Forward Range header to upstream for seeking support
    let mut upstream_headers = HeaderMap::new();
    if let Some(range) = req_headers.get(header::RANGE) {
@@ -248,6 +272,7 @@ async fn proxy_video(state: &AppState, url: &str, req_headers: &HeaderMap) -> Re
    }
 
    let resp_headers = response.headers();
+   ensure_content_length_under(resp_headers, MAX_VIDEO_BYTES as u64)?;
 
    let content_type = resp_headers
       .get(header::CONTENT_TYPE)
@@ -273,9 +298,53 @@ async fn proxy_video(state: &AppState, url: &str, req_headers: &HeaderMap) -> Re
       builder = builder.header(header::CONTENT_RANGE, cr);
    }
 
-   let bytes = response.bytes().await?;
+   let body = Body::new(Limited::new(response.into_body(), MAX_VIDEO_BYTES));
 
    builder
-      .body(Body::from(bytes))
+      .body(body)
       .map_err(|err| Error::Internal(format!("build video response: {err}")))
+}
+
+fn validate_media_url(url: &str, kind: MediaKind) -> Result<()> {
+   let uri = url
+      .parse::<Uri>()
+      .map_err(|err| Error::InvalidUrl(format!("invalid media URL: {err}")))?;
+   if uri.scheme_str() != Some("https") {
+      return Err(Error::InvalidUrl("media URL must use HTTPS".into()));
+   }
+   let host = uri
+      .host()
+      .ok_or_else(|| Error::InvalidUrl("media URL is missing host".into()))?
+      .to_ascii_lowercase();
+
+   let allowed = match kind {
+      MediaKind::Image => is_twimg_host(&host),
+      MediaKind::Video => host == "video.twimg.com",
+   };
+   if allowed {
+      Ok(())
+   } else {
+      Err(Error::InvalidUrl("media URL host is not allowed".into()))
+   }
+}
+
+fn is_twimg_host(host: &str) -> bool {
+   host == "twimg.com" || host.ends_with(".twimg.com")
+}
+
+fn ensure_content_length_under(headers: &HeaderMap, max_bytes: u64) -> Result<()> {
+   let Some(value) = headers.get(header::CONTENT_LENGTH) else {
+      return Ok(());
+   };
+   let length = value
+      .to_str()
+      .ok()
+      .and_then(|value| value.parse::<u64>().ok())
+      .ok_or_else(|| Error::InvalidUrl("invalid upstream Content-Length".into()))?;
+   if length > max_bytes {
+      return Err(Error::InvalidUrl(
+         "upstream media response is too large".into(),
+      ));
+   }
+   Ok(())
 }

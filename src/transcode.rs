@@ -23,6 +23,8 @@ use crate::{
    config::GifTranscodingConfig,
 };
 
+const MAX_TRANSCODE_INPUT_BYTES: usize = 100 * 1024 * 1024;
+
 pub struct GifTranscoder {
    cache:       GifCache,
    http_client: HttpClient,
@@ -115,7 +117,7 @@ impl GifTranscoder {
       }
 
       let bytes = response
-         .bytes()
+         .bytes_limited(MAX_TRANSCODE_INPUT_BYTES)
          .await
          .map_err(|err| eyre::eyre!("Failed to read MP4 body: {err}"))?;
       fs::write(&input, &bytes).await?;

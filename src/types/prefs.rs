@@ -125,4 +125,28 @@ impl Prefs {
       "replaceReddit",
       "kagiToken",
    ];
+
+   /// Preference names accepted from shareable URL preference imports.
+   pub const URL_PREF_NAMES: &[&str] = &[
+      "theme",
+      "infiniteScroll",
+      "stickyProfile",
+      "bidiSupport",
+      "mp4Playback",
+      "autoplayGifs",
+      "muteVideos",
+      "hideTweetStats",
+      "hideBanner",
+      "hidePins",
+      "hideReplies",
+      "hideCommunityNotes",
+      "squareAvatars",
+      "useTwemoji",
+      "stickyNav",
+      "proxyMedia",
+      "fontSize",
+      "replaceTwitter",
+      "replaceYouTube",
+      "replaceReddit",
+   ];
 }
