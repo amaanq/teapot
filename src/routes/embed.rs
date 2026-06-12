@@ -172,7 +172,7 @@ async fn oembed(
       author_url,
       provider_name: state.config.server.title.clone(),
       provider_url: state.config.url_prefix().to_owned(),
-      title: "Post",
+      title: "Embed",
       kind: "rich",
       version: "1.0",
    };

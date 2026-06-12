@@ -33,6 +33,7 @@ pub struct PageLayout<'a> {
    og_image:    &'a str,
    og_type:     &'a str,
    head_extra:  Option<&'a Markup>,
+   custom_og:   bool,
 }
 
 impl<'a> PageLayout<'a> {
@@ -49,6 +50,7 @@ impl<'a> PageLayout<'a> {
          og_image: "",
          og_type: "article",
          head_extra: None,
+         custom_og: false,
       }
    }
 
@@ -94,6 +96,12 @@ impl<'a> PageLayout<'a> {
       self
    }
 
+   /// Let `head_extra` provide the complete OpenGraph/Twitter card block.
+   pub const fn custom_open_graph(mut self) -> Self {
+      self.custom_og = true;
+      self
+   }
+
    pub fn render(self) -> Markup {
       let (infinite_scroll, theme, sticky_nav, use_twemoji, font_size) =
          self.prefs.map_or((false, None, true, true, ""), |prefs| {
@@ -133,7 +141,9 @@ impl<'a> PageLayout<'a> {
                   meta name="theme-color" content="#1F1F1F";
 
                   // Favicon and manifest links
-                  link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png";
+                  @if !self.custom_og {
+                      link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png";
+                  }
                   link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png";
                   link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png";
                   link rel="manifest" href="/site.webmanifest";
@@ -171,22 +181,24 @@ impl<'a> PageLayout<'a> {
                   }
 
                   // OpenGraph meta tags
-                  meta property="og:site_name" content=(self.config.server.title);
-                  meta property="og:locale" content="en_US";
-                  meta property="og:title" content=(self.title);
-                  meta property="og:description" content=(strip_html(self.description));
-                  // head_extra provides its own og:type and twitter:card
-                  // when present (e.g. video/player for GIF embeds).
-                  // Discord takes the first occurrence, so suppress defaults.
-                  @if self.head_extra.is_none() {
-                      meta property="og:type" content=(self.og_type);
-                  }
-                  @if !self.og_image.is_empty() {
-                      meta property="og:image" content=(self.og_image);
-                      meta property="twitter:image:src" content=(self.og_image);
-                  }
-                  @if self.head_extra.is_none() && !self.rss.is_empty() {
-                      meta name="twitter:card" content="summary";
+                  @if !self.custom_og {
+                      meta property="og:site_name" content=(self.config.server.title);
+                      meta property="og:locale" content="en_US";
+                      meta property="og:title" content=(self.title);
+                      meta property="og:description" content=(strip_html(self.description));
+                      // head_extra provides its own og:type and twitter:card
+                      // when present (e.g. video/player for GIF embeds).
+                      // Discord takes the first occurrence, so suppress defaults.
+                      @if self.head_extra.is_none() {
+                          meta property="og:type" content=(self.og_type);
+                      }
+                      @if !self.og_image.is_empty() {
+                          meta property="og:image" content=(self.og_image);
+                          meta property="twitter:image:src" content=(self.og_image);
+                      }
+                      @if self.head_extra.is_none() && !self.rss.is_empty() {
+                          meta name="twitter:card" content="summary";
+                      }
                   }
 
                   // Custom head content (OG overrides, oEmbed, ActivityPub)

@@ -684,15 +684,13 @@ pub fn render_status_page(
    let avatar_url = formatters::get_pic_url(&tweet.user.user_pic, config.config.base64_media);
 
    let head_extra = html! {
-       // Theme color for Discord embed accent
-       meta name="theme-color" content="#1F1F1F";
-
-       // Profile pic as author icon in Discord embeds
+       link rel="canonical" href=(canonical);
+       meta property="og:url" content=(canonical);
+       meta property="twitter:site" content=(format!("@{}", tweet.user.username));
+       meta property="twitter:creator" content=(format!("@{}", tweet.user.username));
+       meta property="theme-color" content="#1F1F1F";
+       meta property="twitter:title" content=(og_title);
        link rel="apple-touch-icon" href=(format!("{url_prefix}{avatar_url}"));
-
-       // Override OG title/description with tweet-specific values
-       meta property="og:title" content=(og_title);
-       meta property="og:description" content=(description);
 
        // Publish time for Discord footer timestamp
        @if let Some(ts) = tweet.time {
@@ -703,6 +701,11 @@ pub fn render_status_page(
        // Media-specific OG/twitter tags
        (render_media_meta_tags(tweet, config, url_prefix))
 
+       meta property="og:title" content=(og_title);
+       meta property="og:description" content=(description);
+       meta property="og:site_name" content=(config.server.title);
+       meta property="og:locale" content="en_US";
+
        // ActivityPub discovery link
        link rel="alternate"
            href=(format!("{url_prefix}/users/{username}/statuses/{id}"))
@@ -711,7 +714,8 @@ pub fn render_status_page(
        // oEmbed link for engagement metrics
        link rel="alternate"
            href=(oembed_url)
-           type="application/json+oembed";
+           type="application/json+oembed"
+           title=(tweet.user.fullname);
    };
 
    let rss_url = format!("/{username}/status/{id}/rss");
@@ -723,6 +727,7 @@ pub fn render_status_page(
       .canonical(&canonical)
       .referer(&referer)
       .head_extra(&head_extra)
+      .custom_open_graph()
       .render()
 }
 
@@ -900,6 +905,37 @@ mod tests {
             .is_some_and(|url| url.starts_with("https://teapot.test/pic/enc/"))
       );
       assert_eq!(attachment.description.as_deref(), Some("alt text"));
+   }
+
+   #[test]
+   fn status_page_uses_author_first_embed_metadata() {
+      let tweet = tweet(400, "G2CSGO", "Trying hard to win/lose/something");
+      let html = render_status_page(
+         &tweet,
+         &html! {},
+         &Prefs::default(),
+         &test_config(),
+         "G2CSGO",
+         "400",
+      )
+      .into_string();
+
+      assert!(!html.contains(
+         r#"property="og:title" content="G2CSGO (@G2CSGO): &quot;Trying hard to win/lose/something&quot;""#
+      ));
+      assert!(html.contains(r#"property="twitter:title" content="G2CSGO (@G2CSGO)""#));
+      assert!(html.contains(r#"property="og:title" content="G2CSGO (@G2CSGO)""#));
+      assert!(
+         html.contains(r#"property="og:description" content="Trying hard to win/lose/something""#)
+      );
+      assert!(html.contains(r#"property="twitter:site" content="@G2CSGO""#));
+      assert!(html.contains(r#"property="og:url" content="https://x.com/G2CSGO/status/400""#));
+      assert!(html.contains(r#"link rel="apple-touch-icon" href="https://teapot.test/pic/enc/"#));
+      assert!(
+         !html.contains(
+            r#"link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png""#
+         )
+      );
    }
 
    #[test]
