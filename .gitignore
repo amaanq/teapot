@@ -7,6 +7,7 @@
 !.gitignore
 !.rustfmt.toml
 !.taplo.toml
+!flake.lock
 !Cargo.lock
 !Cargo.toml
 !README.md
@@ -27,7 +28,10 @@
 !public/**
 
 # Nix
-!flake.lock
+!.tack/
+!.tack/default.nix
+!.tack/pins.toml
+!.tack/pins.lock.json
 !flake.nix
 !nix/
 !nix/package.nix

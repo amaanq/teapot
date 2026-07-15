@@ -1,0 +1,11 @@
+[all_follow]
+nixpkgs = "nixpkgs"
+
+[tack]
+recomposable = true
+
+[inputs.fenix]
+url = "github:nix-community/fenix"
+
+[inputs.nixpkgs]
+url = "github:NixOS/nixpkgs/nixpkgs-unstable"

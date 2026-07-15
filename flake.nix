@@ -1,17 +1,11 @@
 {
   description = "A privacy-focused Twitter/X frontend written in Rust";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    fenix = {
-      url = "github:nix-community/fenix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-  };
-
   outputs =
-    { nixpkgs, fenix, ... }:
+    { self, ... }@args:
     let
+      inputs = (import ./.tack) { overrides = args.tackOverrides or { }; };
+      inherit (inputs) nixpkgs fenix;
       inherit (nixpkgs) lib;
       forAllSystems = lib.genAttrs (lib.systems.doubles.linux ++ lib.systems.doubles.darwin);
       pkgsFor = system: nixpkgs.legacyPackages.${system} or (import nixpkgs { inherit system; });
