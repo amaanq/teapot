@@ -247,7 +247,7 @@ pub fn format_with_commas(num: i64) -> String {
    result
 }
 
-/// Abbreviate a number: 1234 → "1.2K", 1234567 → "1.23M".
+/// Abbreviate a number using `FxTwitter`'s fixed precision.
 #[expect(
    clippy::cast_precision_loss,
    reason = "display-only, precision loss is fine"
@@ -256,14 +256,8 @@ pub fn abbreviate_number(num: i64) -> String {
    let abs = num.unsigned_abs() as f64;
    if abs >= 1_000_000.0 {
       format!("{:.2}M", abs / 1_000_000.0)
-         .trim_end_matches('0')
-         .trim_end_matches('.')
-         .to_owned()
    } else if abs >= 1_000.0 {
       format!("{:.1}K", abs / 1_000.0)
-         .trim_end_matches('0')
-         .trim_end_matches('.')
-         .to_owned()
    } else {
       num.to_string()
    }
@@ -377,7 +371,7 @@ pub fn format_join_date(time: time::OffsetDateTime) -> String {
 pub const fn scale_dimensions_for_embed(width: i32, height: i32) -> (i32, i32) {
    if width > 1920 || height > 1920 {
       (width / 2, height / 2)
-   } else if width < 400 && height < 400 {
+   } else if width < 400 || height < 400 {
       (width * 2, height * 2)
    } else {
       (width, height)
@@ -478,5 +472,17 @@ mod tests {
    fn test_format_join_date() {
       let dt = parse_twitter_time("Tue Jun 02 20:12:29 +0000 2009").unwrap();
       assert_eq!(format_join_date(dt), "Joined June 2009");
+   }
+
+   #[test]
+   fn abbreviate_number_keeps_fxtwitter_precision() {
+      assert_eq!(abbreviate_number(496_000), "496.0K");
+      assert_eq!(abbreviate_number(1_000_000), "1.00M");
+   }
+
+   #[test]
+   fn narrow_video_dimensions_match_fxtwitter_scaling() {
+      assert_eq!(scale_dimensions_for_embed(320, 480), (640, 960));
+      assert_eq!(scale_dimensions_for_embed(3840, 2160), (1920, 1080));
    }
 }

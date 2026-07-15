@@ -134,6 +134,12 @@ impl TryFrom<&CardData> for Card {
          CardKind::LiveEvent => {
             bv.string("event_title").clone_into(&mut card_text);
          },
+         CardKind::Audiospace => {
+            let space_id = bv.string("id");
+            if !space_id.is_empty() {
+               card_url = format!("https://x.com/i/spaces/{space_id}");
+            }
+         },
          CardKind::Player => {
             let player_url = bv.string("player_url");
             if !player_url.is_empty() {

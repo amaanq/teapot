@@ -32,6 +32,7 @@ pub struct PageLayout<'a> {
    referer:     &'a str,
    og_image:    &'a str,
    og_type:     &'a str,
+   theme_color: &'a str,
    head_extra:  Option<&'a Markup>,
    custom_og:   bool,
 }
@@ -49,6 +50,7 @@ impl<'a> PageLayout<'a> {
          referer: "",
          og_image: "",
          og_type: "article",
+         theme_color: "#1F1F1F",
          head_extra: None,
          custom_og: false,
       }
@@ -86,6 +88,11 @@ impl<'a> PageLayout<'a> {
 
    pub const fn og_type(mut self, og_type: &'a str) -> Self {
       self.og_type = og_type;
+      self
+   }
+
+   pub const fn theme_color(mut self, theme_color: &'a str) -> Self {
+      self.theme_color = theme_color;
       self
    }
 
@@ -131,6 +138,11 @@ impl<'a> PageLayout<'a> {
          },
          _ => None,
       };
+      let mask_icon_color = if self.custom_og {
+         self.theme_color
+      } else {
+         "#ff6c60"
+      };
 
       html! {
           (DOCTYPE)
@@ -138,7 +150,11 @@ impl<'a> PageLayout<'a> {
               head {
                   meta charset="utf-8";
                   meta name="viewport" content="width=device-width, initial-scale=1.0";
-                  meta name="theme-color" content="#1F1F1F";
+                  @if self.custom_og {
+                      meta property="theme-color" content=(self.theme_color);
+                  } @else {
+                      meta name="theme-color" content=(self.theme_color);
+                  }
 
                   // Favicon and manifest links
                   @if !self.custom_og {
@@ -147,7 +163,7 @@ impl<'a> PageLayout<'a> {
                   link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png";
                   link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png";
                   link rel="manifest" href="/site.webmanifest";
-                  link rel="mask-icon" href="/safari-pinned-tab.svg" color="#ff6c60";
+                  link rel="mask-icon" href="/safari-pinned-tab.svg" color=(mask_icon_color);
 
                   // OpenSearch description (full absolute URL to /opensearch)
                   link rel="search" type="application/opensearchdescription+xml"

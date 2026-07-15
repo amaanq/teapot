@@ -55,8 +55,8 @@ kagiTokenFile = ""
 
 [gifTranscoding]
 # Transcode Twitter GIF MP4s to actual GIF format for Discord inline playback
-# Modes: "off" (default), "local" (ffmpeg on server), "external" (URL rewrite)
-mode = "off"
+# Modes: "local" (default, ffmpeg on server), "off", "external" (URL rewrite)
+mode = "local"
 # Cache directory for transcoded GIFs (local mode only)
 cacheDir = "./cache/gif"
 # Maximum cache size in MB (local mode only)

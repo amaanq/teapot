@@ -7,7 +7,10 @@ use serde::{
    Deserialize,
    Deserializer,
    Serialize,
-   de::IgnoredAny,
+   de::{
+      Error as _,
+      IgnoredAny,
+   },
 };
 
 use crate::utils::formatters::parse_twitter_time;
@@ -327,12 +330,20 @@ pub struct MediaItem {
    #[serde(rename = "type")]
    pub media_type:             Option<MediaType>,
    pub media_url_https:        Option<String>,
+   pub original_info:          Option<MediaOriginalInfo>,
    pub url:                    Option<String>,
    pub expanded_url:           Option<String>,
    pub video_info:             Option<VideoInfo>,
    pub ext_media_availability: Option<MediaAvailability>,
    pub additional_media_info:  Option<AdditionalMediaInfo>,
    pub ext_alt_text:           Option<String>,
+   pub grok_post_id:           Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct MediaOriginalInfo {
+   pub width:  i32,
+   pub height: i32,
 }
 
 #[derive(Deserialize, Default)]
@@ -489,6 +500,7 @@ pub struct TweetData {
    pub article:                 Option<ArticleWrapper>,
    pub content_disclosure:      Option<ContentDisclosure>,
    pub is_translatable:         Option<bool>,
+   pub source:                  Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -515,6 +527,7 @@ pub struct TweetLegacy {
    pub is_quote_status:           Option<bool>,
    pub created_at_ms:             Option<i64>,
    pub lang:                      Option<String>,
+   pub possibly_sensitive:        Option<bool>,
    pub entities:                  Option<Entities>,
    pub extended_entities:         Option<ExtendedEntities>,
 }
@@ -998,6 +1011,82 @@ pub fn indices(raw: &[u64]) -> (usize, usize) {
 #[derive(Deserialize)]
 pub struct GqlResponse<T> {
    pub data: T,
+}
+
+// ── X Spaces ──
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct AudioSpaceData {
+   #[serde(rename = "audioSpace")]
+   pub audio_space: Option<AudioSpace>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct AudioSpace {
+   pub metadata: Option<AudioSpaceMetadata>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct AudioSpaceMetadata {
+   pub rest_id:                       Option<String>,
+   pub state:                         Option<String>,
+   pub title:                         Option<String>,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub scheduled_start:               Option<i64>,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub started_at:                    Option<i64>,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub ended_at:                      Option<i64>,
+   pub is_space_available_for_replay: Option<bool>,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub total_live_listeners:          Option<i64>,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub total_replay_watched:          Option<i64>,
+   pub creator_results:               Option<NestedResult<UserData>>,
+}
+
+// ── Live broadcasts ──
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct BroadcastsData {
+   pub broadcasts: HashMap<String, BroadcastMetadata>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct BroadcastMetadata {
+   pub status:               String,
+   pub image_url:            String,
+   pub state:                String,
+   pub user_display_name:    String,
+   pub twitter_username:     String,
+   pub available_for_replay: bool,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub total_watching:       Option<i64>,
+   #[serde(default, deserialize_with = "deser_optional_i64")]
+   pub total_watched:        Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum I64OrString {
+   I64(i64),
+   String(String),
+}
+
+fn deser_optional_i64<'de, D: Deserializer<'de>>(de: D) -> result::Result<Option<i64>, D::Error> {
+   Option::<I64OrString>::deserialize(de)?
+      .map(|value| {
+         match value {
+            I64OrString::I64(value) => Ok(value),
+            I64OrString::String(value) => value.parse().map_err(D::Error::custom),
+         }
+      })
+      .transpose()
 }
 
 /// `{timeline: {instructions: [...]}}` — shared by all timeline-shaped

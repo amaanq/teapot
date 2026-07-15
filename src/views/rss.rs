@@ -299,6 +299,19 @@ fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
          );
       }
    }
+   for video in &tweet.additional_videos {
+      if !video.thumb.is_empty() {
+         let thumb_url = get_pic_url(&video.thumb, config);
+         let tweet_link = format!("{}{}", url_prefix, tweet_link(tweet));
+         let _ = write!(
+            body,
+            r#"<a href="{tweet_link}">
+<br>Video<br>
+  <img src="{url_prefix}{thumb_url}" style="max-width:250px;" />
+</a>"#
+         );
+      }
+   }
    if let Some(ref gif) = tweet.gif {
       // GIF: <video> element
       let thumb = format!("{}{}", url_prefix, get_pic_url(&gif.thumb, config));

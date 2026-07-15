@@ -316,9 +316,8 @@ fn validate_media_url(url: &str, kind: MediaKind) -> Result<()> {
       .host()
       .ok_or_else(|| Error::InvalidUrl("media URL is missing host".into()))?
       .to_ascii_lowercase();
-
    let allowed = match kind {
-      MediaKind::Image => is_twimg_host(&host),
+      MediaKind::Image => is_twimg_host(&host) || is_pscp_image_host(&host),
       MediaKind::Video => host == "video.twimg.com",
    };
    if allowed {
@@ -330,6 +329,10 @@ fn validate_media_url(url: &str, kind: MediaKind) -> Result<()> {
 
 fn is_twimg_host(host: &str) -> bool {
    host == "twimg.com" || host.ends_with(".twimg.com")
+}
+
+fn is_pscp_image_host(host: &str) -> bool {
+   host == "video.pscp.tv" || host.ends_with(".video.pscp.tv")
 }
 
 fn ensure_content_length_under(headers: &HeaderMap, max_bytes: u64) -> Result<()> {
@@ -347,4 +350,27 @@ fn ensure_content_length_under(headers: &HeaderMap, max_bytes: u64) -> Result<()
       ));
    }
    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn broadcast_thumbnail_hosts_are_allowed() {
+      assert!(
+         validate_media_url(
+            "https://prod-fastly-us-east-1.video.pscp.tv/Transcoding/v1/live_thumbnail/latest.jpg",
+            MediaKind::Image,
+         )
+         .is_ok()
+      );
+      assert!(
+         validate_media_url(
+            "https://prod-fastly-us-east-1.video.pscp.tv.evil.example/latest.jpg",
+            MediaKind::Image,
+         )
+         .is_err()
+      );
+   }
 }

@@ -13,6 +13,10 @@ use super::{
 };
 use crate::{
    api::schema::{
+      AudioSpaceData,
+      AudioSpaceMetadata,
+      BroadcastMetadata,
+      BroadcastsData,
       ConversationData,
       EditHistoryData,
       GqlResponse,
@@ -22,6 +26,7 @@ use crate::{
       ListTimelineData,
       RetweetersData,
       SearchTimelineData,
+      TweetData,
       UserResultData,
       UserTimelineData,
    },
@@ -33,6 +38,7 @@ use crate::{
    },
    types::{
       Article,
+      CardKind,
       Conversation,
       EditHistory,
       GalleryPhoto,
@@ -45,7 +51,187 @@ use crate::{
       Tweet,
       User,
    },
+   utils::formatters,
 };
+
+fn space_id_from_url(url: &str) -> Option<&str> {
+   url.split("/spaces/")
+      .nth(1)?
+      .split(['/', '?', '#'])
+      .next()
+      .filter(|id| !id.is_empty())
+}
+
+fn millis_to_time(milliseconds: i64) -> Option<time::OffsetDateTime> {
+   time::OffsetDateTime::from_unix_timestamp(milliseconds.checked_div(1_000)?).ok()
+}
+
+fn audio_space_status(metadata: &AudioSpaceMetadata) -> String {
+   match metadata.state.as_deref() {
+      Some("NotStarted") => {
+         metadata
+            .scheduled_start
+            .and_then(millis_to_time)
+            .map_or_else(
+               || "Scheduled".to_owned(),
+               |time| format!("Scheduled · {}", formatters::format_tweet_time(time)),
+            )
+      },
+      Some("Running") => {
+         metadata
+            .total_live_listeners
+            .filter(|count| *count > 0)
+            .map_or_else(
+               || "Live now".to_owned(),
+               |count| {
+                  format!(
+                     "Live now · {} listening",
+                     formatters::abbreviate_number(count)
+                  )
+               },
+            )
+      },
+      Some("Ended" | "TimedOut") if metadata.is_space_available_for_replay.unwrap_or(false) => {
+         metadata
+            .total_replay_watched
+            .filter(|count| *count > 0)
+            .map_or_else(
+               || "Replay available".to_owned(),
+               |count| {
+                  format!(
+                     "Replay available · {} plays",
+                     formatters::abbreviate_number(count)
+                  )
+               },
+            )
+      },
+      Some("Ended" | "TimedOut") => "Space ended".to_owned(),
+      _ => String::new(),
+   }
+}
+
+fn audio_space_host(metadata: &AudioSpaceMetadata) -> String {
+   let Some(user) = metadata
+      .creator_results
+      .as_ref()
+      .and_then(|results| results.result.as_deref())
+   else {
+      return "X Space".to_owned();
+   };
+   let name = user
+      .core
+      .as_ref()
+      .and_then(|core| core.name.as_deref())
+      .or_else(|| {
+         user
+            .legacy
+            .as_ref()
+            .and_then(|legacy| legacy.name.as_deref())
+      })
+      .unwrap_or_default();
+   let username = user
+      .core
+      .as_ref()
+      .and_then(|core| core.screen_name.as_deref())
+      .or_else(|| {
+         user
+            .legacy
+            .as_ref()
+            .and_then(|legacy| legacy.screen_name.as_deref())
+      })
+      .unwrap_or_default();
+
+   hosted_by(name, username).unwrap_or_else(|| "X Space".to_owned())
+}
+
+fn hosted_by(name: &str, username: &str) -> Option<String> {
+   match (name.is_empty(), username.is_empty()) {
+      (false, false) => Some(format!("Hosted by {name} (@{username})")),
+      (false, true) => Some(format!("Hosted by {name}")),
+      (true, false) => Some(format!("Hosted by @{username}")),
+      (true, true) => None,
+   }
+}
+
+fn broadcast_id_from_url(url: &str) -> Option<&str> {
+   url.split("/broadcasts/")
+      .nth(1)?
+      .split(['/', '?', '#'])
+      .next()
+      .filter(|id| !id.is_empty())
+}
+
+fn broadcast_status(metadata: &BroadcastMetadata) -> String {
+   match metadata.state.as_str() {
+      "RUNNING" => {
+         metadata
+            .total_watching
+            .filter(|count| *count > 0)
+            .map_or_else(
+               || "Live now".to_owned(),
+               |count| {
+                  format!(
+                     "Live now · {} watching",
+                     formatters::abbreviate_number(count)
+                  )
+               },
+            )
+      },
+      "ENDED" if metadata.available_for_replay => {
+         metadata
+            .total_watched
+            .filter(|count| *count > 0)
+            .map_or_else(
+               || "Replay available".to_owned(),
+               |count| {
+                  format!(
+                     "Replay available · {} views",
+                     formatters::abbreviate_number(count)
+                  )
+               },
+            )
+      },
+      "ENDED" => {
+         metadata
+            .total_watched
+            .filter(|count| *count > 0)
+            .map_or_else(
+               || "Broadcast ended".to_owned(),
+               |count| {
+                  format!(
+                     "Broadcast ended · {} views",
+                     formatters::abbreviate_number(count)
+                  )
+               },
+            )
+      },
+      _ => String::new(),
+   }
+}
+
+fn article_tweet_data<'a>(data: &'a ConversationData, tweet_id: &str) -> Option<&'a TweetData> {
+   let raw = data
+      .tweet_result
+      .as_ref()
+      .and_then(|nested| nested.result.as_deref())
+      .or_else(|| {
+         data
+            .threaded_conversation_with_injections_v2
+            .as_ref()?
+            .instructions
+            .iter()
+            .filter_map(|instruction| instruction.entries.as_deref())
+            .flatten()
+            .find(|entry| {
+               entry
+                  .entry_id_str()
+                  .starts_with(&format!("tweet-{tweet_id}"))
+            })
+            .and_then(|entry| entry.tweet_result())
+      })?;
+
+   raw.tweet.as_deref().or(Some(raw))
+}
 
 /// Twitter/X API client.
 #[derive(Clone)]
@@ -347,6 +533,82 @@ impl ApiClient {
       Ok(resp.data)
    }
 
+   async fn cookie_json_request<T: DeserializeOwned>(
+      &self,
+      session_key: &str,
+      api_path: &str,
+      url: &str,
+   ) -> Result<T> {
+      let session = self.sessions.get_session(session_key).await?;
+      if !matches!(session.kind, SessionKind::Cookie) {
+         return Err(Error::Internal(
+            "This X endpoint requires a cookie session".into(),
+         ));
+      }
+
+      let (bearer, tid) = self
+         .tid
+         .generate(api_path)
+         .await
+         .map_or((endpoints::BEARER_TOKEN_NO_TID, None), |tid_val| {
+            (endpoints::BEARER_TOKEN, Some(tid_val))
+         });
+      let mut headers = header::HeaderMap::new();
+      headers.insert(
+         header::AUTHORIZATION,
+         header::HeaderValue::from_str(bearer)
+            .map_err(|_| Error::Internal("invalid bearer token value".into()))?,
+      );
+      headers.insert(
+         "x-twitter-auth-type",
+         header::HeaderValue::from_static("OAuth2Session"),
+      );
+      headers.insert(
+         "x-csrf-token",
+         session
+            .ct0
+            .parse()
+            .map_err(|_| Error::Internal("invalid ct0 header value".into()))?,
+      );
+      headers.insert(
+         header::COOKIE,
+         format!("auth_token={}; ct0={}", session.auth_token, session.ct0)
+            .parse()
+            .map_err(|_| Error::Internal("invalid cookie header value".into()))?,
+      );
+      headers.insert(
+         header::ORIGIN,
+         header::HeaderValue::from_static("https://x.com"),
+      );
+      headers.insert(header::ACCEPT, header::HeaderValue::from_static("*/*"));
+      headers.insert(
+         "x-twitter-active-user",
+         header::HeaderValue::from_static("yes"),
+      );
+      headers.insert(
+         "x-twitter-client-language",
+         header::HeaderValue::from_static("en"),
+      );
+      if let Some(tid) = tid
+         && let Ok(value) = tid.parse()
+      {
+         headers.insert("x-client-transaction-id", value);
+      }
+
+      let response = self.client.get_with_headers(url, &headers).await?;
+      if !response.status().is_success() {
+         let status = response.status();
+         let body = response.text().await.unwrap_or_default();
+         return Err(Error::TwitterApi(format!(
+            "X API request failed ({status}): {body}"
+         )));
+      }
+
+      let bytes = response.bytes().await?;
+      serde_json::from_slice(&bytes)
+         .map_err(|err| Error::Internal(format!("Response parse error: {err}")))
+   }
+
    /// Get user by screen name.
    pub async fn get_user(&self, screen_name: &str) -> Result<User> {
       let data = self
@@ -414,6 +676,94 @@ impl ApiClient {
       }
    }
 
+   async fn enrich_audio_space_card(&self, tweet: &mut Tweet) {
+      let Some(space_id) = tweet
+         .card
+         .as_ref()
+         .filter(|card| card.kind == CardKind::Audiospace)
+         .and_then(|card| space_id_from_url(&card.url))
+         .map(str::to_owned)
+      else {
+         return;
+      };
+
+      let Ok(data) = self
+         .graphql_request::<AudioSpaceData>(
+            endpoints::GRAPH_AUDIO_SPACE,
+            &endpoints::audio_space_vars(&space_id),
+            endpoints::GQL_FEATURES,
+            None,
+         )
+         .await
+      else {
+         return;
+      };
+      let Some(metadata) = data.audio_space.and_then(|space| space.metadata) else {
+         return;
+      };
+      let Some(card) = tweet
+         .card
+         .as_mut()
+         .filter(|card| card.kind == CardKind::Audiospace)
+      else {
+         return;
+      };
+
+      if let Some(title) = metadata.title.as_deref().filter(|title| !title.is_empty()) {
+         title.clone_into(&mut card.title);
+      }
+      card.text = audio_space_status(&metadata);
+      card.dest = audio_space_host(&metadata);
+   }
+
+   async fn enrich_broadcast_card(&self, tweet: &mut Tweet) {
+      let Some(broadcast_id) = tweet
+         .card
+         .as_ref()
+         .filter(|card| matches!(card.kind, CardKind::Broadcast | CardKind::Periscope))
+         .and_then(|card| broadcast_id_from_url(&card.url))
+         .map(str::to_owned)
+      else {
+         return;
+      };
+      let url = endpoints::broadcast_show_url(&broadcast_id);
+      let Ok(data) = self
+         .cookie_json_request::<BroadcastsData>(
+            endpoints::BROADCAST_SHOW_PATH,
+            endpoints::BROADCAST_SHOW_PATH,
+            &url,
+         )
+         .await
+      else {
+         return;
+      };
+      let Some(metadata) = data.broadcasts.get(&broadcast_id) else {
+         return;
+      };
+      let Some(card) = tweet
+         .card
+         .as_mut()
+         .filter(|card| matches!(card.kind, CardKind::Broadcast | CardKind::Periscope))
+      else {
+         return;
+      };
+
+      if !metadata.status.is_empty() {
+         metadata.status.clone_into(&mut card.title);
+      } else if !card.text.is_empty() {
+         card.text.clone_into(&mut card.title);
+      }
+      card.text = broadcast_status(metadata);
+      card.dest = hosted_by(&metadata.user_display_name, &metadata.twitter_username)
+         .unwrap_or_else(|| "Live broadcast".to_owned());
+      if !metadata.image_url.is_empty() {
+         metadata.image_url.clone_into(&mut card.image);
+         if let Some(video) = card.video.as_mut() {
+            metadata.image_url.clone_into(&mut video.thumb);
+         }
+      }
+   }
+
    /// Get conversation/thread for a tweet.
    pub async fn get_conversation(
       &self,
@@ -429,7 +779,28 @@ impl ApiClient {
             Some(endpoints::TWEET_DETAIL_FIELD_TOGGLES),
          )
          .await?;
-      super::parse_conversation(&data, tweet_id, cursor.is_some())
+      let mut conversation = super::parse_conversation(&data, tweet_id, cursor.is_some())?;
+      if cursor.is_none()
+         && let Some(tweet_data) = article_tweet_data(&data, tweet_id)
+         && let Ok(article) = parser::parse_article(tweet_data)
+      {
+         parser::attach_article_preview(&mut conversation.tweet, &article);
+      }
+      if cursor.is_none()
+         && conversation
+            .tweet
+            .entities
+            .iter()
+            .any(|entity| entity.url.contains("/article/"))
+         && let Ok((_tweet, article)) = self.get_article_tweet(tweet_id).await
+      {
+         parser::attach_article_preview(&mut conversation.tweet, &article);
+      }
+      if cursor.is_none() {
+         self.enrich_audio_space_card(&mut conversation.tweet).await;
+         self.enrich_broadcast_card(&mut conversation.tweet).await;
+      }
+      Ok(conversation)
    }
 
    /// Get user's tweets timeline.
@@ -703,34 +1074,12 @@ impl ApiClient {
       let conversation = super::parse_conversation(&data, tweet_id, false)?;
       let tweet = conversation.tweet;
 
-      // Extract raw TweetData for the article — try single-tweet path first,
-      // then scan timeline entries. Handle TweetWithVisibilityResults wrapper.
-      let raw = data
-         .tweet_result
-         .as_ref()
-         .and_then(|nested| nested.result.as_deref())
-         .or_else(|| {
-            data
-               .threaded_conversation_with_injections_v2
-               .as_ref()?
-               .instructions
-               .iter()
-               .filter_map(|instr| instr.entries.as_deref())
-               .flatten()
-               .find(|entry| {
-                  entry
-                     .entry_id_str()
-                     .starts_with(&format!("tweet-{tweet_id}"))
-               })
-               .and_then(|entry| entry.tweet_result())
-         });
-
-      // Unwrap TweetWithVisibilityResults if needed
-      let tweet_data = raw
-         .and_then(|td| td.tweet.as_deref().or(Some(td)))
+      let tweet_data = article_tweet_data(&data, tweet_id)
          .ok_or_else(|| Error::TweetNotFound("Tweet data not found in response".into()))?;
 
       let article = parser::parse_article(tweet_data)?;
+      let mut tweet = tweet;
+      parser::attach_article_preview(&mut tweet, &article);
       Ok((tweet, article))
    }
 
@@ -998,5 +1347,90 @@ impl ApiClient {
       }
 
       Ok(photos)
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn formats_scheduled_audio_space_status() {
+      let metadata = AudioSpaceMetadata {
+         state: Some("NotStarted".to_owned()),
+         scheduled_start: Some(1_784_203_200_000),
+         ..AudioSpaceMetadata::default()
+      };
+
+      assert_eq!(
+         audio_space_status(&metadata),
+         "Scheduled · Jul 16, 2026 · 12:00 PM UTC"
+      );
+   }
+
+   #[test]
+   fn parses_recorded_audio_space_metadata() {
+      let data: AudioSpaceData = serde_json::from_str(
+         r#"{
+            "audioSpace": {
+               "metadata": {
+                  "ended_at": "1784107519245",
+                  "is_space_available_for_replay": true,
+                  "state": "TimedOut",
+                  "title": "Interlink enters a new phase",
+                  "total_replay_watched": 4
+               }
+            }
+         }"#,
+      )
+      .unwrap();
+      let metadata = data.audio_space.unwrap().metadata.unwrap();
+
+      assert_eq!(metadata.ended_at, Some(1_784_107_519_245));
+      assert_eq!(audio_space_status(&metadata), "Replay available · 4 plays");
+   }
+
+   #[test]
+   fn parses_live_broadcast_metadata() {
+      let data: BroadcastsData = serde_json::from_str(
+         r#"{
+            "broadcasts": {
+               "1XxyggAaLzvGM": {
+                  "available_for_replay": true,
+                  "image_url": "https://video.pscp.tv/latest.jpg",
+                  "state": "RUNNING",
+                  "status": "Stripe x PayPal",
+                  "total_watched": "26",
+                  "total_watching": "26",
+                  "twitter_username": "tbpn",
+                  "user_display_name": "TBPN"
+               }
+            }
+         }"#,
+      )
+      .unwrap();
+      let metadata = &data.broadcasts["1XxyggAaLzvGM"];
+
+      assert_eq!(broadcast_status(metadata), "Live now · 26 watching");
+      assert_eq!(
+         hosted_by(&metadata.user_display_name, &metadata.twitter_username),
+         Some("Hosted by TBPN (@tbpn)".to_owned())
+      );
+   }
+
+   #[test]
+   fn extracts_audio_space_id_from_canonical_url() {
+      assert_eq!(
+         space_id_from_url("https://x.com/i/spaces/1AxRnnrNvyDxl/peek?foo=bar"),
+         Some("1AxRnnrNvyDxl")
+      );
+   }
+
+   #[test]
+   fn extracts_broadcast_id_from_canonical_url() {
+      assert_eq!(
+         broadcast_id_from_url("https://x.com/i/broadcasts/1XxyggAaLzvGM?foo=bar"),
+         Some("1XxyggAaLzvGM")
+      );
    }
 }

@@ -56,6 +56,7 @@
               pkgs.pkg-config
               pkgs.mold
               pkgs.clang
+              pkgs.ffmpeg-headless
             ];
           };
         }
@@ -245,7 +246,7 @@
                   "local"
                   "external"
                 ];
-                default = "off";
+                default = "local";
                 description = "GIF transcoding mode. 'local' requires ffmpeg, 'external' rewrites URLs to an external domain.";
               };
               cacheDir = lib.mkOption {

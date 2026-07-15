@@ -2,6 +2,8 @@
   lib,
   rustPlatform,
   pkg-config,
+  makeWrapper,
+  ffmpeg-headless,
 }:
 rustPlatform.buildRustPackage {
   pname = "teapot";
@@ -20,7 +22,10 @@ rustPlatform.buildRustPackage {
 
   cargoLock.lockFile = ../Cargo.lock;
 
-  nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [
+    pkg-config
+    makeWrapper
+  ];
 
   doCheck = false;
   stripAllList = [ "bin" ];
@@ -29,6 +34,8 @@ rustPlatform.buildRustPackage {
     mkdir -p $out/share/teapot
     cp -r public $out/share/teapot/
     cp -r config $out/share/teapot/
+    wrapProgram $out/bin/teapot \
+      --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]}
   '';
 
   meta = {

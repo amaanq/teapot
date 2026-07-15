@@ -14,8 +14,8 @@ use crate::error::{
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum GifTranscodingMode {
-   #[default]
    Off,
+   #[default]
    Local,
    External,
 }
@@ -35,7 +35,7 @@ pub struct GifTranscodingConfig {
 impl Default for GifTranscodingConfig {
    fn default() -> Self {
       Self {
-         mode:            GifTranscodingMode::Off,
+         mode:            GifTranscodingMode::Local,
          cache_dir:       default_gif_cache_dir(),
          cache_max_mb:    default_gif_cache_max_mb(),
          external_domain: String::new(),

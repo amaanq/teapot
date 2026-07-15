@@ -22,10 +22,15 @@ use serde::Deserialize;
 
 use crate::{
    AppState,
+   cache::{
+      keys as cache_keys,
+      ttl,
+   },
    error::{
       Error,
       Result,
    },
+   types::Conversation,
    utils::formatters::format_relative_time,
    views::{
       embed as embed_view,
@@ -35,9 +40,10 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct OEmbedQuery {
-   pub text:   Option<String>,
-   pub author: Option<String>,
-   pub status: Option<String>,
+   pub text:     Option<String>,
+   pub author:   Option<String>,
+   pub status:   Option<String>,
+   pub provider: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,6 +66,9 @@ pub fn router() -> Router<AppState> {
         .route("/embed/Tweet.html", get(legacy_embed_redirect))
         // ActivityPub endpoint for Discord multi-image support
         .route("/users/{username}/statuses/{id}", get(activity_pub_status))
+        // Discord turns the Mastodon-looking discovery URL above into this
+        // API request; the discovery URL itself is not the JSON endpoint.
+        .route("/api/v1/statuses/{id}", get(mastodon_status))
         // oEmbed endpoints
         .route("/owoembed", get(oembed))
         .route("/oembed", get(oembed_standard))
@@ -78,20 +87,21 @@ async fn legacy_embed_redirect(Query(query): Query<LegacyEmbedQuery>) -> Respons
 async fn tweet_embed(
    State(state): State<AppState>,
    Path((_username, id)): Path<(String, String)>,
+   headers: HeaderMap,
 ) -> Result<Response> {
-   // Fetch tweet from API
-   let mut tweet = state.api.get_tweet(&id).await?;
-   state.api.resolve_unavailable_quote(&mut tweet).await;
+   let tweet = cached_conversation(&state, &id).await?.tweet;
 
-   let markup = embed_view::render_tweet_embed(&tweet, &state.config);
+   let discord_activity = headers
+      .get(header::USER_AGENT)
+      .and_then(|value| value.to_str().ok())
+      .is_some_and(|user_agent| user_agent.contains("Discordbot"));
+   let markup = embed_view::render_tweet_embed(&tweet, &state.config, discord_activity);
    Ok(Html(markup.into_string()).into_response())
 }
 
 /// Video embed endpoint - returns HTML with video player.
 async fn video_embed(State(state): State<AppState>, Path(id): Path<String>) -> Result<Response> {
-   // Fetch tweet from API
-   let mut tweet = state.api.get_tweet(&id).await?;
-   state.api.resolve_unavailable_quote(&mut tweet).await;
+   let tweet = cached_conversation(&state, &id).await?.tweet;
 
    if !embed_view::has_playable_video(&tweet) {
       return Err(Error::NotFound("No video found".into()));
@@ -126,22 +136,77 @@ async fn activity_pub_status(
       || accept.contains("application/activity+json")
       || accept.contains("application/ld+json")
    {
-      // Fetch tweet from API
-      let mut tweet = state.api.get_tweet(&id).await?;
-      state.api.resolve_unavailable_quote(&mut tweet).await;
-
-      // Build ActivityPub JSON
-      let activity = embed_view::build_activity_pub(&tweet, &state.config);
-
-      return Ok((
-         [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-         Json(activity),
-      )
-         .into_response());
+      return activity_response(&state, &id).await;
    }
 
    // Otherwise redirect to normal status page
    Ok(Redirect::to(&format!("/{username}/status/{id}")).into_response())
+}
+
+/// Mastodon API v1 status endpoint used by Discord after discovery.
+async fn mastodon_status(
+   State(state): State<AppState>,
+   Path(id): Path<String>,
+) -> Result<Response> {
+   activity_response(&state, &id).await
+}
+
+async fn activity_response(state: &AppState, id: &str) -> Result<Response> {
+   let conversation = cached_conversation(state, id).await?;
+   let reply_id = conversation.tweet.reply_id;
+   let mut replied_to = if reply_id > 0 {
+      conversation
+         .before
+         .content
+         .iter()
+         .find(|candidate| candidate.id == reply_id)
+         .cloned()
+   } else {
+      None
+   };
+   let mut tweet = conversation.tweet;
+
+   if replied_to.is_none() && reply_id > 0 && reply_id != tweet.id {
+      replied_to = cached_conversation(state, &reply_id.to_string())
+         .await
+         .ok()
+         .map(|context| context.tweet);
+   }
+
+   if tweet.is_translatable {
+      let kagi = &state.config.config.kagi_token;
+      let token = (!kagi.is_empty()).then_some(kagi.as_str());
+      if let Ok(translation) = state.api.translate_auto(id, token).await
+         && !translation.text.is_empty()
+      {
+         tweet.translation = Some(translation);
+      }
+   }
+
+   let activity = replied_to.as_ref().map_or_else(
+      || embed_view::build_activity_pub(&tweet, &state.config),
+      |original| embed_view::build_activity_pub_with_reply(&tweet, Some(original), &state.config),
+   );
+   Ok((
+      [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+      Json(activity),
+   )
+      .into_response())
+}
+
+async fn cached_conversation(state: &AppState, id: &str) -> Result<Conversation> {
+   let cache_key = cache_keys::conversation(id);
+   if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
+      return Ok(cached);
+   }
+
+   let mut conversation = state.api.get_conversation(id, None, "Relevance").await?;
+   state
+      .api
+      .resolve_unavailable_quote(&mut conversation.tweet)
+      .await;
+   state.cache.set(&cache_key, &conversation, ttl::DEFAULT);
+   Ok(conversation)
 }
 
 /// oEmbed JSON endpoint for engagement metrics in Discord embed footers.
@@ -164,17 +229,20 @@ async fn oembed(
    let text = query.text.unwrap_or_default();
    let author = query.author.unwrap_or_default();
    let status = query.status.unwrap_or_default();
+   let provider = query.provider.filter(|value| !value.is_empty());
 
    let author_url = format!("https://x.com/{author}/status/{status}");
 
    let oembed = OEmbedData {
-      author_name: text,
-      author_url,
-      provider_name: state.config.server.title.clone(),
-      provider_url: state.config.url_prefix().to_owned(),
-      title: "Embed",
-      kind: "rich",
-      version: "1.0",
+      author_name:   text,
+      author_url:    author_url.clone(),
+      provider_name: provider
+         .clone()
+         .unwrap_or_else(|| state.config.server.title.clone()),
+      provider_url:  provider.map_or_else(|| state.config.url_prefix().to_owned(), |_| author_url),
+      title:         "Embed",
+      kind:          "rich",
+      version:       "1.0",
    };
 
    Ok((

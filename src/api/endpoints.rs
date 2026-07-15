@@ -31,6 +31,8 @@ pub const GRAPH_USER_TWEETS_AND_REPLIES_V2: &str =
    "BDX77Xzqypdt11-mDfgdpQ/UserWithProfileTweetsAndRepliesQueryV2";
 pub const GRAPH_TWEET_EDIT_HISTORY: &str = "upS9teTSG45aljmP9oTuXA/TweetEditHistory";
 pub const GRAPH_RETWEETERS: &str = "tj-dlOvzRKjw69iy4z3LzQ/Retweeters";
+pub const GRAPH_AUDIO_SPACE: &str = "xpwpkJD3FetGBaSq7zH4Lw/AudioSpaceById";
+pub const BROADCAST_SHOW_PATH: &str = "/i/api/1.1/broadcasts/show.json";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                               (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
@@ -125,6 +127,20 @@ pub fn retweeters_vars(tweet_id: &str, cursor: Option<&str>) -> String {
       "tweetId": tweet_id, "cursor": cursor, "count": 20,
       "includePromotedContent": false,
    }))
+}
+
+pub fn audio_space_vars(space_id: &str) -> String {
+   json!({
+      "id": space_id,
+      "isMetatagsQuery": false,
+      "withReplays": true,
+      "withListeners": true,
+   })
+   .to_string()
+}
+
+pub fn broadcast_show_url(broadcast_id: &str) -> String {
+   format!("https://x.com{BROADCAST_SHOW_PATH}?ids={broadcast_id}&include_events=false")
 }
 
 pub fn search_vars(raw_query: &str, cursor: Option<&str>, product: &str) -> String {

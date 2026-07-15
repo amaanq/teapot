@@ -19,12 +19,13 @@ use crate::{
 
 /// Parsed media result (no side effects on tweet text).
 pub struct ParsedMedia {
-   pub photos:      Vec<Photo>,
-   pub video:       Option<Video>,
-   pub gif:         Option<Gif>,
-   pub attribution: Option<User>,
+   pub photos:            Vec<Photo>,
+   pub video:             Option<Video>,
+   pub additional_videos: Vec<Video>,
+   pub gif:               Option<Gif>,
+   pub attribution:       Option<User>,
    /// t.co and expanded URLs that should be stripped from tweet text.
-   pub strip_urls:  Vec<String>,
+   pub strip_urls:        Vec<String>,
 }
 
 /// Parse media from tweet legacy data.
@@ -34,6 +35,7 @@ pub struct ParsedMedia {
 pub fn parse_media(legacy: &TweetLegacy) -> ParsedMedia {
    let mut photos = Vec::new();
    let mut video = None;
+   let mut additional_videos = Vec::new();
    let mut gif = None;
    let mut attribution = None;
    let mut strip_urls = Vec::new();
@@ -47,11 +49,18 @@ pub fn parse_media(legacy: &TweetLegacy) -> ParsedMedia {
                photos.push(Photo {
                   url:      url.to_owned(),
                   alt_text: media.ext_alt_text.clone().unwrap_or_default(),
+                  width:    media.original_info.as_ref().map_or(0, |info| info.width),
+                  height:   media.original_info.as_ref().map_or(0, |info| info.height),
                });
             }
          },
          MediaType::Video => {
-            video = Some(parse_video(media));
+            let parsed = parse_video(media);
+            if video.is_none() {
+               video = Some(parsed);
+            } else {
+               additional_videos.push(parsed);
+            }
             // Parse media attribution from additional_media_info.source_user
             if let Some(ref info) = media.additional_media_info
                && let Some(ref source_user) = info.source_user
@@ -79,6 +88,7 @@ pub fn parse_media(legacy: &TweetLegacy) -> ParsedMedia {
    ParsedMedia {
       photos,
       video,
+      additional_videos,
       gif,
       attribution,
       strip_urls,
@@ -192,5 +202,68 @@ pub fn parse_gif(media: &MediaItem) -> Gif {
       .unwrap_or_default()
       .to_owned();
 
-   Gif { url, thumb }
+   let (width, height) = media
+      .original_info
+      .as_ref()
+      .map_or((0, 0), |info| (info.width, info.height));
+
+   Gif {
+      url,
+      thumb,
+      alt_text: media.ext_alt_text.clone().unwrap_or_default(),
+      width,
+      height,
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use serde_json::json;
+
+   use super::*;
+
+   #[test]
+   fn parse_media_preserves_multiple_videos() {
+      let legacy: TweetLegacy = serde_json::from_value(json!({
+         "extended_entities": {
+            "media": [
+               {
+                  "type": "video",
+                  "media_url_https": "https://pbs.twimg.com/first.jpg",
+                  "video_info": {
+                     "variants": [{
+                        "content_type": "video/mp4",
+                        "bitrate": 832000,
+                        "url": "https://video.twimg.com/vid/640x360/first.mp4"
+                     }]
+                  }
+               },
+               {
+                  "type": "video",
+                  "media_url_https": "https://pbs.twimg.com/second.jpg",
+                  "video_info": {
+                     "variants": [{
+                        "content_type": "video/mp4",
+                        "bitrate": 832000,
+                        "url": "https://video.twimg.com/vid/1280x720/second.mp4"
+                     }]
+                  }
+               }
+            ]
+         }
+      }))
+      .unwrap();
+
+      let parsed = parse_media(&legacy);
+
+      assert_eq!(
+         parsed.video.as_ref().map(|video| video.url.as_str()),
+         Some("https://video.twimg.com/vid/640x360/first.mp4")
+      );
+      assert_eq!(parsed.additional_videos.len(), 1);
+      assert_eq!(
+         parsed.additional_videos[0].url,
+         "https://video.twimg.com/vid/1280x720/second.mp4"
+      );
+   }
 }

@@ -329,6 +329,9 @@ impl<'a> TweetRenderer<'a> {
                   @if let Some(ref video) = display_tweet.video {
                       (render_video(video, config, prefs))
                   }
+                  @for video in &display_tweet.additional_videos {
+                      (render_video(video, config, prefs))
+                  }
 
                   // GIF
                   @if let Some(ref gif) = display_tweet.gif {
@@ -566,6 +569,9 @@ fn render_quote(quote: &Tweet, config: &Config, prefs: Option<&Prefs>) -> Markup
                (render_photos(&quote.photos, config))
            }
            @if let Some(ref video) = quote.video {
+               (render_video(video, config, prefs))
+           }
+           @for video in &quote.additional_videos {
                (render_video(video, config, prefs))
            }
            @if let Some(ref gif) = quote.gif {

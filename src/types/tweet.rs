@@ -124,8 +124,11 @@ impl Video {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Gif {
-   pub url:   String,
-   pub thumb: String,
+   pub url:      String,
+   pub thumb:    String,
+   pub alt_text: String,
+   pub width:    i32,
+   pub height:   i32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -133,6 +136,8 @@ pub struct Gif {
 pub struct Photo {
    pub url:      String,
    pub alt_text: String,
+   pub width:    i32,
+   pub height:   i32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -291,45 +296,48 @@ pub struct TweetStats {
    reason = "mirrors Twitter API tweet fields"
 )]
 pub struct Tweet {
-   pub id:              i64,
-   pub thread_id:       i64,
-   pub reply_id:        i64,
-   pub user:            User,
-   pub text:            String,
+   pub id:                      i64,
+   pub thread_id:               i64,
+   pub reply_id:                i64,
+   pub user:                    User,
+   pub text:                    String,
    #[serde(with = "time::serde::timestamp::option")]
-   pub time:            Option<time::OffsetDateTime>,
-   pub reply:           Vec<String>,
-   pub pinned:          bool,
-   pub has_thread:      bool,
-   pub available:       bool,
-   pub tombstone:       String,
-   pub location:        String,
-   pub source:          String,
-   pub stats:           TweetStats,
-   pub retweet:         Option<Box<Self>>,
-   pub attribution:     Option<User>,
-   pub media_tags:      Vec<User>,
-   pub quote:           Option<Box<Self>>,
-   pub card:            Option<Card>,
-   pub poll:            Option<Poll>,
-   pub gif:             Option<Gif>,
-   pub video:           Option<Video>,
-   pub photos:          Vec<Photo>,
+   pub time:                    Option<time::OffsetDateTime>,
+   pub reply:                   Vec<String>,
+   pub reply_mentions_stripped: bool,
+   pub pinned:                  bool,
+   pub has_thread:              bool,
+   pub available:               bool,
+   pub tombstone:               String,
+   pub location:                String,
+   pub source:                  String,
+   pub stats:                   TweetStats,
+   pub retweet:                 Option<Box<Self>>,
+   pub attribution:             Option<User>,
+   pub media_tags:              Vec<User>,
+   pub quote:                   Option<Box<Self>>,
+   pub card:                    Option<Card>,
+   pub poll:                    Option<Poll>,
+   pub gif:                     Option<Gif>,
+   pub video:                   Option<Video>,
+   pub additional_videos:       Vec<Video>,
+   pub photos:                  Vec<Photo>,
    /// Community note (Birdwatch) -- structured data, rendered in views.
-   pub note:            Option<CommunityNote>,
+   pub note:                    Option<CommunityNote>,
    /// Content disclosure labels (paid promotion, AI-generated media).
-   pub paid_promotion:  bool,
-   pub ai_generated:    bool,
+   pub sensitive:               bool,
+   pub paid_promotion:          bool,
+   pub ai_generated:            bool,
    /// Edit history tweet IDs.
-   pub history:         Vec<i64>,
+   pub history:                 Vec<i64>,
    /// Text entities for expansion (mentions, hashtags, URLs).
-   pub entities:        Vec<Entity>,
+   pub entities:                Vec<Entity>,
    /// BCP-47 language code from Twitter's language detection.
-   pub lang:            String,
+   pub lang:                    String,
    /// Whether Twitter considers this tweet translatable.
-   pub is_translatable: bool,
+   pub is_translatable:         bool,
    /// Pre-fetched translation for embeds (OG tags, `ActivityPub`).
-   pub translation:     Option<Translation>,
+   pub translation:             Option<Translation>,
 }
 
 /// Translation of a tweet's text via Twitter's Strato translation API.
@@ -345,6 +353,9 @@ pub struct Translation {
 impl Tweet {
    /// Check if this tweet has any media.
    pub const fn has_media(&self) -> bool {
-      !self.photos.is_empty() || self.video.is_some() || self.gif.is_some()
+      !self.photos.is_empty()
+         || self.video.is_some()
+         || !self.additional_videos.is_empty()
+         || self.gif.is_some()
    }
 }

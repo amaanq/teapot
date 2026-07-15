@@ -22,6 +22,10 @@ use crate::{
       ArticleParagraph,
       ArticleStyle,
       ArticleStyleRange,
+      Card,
+      CardKind,
+      EntityKind,
+      Tweet,
       User,
    },
 };
@@ -45,6 +49,60 @@ pub fn parse_article(tweet_data: &TweetData) -> Result<Article> {
       .unwrap_or_default();
 
    Ok(parse_inline_article(inline, user))
+}
+
+pub fn attach_article_preview(tweet: &mut Tweet, article: &Article) {
+   let has_usable_card = tweet
+      .card
+      .as_ref()
+      .is_some_and(|card| !matches!(card.kind, CardKind::Hidden | CardKind::Unknown));
+   if article.title.is_empty() || has_usable_card {
+      return;
+   }
+
+   if let Some(start) = tweet
+      .entities
+      .iter()
+      .filter(|entity| entity.kind == EntityKind::Url && entity.url.contains("/article/"))
+      .map(|entity| entity.indices.0)
+      .min()
+   {
+      let byte_start = tweet
+         .text
+         .char_indices()
+         .nth(start)
+         .map_or(tweet.text.len(), |(index, _)| index);
+      tweet.text.truncate(byte_start);
+      tweet.text = tweet.text.trim_end().to_owned();
+      tweet
+         .entities
+         .retain(|entity| entity.kind != EntityKind::Url || !entity.url.contains("/article/"));
+   }
+
+   let description = article
+      .paragraphs
+      .iter()
+      .find(|paragraph| {
+         paragraph.base_type == ArticleBlockType::Unstyled && !paragraph.text.trim().is_empty()
+      })
+      .map(|paragraph| {
+         let mut excerpt: String = paragraph.text.chars().take(200).collect();
+         if paragraph.text.chars().count() > 200 {
+            excerpt.push('…');
+         }
+         excerpt
+      })
+      .unwrap_or_default();
+
+   tweet.card = Some(Card {
+      kind: CardKind::Article,
+      url: format!("/{}/article/{}", tweet.user.username, tweet.id),
+      title: article.title.clone(),
+      image: article.cover_image.clone(),
+      text: description,
+      dest: format!("Article · @{}", tweet.user.username),
+      ..Card::default()
+   });
 }
 
 fn parse_inline_article(raw: &InlineArticle, user: User) -> Article {

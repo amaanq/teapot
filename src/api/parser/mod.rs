@@ -9,7 +9,10 @@ mod timeline;
 mod tweet;
 mod user;
 
-pub use article::parse_article;
+pub use article::{
+   attach_article_preview,
+   parse_article,
+};
 pub use conversation::parse_conversation;
 pub use search::{
    parse_list,

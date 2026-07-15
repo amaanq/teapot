@@ -44,6 +44,15 @@ fn char_to_byte_index(text: &str, char_idx: usize) -> Option<usize> {
 /// then reconstructs the text with HTML anchor tags. Text between entities
 /// is passed through verbatim (Twitter already HTML-escapes it).
 pub fn expand_entities(text: &str, entities: &[Entity]) -> String {
+   expand_entities_with_target(text, entities, false)
+}
+
+/// Expand entities with links pointing back to X.
+pub fn expand_entities_for_x(text: &str, entities: &[Entity]) -> String {
+   expand_entities_with_target(text, entities, true)
+}
+
+fn expand_entities_with_target(text: &str, entities: &[Entity], link_to_x: bool) -> String {
    if entities.is_empty() {
       return text.to_owned();
    }
@@ -88,34 +97,47 @@ pub fn expand_entities(text: &str, entities: &[Entity]) -> String {
       let entity_text = &text[start_byte..end_byte];
       match entity.kind {
          EntityKind::Mention => {
-            let _ = write!(
-               result,
-               r#"<a href="{}" title="{}">{}</a>"#,
-               html_escape(&entity.url),
-               html_escape(&entity.display),
-               entity_text
-            );
+            if link_to_x {
+               let username = entity_text.trim_start_matches('@');
+               let _ = write!(
+                  result,
+                  r#"<a href="https://x.com/{}">{}</a>"#,
+                  url_encode(username),
+                  entity_text,
+               );
+            } else {
+               let _ = write!(
+                  result,
+                  r#"<a href="{}" title="{}">{}</a>"#,
+                  html_escape(&entity.url),
+                  html_escape(&entity.display),
+                  entity_text
+               );
+            }
          },
          EntityKind::Hashtag => {
             let tag_name = entity_text.trim_start_matches('#').trim_start_matches('$');
-            let _ = write!(
-               result,
-               r#"<a href="/search?q=%23{}">{}</a>"#,
-               url_encode(tag_name),
-               entity_text
-            );
+            let href = if link_to_x {
+               format!("https://x.com/hashtag/{}", url_encode(tag_name))
+            } else {
+               format!("/search?q=%23{}", url_encode(tag_name))
+            };
+            let _ = write!(result, r#"<a href="{href}">{entity_text}</a>"#);
          },
          EntityKind::Symbol => {
             let symbol_name = entity_text.trim_start_matches('$');
+            let root = if link_to_x { "https://x.com" } else { "" };
             let _ = write!(
                result,
-               r#"<a href="/search?q=%24{}">{}</a>"#,
+               r#"<a href="{root}/search?q=%24{}">{}</a>"#,
                url_encode(symbol_name),
-               entity_text
+               entity_text,
             );
          },
          EntityKind::Url => {
-            let display = if entity.display.is_empty() {
+            let display = if link_to_x {
+               short_url(&entity.url, 0)
+            } else if entity.display.is_empty() {
                short_url(&entity.url, 28)
             } else {
                entity.display.clone()
@@ -231,6 +253,41 @@ mod tests {
       }];
       let result = expand_entities("#rust is great", &entities);
       assert!(result.contains(r#"href="/search?q=%23rust""#));
+   }
+
+   #[test]
+   fn activity_entities_link_to_x() {
+      let entities = vec![
+         Entity {
+            indices: (0, 5),
+            kind: EntityKind::Mention,
+            url: "/test".to_owned(),
+            ..Default::default()
+         },
+         Entity {
+            indices: (6, 11),
+            kind: EntityKind::Hashtag,
+            ..Default::default()
+         },
+      ];
+      let result = expand_entities_for_x("@test #rust", &entities);
+
+      assert!(result.contains(r#"href="https://x.com/test""#));
+      assert!(result.contains(r#"href="https://x.com/hashtag/rust""#));
+   }
+
+   #[test]
+   fn activity_urls_use_full_expanded_url() {
+      let entities = vec![Entity {
+         indices: (0, 16),
+         kind: EntityKind::Url,
+         url: "https://example.com/a/long/path?with=query&and=more".to_owned(),
+         ..Default::default()
+      }];
+      let result = expand_entities_for_x("https://t.co/xyz", &entities);
+
+      assert!(result.contains("example.com/a/long/path?with=query&amp;and=more"));
+      assert!(!result.contains('…'));
    }
 
    #[test]

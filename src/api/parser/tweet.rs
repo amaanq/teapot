@@ -124,6 +124,7 @@ impl TryFrom<&TweetData> for Tweet {
       let media = parse_media(legacy);
       let mut photos = media.photos;
       let video = media.video;
+      let additional_videos = media.additional_videos;
       let gif = media.gif;
       let media_attribution = media.attribution;
 
@@ -171,6 +172,7 @@ impl TryFrom<&TweetData> for Tweet {
       {
          reply = vec![screen_name.clone()];
       }
+      let mut reply_mentions_stripped = false;
 
       // Parse thread info
       let has_thread = legacy.self_thread.is_some();
@@ -294,13 +296,14 @@ impl TryFrom<&TweetData> for Tweet {
          for mention in &ent.user_mentions {
             let screen_name = mention.screen_name.as_deref().unwrap_or_default();
             let (start, _) = indices(&mention.indices);
-            if start < display_start
-               && !screen_name.is_empty()
-               && !reply
+            if start < display_start && !screen_name.is_empty() {
+               reply_mentions_stripped = true;
+               if !reply
                   .iter()
                   .any(|existing| existing.eq_ignore_ascii_case(screen_name))
-            {
-               reply.push(screen_name.to_owned());
+               {
+                  reply.push(screen_name.to_owned());
+               }
             }
          }
       }
@@ -308,6 +311,7 @@ impl TryFrom<&TweetData> for Tweet {
       if display_start > 0 && note_tweet.is_none() {
          for entity in &entities {
             if entity.indices.0 < display_start && entity.kind == EntityKind::Mention {
+               reply_mentions_stripped = true;
                // url is "/{screen_name}", strip the leading "/"
                let screen_name = entity.url.trim_start_matches('/');
                if !screen_name.is_empty()
@@ -350,7 +354,7 @@ impl TryFrom<&TweetData> for Tweet {
          .and_then(super::super::schema::BirdwatchPivot::to_note);
 
       // Parse content disclosure labels
-      let (paid_promotion, ai_generated) =
+      let (paid_promotion, disclosed_ai) =
          raw.content_disclosure
             .as_ref()
             .map_or((false, false), |cd| {
@@ -364,6 +368,13 @@ impl TryFrom<&TweetData> for Tweet {
                   .is_some_and(|ag| ag.has_ai_generated_media);
                (paid, ai)
             });
+      let ai_generated = disclosed_ai
+         || legacy.media_items().iter().any(|media| {
+            media
+               .grok_post_id
+               .as_deref()
+               .is_some_and(|id| !id.is_empty())
+         });
 
       // Parse edit history IDs
       let history = raw
@@ -384,6 +395,8 @@ impl TryFrom<&TweetData> for Tweet {
          photos.push(Photo {
             url:      img_url.clone(),
             alt_text: String::new(),
+            width:    0,
+            height:   0,
          });
       }
 
@@ -414,7 +427,10 @@ impl TryFrom<&TweetData> for Tweet {
       // withArticleRichContentState is true. When we have a card, strip the
       // article URL from the text (the card is clickable). Otherwise, keep it
       // as a "View article" text link fallback.
-      let has_article_card = card.is_none() && {
+      let can_replace_card = card
+         .as_ref()
+         .is_none_or(|card| matches!(card.kind, CardKind::Hidden | CardKind::Unknown));
+      let has_article_card = can_replace_card && {
          if let Some(article) = raw
             .article
             .as_ref()
@@ -495,6 +511,7 @@ impl TryFrom<&TweetData> for Tweet {
       });
 
       let lang = legacy.lang.as_deref().unwrap_or_default().to_owned();
+      let sensitive = legacy.possibly_sensitive.unwrap_or(false);
 
       Ok(Self {
          id,
@@ -504,12 +521,13 @@ impl TryFrom<&TweetData> for Tweet {
          text: text.clone(),
          time,
          reply,
+         reply_mentions_stripped,
          pinned: false,
          has_thread,
          available: !is_withheld,
          tombstone: if is_withheld { text } else { String::new() },
          location,
-         source: String::new(),
+         source: raw.source.clone().unwrap_or_default(),
          stats,
          retweet,
          attribution: media_attribution,
@@ -519,8 +537,10 @@ impl TryFrom<&TweetData> for Tweet {
          poll,
          gif,
          video,
+         additional_videos,
          photos,
          note,
+         sensitive,
          paid_promotion,
          ai_generated,
          history,

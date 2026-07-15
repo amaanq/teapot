@@ -5,7 +5,11 @@ use axum::{
       Query,
       State,
    },
-   http::StatusCode,
+   http::{
+      HeaderMap,
+      StatusCode,
+      header,
+   },
    response::{
       Html,
       IntoResponse as _,
@@ -127,11 +131,16 @@ async fn status_media_redirect(Path((username, id)): Path<(String, String)>) -> 
 async fn status(
    State(state): State<AppState>,
    jar: CookieJar,
+   headers: HeaderMap,
    Path((username, id)): Path<(String, String)>,
    Query(query): Query<StatusQuery>,
 ) -> Result<Response> {
    // Extract prefs from cookies
    let prefs = Prefs::from_cookies(&jar, &state.config);
+   let discord_activity = headers
+      .get(header::USER_AGENT)
+      .and_then(|value| value.to_str().ok())
+      .is_some_and(|user_agent| user_agent.contains("Discordbot"));
 
    let sort = ranking_mode(query.sort.as_deref());
    let is_sorted = sort != "Relevance";
@@ -171,7 +180,7 @@ async fn status(
          let has_cursor = query.cursor.is_some();
 
          // Auto-translate for embeds (OG tags / ActivityPub show translated text)
-         if !is_scroll && !has_cursor && conversation.tweet.is_translatable {
+         if !discord_activity && !is_scroll && !has_cursor && conversation.tweet.is_translatable {
             let tid = conversation.tweet.id.to_string();
             let kagi = &state.config.config.kagi_token;
             let token = (!kagi.is_empty()).then_some(kagi.as_str());
@@ -224,6 +233,7 @@ async fn status(
                &prefs,
                &state.config,
                query.sort.as_deref(),
+               discord_activity,
             ));
          }
 
@@ -249,6 +259,7 @@ async fn status(
             &prefs,
             &state.config,
             query.sort.as_deref(),
+            discord_activity,
          ))
       },
       Err(Error::TweetNotFound(msg)) => {
@@ -267,6 +278,10 @@ async fn status(
 }
 
 /// Render a conversation page (first page or paginated replies).
+#[expect(
+   clippy::too_many_arguments,
+   reason = "rendering needs route identity, preferences, sorting, and scraper mode"
+)]
 fn render_conversation(
    conversation: &Conversation,
    has_cursor: bool,
@@ -275,6 +290,7 @@ fn render_conversation(
    prefs: &Prefs,
    config: &Config,
    sort: Option<&str>,
+   discord_activity: bool,
 ) -> Response {
    let tweet = &conversation.tweet;
 
@@ -422,13 +438,22 @@ fn render_conversation(
        }
    };
 
-   let markup = embed::render_status_page(tweet, &content, prefs, config, username, id);
+   let markup = embed::render_status_page(
+      tweet,
+      &content,
+      prefs,
+      config,
+      username,
+      id,
+      discord_activity,
+   );
    Html(markup.into_string()).into_response()
 }
 
 async fn status_by_id(
    State(state): State<AppState>,
    jar: CookieJar,
+   headers: HeaderMap,
    Path(id): Path<String>,
    Query(query): Query<StatusQuery>,
 ) -> Result<Response> {
@@ -442,6 +467,10 @@ async fn status_by_id(
    }
 
    let prefs = Prefs::from_cookies(&jar, &state.config);
+   let discord_activity = headers
+      .get(header::USER_AGENT)
+      .and_then(|value| value.to_str().ok())
+      .is_some_and(|user_agent| user_agent.contains("Discordbot"));
    let sort = ranking_mode(query.sort.as_deref());
 
    // Fetch conversation directly — render the tweet page inline instead of
@@ -476,7 +505,7 @@ async fn status_by_id(
    match conv_result {
       Ok(mut conversation) => {
          // Auto-translate for embeds (OG tags / ActivityPub show translated text)
-         if conversation.tweet.is_translatable {
+         if !discord_activity && conversation.tweet.is_translatable {
             let tid = conversation.tweet.id.to_string();
             let kagi = &state.config.config.kagi_token;
             let token = (!kagi.is_empty()).then_some(kagi.as_str());
@@ -496,6 +525,7 @@ async fn status_by_id(
             &prefs,
             &state.config,
             query.sort.as_deref(),
+            discord_activity,
          ))
       },
       Err(Error::TweetNotFound(msg)) => {
