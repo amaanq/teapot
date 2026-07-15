@@ -149,7 +149,7 @@ impl TryFrom<&TweetData> for Tweet {
       // Parse reply info (with GraphQL fallbacks)
       let mut reply_id = legacy.reply_id();
 
-      // Fallback: reply_to_results.rest_id (newer GraphQL path)
+      // Fall back to reply_to_results.rest_id from the newer GraphQL path
       if reply_id == 0
          && let Some(ref rtr) = raw.reply_to_results
       {
@@ -166,7 +166,7 @@ impl TryFrom<&TweetData> for Tweet {
          .map(|name| vec![name.clone()])
          .unwrap_or_default();
 
-      // Fallback: reply_to_user_results for reply username (newer GraphQL path)
+      // Fall back to reply_to_user_results for the reply username
       if reply.is_empty()
          && let Some(screen_name) = raw.reply_to_screen_name.as_ref()
       {
@@ -204,7 +204,7 @@ impl TryFrom<&TweetData> for Tweet {
                   |quote_data| parse_tweet_object(quote_data).ok().map(Box::new),
                )
             },
-            // Fallback: is_quote_status + quoted_status_id_str
+            // Fall back to is_quote_status and quoted_status_id_str
             None => {
                if legacy.is_quote_status.unwrap_or(false) {
                   let quoted_id = legacy
@@ -286,7 +286,7 @@ impl TryFrom<&TweetData> for Tweet {
       // Collect leading @mention entities into the reply field so the "Replying to"
       // line shows all recipients, not just in_reply_to_screen_name.
       //
-      // For note_tweets: the note_tweet entity_set often doesn't include
+      // The note_tweet entity_set often does not include
       // user_mentions, so fall back to legacy entities for mention collection.
       // The note_tweet text is already stripped of the @mention prefix.
       if reply_id != 0
@@ -324,7 +324,7 @@ impl TryFrom<&TweetData> for Tweet {
             }
          }
 
-         // Trim the text: skip the first display_start characters (Unicode codepoints)
+         // Skip the first display_start Unicode code points
          let char_byte_offset = text
             .char_indices()
             .nth(display_start)
@@ -369,11 +369,11 @@ impl TryFrom<&TweetData> for Tweet {
                (paid, ai)
             });
       let ai_generated = disclosed_ai
-         || legacy.media_items().iter().any(|media| {
-            media
+         || legacy.media_items().iter().any(|media_item| {
+            media_item
                .grok_post_id
                .as_deref()
-               .is_some_and(|id| !id.is_empty())
+               .is_some_and(|post_id| !post_id.is_empty())
          });
 
       // Parse edit history IDs
@@ -400,7 +400,7 @@ impl TryFrom<&TweetData> for Tweet {
          });
       }
 
-      // Handle amplify card: sets tweet.video directly
+      // Amplify cards set tweet.video directly
       let (mut card, video) = if card
          .as_ref()
          .is_some_and(|card_ref| card_ref.kind == CardKind::Amplify)
@@ -482,7 +482,7 @@ impl TryFrom<&TweetData> for Tweet {
          }
       };
 
-      // Rewrite article entity URLs: when a rich card was synthesized, strip
+      // Rewrite article entity URLs. When a rich card was synthesized, strip
       // the trailing article link from both text and entities (the card is
       // clickable). Otherwise rewrite to a "View article" fallback link.
       entities.retain_mut(|entity| {

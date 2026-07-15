@@ -718,144 +718,7 @@ pub struct AppStoreEntry {
    pub category: Option<String>,
 }
 
-// ── Accessor methods ─────────────────────────────────────────────────────
-
-impl TweetCore {
-   pub fn user_value(&self) -> Option<&UserData> {
-      let nr = self.user_results.as_ref().or(self.user_result.as_ref())?;
-      nr.result.as_deref()
-   }
-}
-
-impl EditControl {
-   pub fn tweet_ids(&self) -> Option<&[String]> {
-      self
-         .edit_control_initial
-         .as_ref()
-         .and_then(|eci| eci.edit_tweet_ids.as_deref())
-         .or(self.edit_tweet_ids.as_deref())
-   }
-}
-
-impl TweetLegacy {
-   pub fn is_withheld(&self) -> bool {
-      self.withheld_copyright.unwrap_or(false)
-         || self
-            .withheld_in_countries
-            .as_ref()
-            .is_some_and(|countries| {
-               countries
-                  .iter()
-                  .any(|cc| cc == "XX" || cc == "XY" || cc.to_lowercase().contains("withheld"))
-            })
-   }
-
-   pub fn full_text(&self) -> &str {
-      self
-         .full_text
-         .as_deref()
-         .or(self.text.as_deref())
-         .unwrap_or_default()
-   }
-
-   pub fn parse_time(&self) -> Option<time::OffsetDateTime> {
-      self
-         .created_at
-         .as_deref()
-         .and_then(parse_twitter_time)
-         .or_else(|| {
-            let ms = self.created_at_ms?;
-            if ms == 0 {
-               return None;
-            }
-            time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()
-         })
-   }
-
-   pub fn reply_id(&self) -> i64 {
-      self
-         .in_reply_to_status_id_str
-         .as_deref()
-         .and_then(|id_str| id_str.parse().ok())
-         .unwrap_or(0)
-   }
-
-   pub fn thread_id(&self, id: i64) -> i64 {
-      let conv_id = self
-         .conversation_id_str
-         .as_deref()
-         .and_then(|id_str| id_str.parse().ok())
-         .unwrap_or(id);
-
-      if self.self_thread.is_some() && conv_id == id {
-         self
-            .self_thread
-            .as_ref()
-            .and_then(|st| st.id_str.as_deref())
-            .and_then(|id_str| id_str.parse().ok())
-            .unwrap_or(conv_id)
-      } else {
-         conv_id
-      }
-   }
-
-   pub fn location(&self) -> &str {
-      self
-         .place
-         .as_ref()
-         .and_then(|place| place.full_name.as_deref())
-         .unwrap_or_default()
-   }
-
-   pub fn media_items(&self) -> &[MediaItem] {
-      self
-         .extended_entities
-         .as_ref()
-         .map(|ee| ee.media.as_slice())
-         .or_else(|| self.entities.as_ref().map(|ent| ent.media.as_slice()))
-         .unwrap_or_default()
-   }
-
-   pub fn expand_card_url(&self, tco: &str) -> Option<String> {
-      self
-         .entities
-         .as_ref()?
-         .urls
-         .iter()
-         .find(|url_ent| url_ent.url.as_deref() == Some(tco))
-         .and_then(|url_ent| url_ent.expanded_url.clone())
-   }
-}
-
-impl CardData {
-   pub fn name(&self) -> &str {
-      self
-         .legacy
-         .as_ref()
-         .and_then(|leg| leg.name.as_deref())
-         .or(self.name.as_deref())
-         .unwrap_or_default()
-   }
-
-   pub fn url(&self) -> &str {
-      self
-         .legacy
-         .as_ref()
-         .and_then(|leg| leg.url.as_deref())
-         .or(self.url.as_deref())
-         .unwrap_or_default()
-   }
-
-   pub fn binding_values(&self) -> &BindingValues {
-      self
-         .legacy
-         .as_ref()
-         .map(|leg| &leg.binding_values)
-         .filter(|bv| !bv.is_empty())
-         .unwrap_or(&self.binding_values)
-   }
-}
-
+#[path = "schema_accessors.rs"] mod accessors;
 /// A parsed community note with structured link data (no HTML).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CommunityNote {
@@ -902,14 +765,18 @@ impl BirdwatchPivot {
 
 /// Deserializes any JSON value as `true`. Used with `#[serde(default)]`
 /// so absent fields get `false`.
-fn deser_present<'de, D: Deserializer<'de>>(de: D) -> result::Result<bool, D::Error> {
+fn deser_present<'de, D>(de: D) -> result::Result<bool, D::Error>
+where
+   D: Deserializer<'de>,
+{
    IgnoredAny::deserialize(de).map(|_| true)
 }
 
 /// Flatten `{note_tweet_results: {result: NoteTweet}}` → `Option<NoteTweet>`.
-fn deser_note_tweet<'de, D: Deserializer<'de>>(
-   de: D,
-) -> result::Result<Option<NoteTweet>, D::Error> {
+fn deser_note_tweet<'de, D>(de: D) -> result::Result<Option<NoteTweet>, D::Error>
+where
+   D: Deserializer<'de>,
+{
    #[derive(Deserialize)]
    struct W1 {
       note_tweet_results: Option<W2>,
@@ -924,7 +791,10 @@ fn deser_note_tweet<'de, D: Deserializer<'de>>(
 }
 
 /// Flatten `{text: {text: "..."}}` → `Option<String>`.
-fn deser_tombstone<'de, D: Deserializer<'de>>(de: D) -> result::Result<Option<String>, D::Error> {
+fn deser_tombstone<'de, D>(de: D) -> result::Result<Option<String>, D::Error>
+where
+   D: Deserializer<'de>,
+{
    #[derive(Deserialize)]
    struct Wrapper {
       text: Option<Inner>,
@@ -939,9 +809,10 @@ fn deser_tombstone<'de, D: Deserializer<'de>>(de: D) -> result::Result<Option<St
 }
 
 /// Flatten `{result: {core: {screen_name: "..."}}}` → `Option<String>`.
-fn deser_reply_to_user<'de, D: Deserializer<'de>>(
-   de: D,
-) -> result::Result<Option<String>, D::Error> {
+fn deser_reply_to_user<'de, D>(de: D) -> result::Result<Option<String>, D::Error>
+where
+   D: Deserializer<'de>,
+{
    #[derive(Deserialize)]
    struct W1 {
       result: Option<W2>,
@@ -961,7 +832,10 @@ fn deser_reply_to_user<'de, D: Deserializer<'de>>(
 }
 
 /// Flatten `{media_info: {original_img_url: "..."}}` → `Option<String>`.
-fn deser_banner_url<'de, D: Deserializer<'de>>(de: D) -> result::Result<Option<String>, D::Error> {
+fn deser_banner_url<'de, D>(de: D) -> result::Result<Option<String>, D::Error>
+where
+   D: Deserializer<'de>,
+{
    #[derive(Deserialize)]
    struct Wrapper {
       media_info: Option<Inner>,
@@ -976,9 +850,10 @@ fn deser_banner_url<'de, D: Deserializer<'de>>(de: D) -> result::Result<Option<S
 }
 
 /// Flatten `{url: {urls: [...]}}` → `Vec<UrlEntity>`.
-fn deser_user_url_entities<'de, D: Deserializer<'de>>(
-   de: D,
-) -> result::Result<Vec<UrlEntity>, D::Error> {
+fn deser_user_url_entities<'de, D>(de: D) -> result::Result<Vec<UrlEntity>, D::Error>
+where
+   D: Deserializer<'de>,
+{
    #[derive(Deserialize)]
    struct Wrapper {
       url: Option<Inner>,
@@ -1005,446 +880,5 @@ pub fn indices(raw: &[u64]) -> (usize, usize) {
    )
 }
 
-// ── GraphQL response envelope types ─────────────────────────────────────
-
-/// Top-level GraphQL response wrapper. Every endpoint returns `{data: T}`.
-#[derive(Deserialize)]
-pub struct GqlResponse<T> {
-   pub data: T,
-}
-
-// ── X Spaces ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct AudioSpaceData {
-   #[serde(rename = "audioSpace")]
-   pub audio_space: Option<AudioSpace>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct AudioSpace {
-   pub metadata: Option<AudioSpaceMetadata>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct AudioSpaceMetadata {
-   pub rest_id:                       Option<String>,
-   pub state:                         Option<String>,
-   pub title:                         Option<String>,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub scheduled_start:               Option<i64>,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub started_at:                    Option<i64>,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub ended_at:                      Option<i64>,
-   pub is_space_available_for_replay: Option<bool>,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub total_live_listeners:          Option<i64>,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub total_replay_watched:          Option<i64>,
-   pub creator_results:               Option<NestedResult<UserData>>,
-}
-
-// ── Live broadcasts ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct BroadcastsData {
-   pub broadcasts: HashMap<String, BroadcastMetadata>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct BroadcastMetadata {
-   pub status:               String,
-   pub image_url:            String,
-   pub state:                String,
-   pub user_display_name:    String,
-   pub twitter_username:     String,
-   pub available_for_replay: bool,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub total_watching:       Option<i64>,
-   #[serde(default, deserialize_with = "deser_optional_i64")]
-   pub total_watched:        Option<i64>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum I64OrString {
-   I64(i64),
-   String(String),
-}
-
-fn deser_optional_i64<'de, D: Deserializer<'de>>(de: D) -> result::Result<Option<i64>, D::Error> {
-   Option::<I64OrString>::deserialize(de)?
-      .map(|value| {
-         match value {
-            I64OrString::I64(value) => Ok(value),
-            I64OrString::String(value) => value.parse().map_err(D::Error::custom),
-         }
-      })
-      .transpose()
-}
-
-/// `{timeline: {instructions: [...]}}` — shared by all timeline-shaped
-/// endpoints.
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct TimelinePayload {
-   pub timeline: TimelineInstructions,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct TimelineInstructions {
-   pub instructions: Vec<Instruction>,
-}
-
-// ── User endpoints (get_user, get_user_by_id) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct UserResultData {
-   pub user:         Option<NestedResult<UserData>>,
-   pub user_result:  Option<NestedResult<UserData>>,
-   pub user_results: Option<NestedResult<UserData>>,
-}
-
-// ── User timeline (get_user_tweets, get_user_media,
-// get_user_tweets_and_replies) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct UserTimelineData {
-   pub user:        Option<TimelineNested>,
-   pub user_result: Option<TimelineNested>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct TimelineNested {
-   pub result: Option<TimelineResultData>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct TimelineResultData {
-   pub timeline_v2:       Option<TimelinePayload>,
-   pub timeline:          Option<TimelinePayload>,
-   pub timeline_response: Option<TimelinePayload>,
-}
-
-impl TimelineResultData {
-   pub fn instructions(&self) -> &[Instruction] {
-      self
-         .timeline_v2
-         .as_ref()
-         .or(self.timeline.as_ref())
-         .or(self.timeline_response.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
-   }
-}
-
-// ── Search (search, search_users) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct SearchTimelineData {
-   pub search_by_raw_query: Option<SearchNested>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct SearchNested {
-   pub search_timeline: Option<TimelinePayload>,
-}
-
-impl SearchTimelineData {
-   pub fn instructions(&self) -> &[Instruction] {
-      self
-         .search_by_raw_query
-         .as_ref()
-         .and_then(|nested| nested.search_timeline.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
-   }
-}
-
-// ── Conversation (get_conversation) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ConversationData {
-   #[serde(rename = "tweetResult")]
-   pub tweet_result:                             Option<NestedResult<TweetData>>,
-   pub threaded_conversation_with_injections_v2: Option<TimelineInstructions>,
-}
-
-// ── List timeline (get_list_tweets) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListTimelineData {
-   pub list: Option<ListTimelineNested>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListTimelineNested {
-   pub timeline_response: Option<TimelinePayload>,
-}
-
-impl ListTimelineData {
-   pub fn instructions(&self) -> &[Instruction] {
-      self
-         .list
-         .as_ref()
-         .and_then(|nested| nested.timeline_response.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
-   }
-}
-
-// ── List members (get_list_members) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListMembersData {
-   pub list: Option<ListMembersNested>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListMembersNested {
-   #[serde(alias = "membersTimeline")]
-   pub members_timeline: Option<TimelinePayload>,
-}
-
-impl ListMembersData {
-   pub fn instructions(&self) -> &[Instruction] {
-      self
-         .list
-         .as_ref()
-         .and_then(|nested| nested.members_timeline.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
-   }
-}
-
-// ── Retweeters (get_retweeters) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct RetweetersData {
-   pub retweeters_timeline: Option<TimelinePayload>,
-}
-
-impl RetweetersData {
-   pub fn instructions(&self) -> &[Instruction] {
-      self
-         .retweeters_timeline
-         .as_ref()
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
-   }
-}
-
-// ── List by ID (get_list) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListByIdData {
-   pub list: Option<ListByIdWrapper>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListByIdWrapper {
-   #[serde(flatten)]
-   pub data:   ListData,
-   pub result: Option<Box<ListData>>,
-}
-
-impl ListByIdWrapper {
-   pub fn list_data(&self) -> &ListData {
-      self.result.as_deref().unwrap_or(&self.data)
-   }
-}
-
-// ── List by slug (get_list_by_slug) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListBySlugData {
-   pub user_by_screen_name: Option<ListBySlugNested>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ListBySlugNested {
-   pub list: Option<ListData>,
-}
-
-// ── Edit history (get_edit_history) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct EditHistoryData {
-   pub tweet_result_by_rest_id: Option<EditHistoryNested>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct EditHistoryNested {
-   pub result: Option<EditHistoryResult>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct EditHistoryResult {
-   pub edit_history_timeline: Option<TimelinePayload>,
-}
-
-impl EditHistoryData {
-   pub fn instructions(&self) -> &[Instruction] {
-      self
-         .tweet_result_by_rest_id
-         .as_ref()
-         .and_then(|nested| nested.result.as_ref())
-         .and_then(|result| result.edit_history_timeline.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
-   }
-}
-
-// ── Article / Notes (inline in tweet response) ──
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleWrapper {
-   pub article_results: Option<NestedResult<InlineArticle>>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct InlineArticle {
-   pub rest_id:        Option<String>,
-   pub title:          Option<String>,
-   pub cover_media:    Option<InlineArticleCoverMedia>,
-   pub media_entities: Option<Vec<ArticleMediaEntry>>,
-   pub metadata:       Option<InlineArticleMetadata>,
-   pub content_state:  Option<InlineContentState>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct InlineArticleCoverMedia {
-   pub media_info: Option<InlineArticleCoverMediaInfo>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct InlineArticleCoverMediaInfo {
-   pub original_img_url: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct InlineArticleMetadata {
-   pub first_published_at_secs: Option<i64>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct InlineContentState {
-   pub blocks:     Vec<ArticleBlock>,
-   #[serde(rename = "entityMap")]
-   pub entity_map: Vec<EntityMapEntry>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct EntityMapEntry {
-   pub key:   String,
-   pub value: ArticleRawEntity,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleBlock {
-   pub text:                String,
-   #[serde(rename = "type")]
-   pub block_type:          String,
-   #[serde(rename = "inlineStyleRanges")]
-   pub inline_style_ranges: Vec<ArticleRawStyleRange>,
-   #[serde(rename = "entityRanges")]
-   pub entity_ranges:       Vec<ArticleRawEntityRange>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleRawStyleRange {
-   pub offset: usize,
-   pub length: usize,
-   pub style:  String,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleRawEntityRange {
-   pub offset: usize,
-   pub length: usize,
-   pub key:    usize,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleRawEntity {
-   #[serde(rename = "type")]
-   pub entity_type: String,
-   pub data:        Option<ArticleRawEntityData>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleRawEntityData {
-   pub url:         Option<String>,
-   pub markdown:    Option<String>,
-   #[serde(rename = "mediaItems")]
-   pub media_items: Option<Vec<ArticleRawMediaItem>>,
-   #[serde(rename = "tweetId")]
-   pub tweet_id:    Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleRawMediaItem {
-   #[serde(rename = "mediaId")]
-   pub media_id: String,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleMediaEntry {
-   pub media_id:   Option<String>,
-   pub media_info: Option<ArticleMediaInfo>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleMediaInfo {
-   #[expect(clippy::pub_underscore_fields, reason = "serde field name matches API")]
-   pub __typename:       Option<String>,
-   pub original_img_url: Option<String>,
-   pub variants:         Option<Vec<ArticleMediaVariant>>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default)]
-pub struct ArticleMediaVariant {
-   pub url: Option<String>,
-}
+#[path = "schema_endpoints.rs"] mod endpoint_types;
+pub use endpoint_types::*;

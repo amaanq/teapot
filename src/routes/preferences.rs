@@ -201,7 +201,7 @@ pub struct PrefsForm {
 impl PrefsForm {
    fn to_prefs(&self, config: &Config) -> Prefs {
       let defaults = Prefs::with_defaults(config);
-      // Unchecked checkboxes are absent from form data (None) — always false.
+      // Unchecked checkboxes are absent from form data and therefore false.
       let parse_bool = |field: &Option<String>| field.as_ref().is_some_and(|val| val == "on");
       let parse_str = |field: &Option<String>, default: String| field.clone().unwrap_or(default);
 

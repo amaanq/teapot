@@ -9,5 +9,4 @@ mod tid;
 pub use auth::*;
 pub use client::*;
 pub use http::HttpClient;
-pub use parser::*;
 pub use tid::*;

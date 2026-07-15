@@ -61,7 +61,7 @@ impl TidClient {
    }
 
    /// Refresh the TID client if stale. Uses `try_lock` so only one task
-   /// performs the refresh — concurrent callers skip and use the existing
+   /// performs the refresh. Concurrent callers skip it and use the existing
    /// (possibly stale) client.
    async fn ensure_fresh(&self) {
       let Ok(mut last) = self.last_fetch.try_lock() else {

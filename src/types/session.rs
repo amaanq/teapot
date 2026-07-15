@@ -36,7 +36,6 @@ pub struct SessionCredentials {
 /// Mutable rate-limit state, stored separately in the pool.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SessionLimits {
-   pub pending:    i32,
    pub limited:    bool,
    pub limited_at: i64,
    pub apis:       HashMap<String, RateLimit>,
@@ -54,7 +53,7 @@ impl SessionLimits {
          if now - self.limited_at < GLOBAL_LIMIT_DURATION_SECS {
             return true;
          }
-         // Expired — will be cleared on next mutable access
+         // Clear expired limits on the next mutable access
       }
       if let Some(limit) = self.apis.get(api) {
          let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -109,7 +108,6 @@ impl Session {
             ct0:          self.ct0,
          },
          SessionLimits {
-            pending:    self.pending,
             limited:    self.limited,
             limited_at: self.limited_at,
             apis:       self.apis,

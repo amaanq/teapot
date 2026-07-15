@@ -230,7 +230,7 @@ fn parse_content_state(state: &InlineContentState) -> (Vec<ArticleParagraph>, Ve
       })
       .collect();
 
-   // entity_map is now a list of {key, value} pairs — sort by numeric key
+   // entity_map is now a list of {key, value} pairs. Sort by numeric key
    let mut sorted_entries: Vec<_> = state
       .entity_map
       .iter()

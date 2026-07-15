@@ -15,7 +15,7 @@ use std::{
 
 pub use gif_cache::GifCache;
 
-/// Entry in the cache: type-erased value + expiry.
+/// Cache entry holding a type-erased value and its expiry.
 struct Entry {
    value:   Arc<dyn Any + Send + Sync>,
    expires: Instant,
@@ -24,11 +24,11 @@ struct Entry {
 /// In-process cache with TTL-based expiry and a hard entry-count cap.
 ///
 /// Uses `std::sync::RwLock` (not tokio) because the lock is never held across
-/// `.await` — all operations are plain `HashMap` lookups/inserts.
+/// `.await`. All operations are plain `HashMap` lookups or inserts.
 /// Stores values as `Arc<dyn Any>` to avoid JSON serialization overhead.
 ///
-/// Eviction: on insert, if the map exceeds `max_entries`, expired entries are
-/// purged first; if still over cap, the entries with the soonest expiry are
+/// When an insert exceeds `max_entries`, expired entries are purged first. If
+/// the map remains over capacity, the entries with the soonest expiry are
 /// dropped until the map is back to 75% of `max_entries`. This approximates
 /// LRU for workloads with uniform TTLs without mutating on `get`.
 #[derive(Clone)]
@@ -48,7 +48,10 @@ impl Cache {
    /// Get a value from cache, returning `None` if missing, expired, or
    /// type-mismatched.
    #[expect(clippy::significant_drop_tightening, reason = "entry borrows from map")]
-   pub fn get<T: Any + Send + Sync + Clone>(&self, key: &str) -> Option<T> {
+   pub fn get<T>(&self, key: &str) -> Option<T>
+   where
+      T: Any + Send + Sync + Clone,
+   {
       let map = self.inner.read().ok()?;
       let entry = map.get(key)?;
       if entry.expires <= Instant::now() {
@@ -58,13 +61,16 @@ impl Cache {
    }
 
    /// Set a value in cache with TTL in seconds.
-   pub fn set<T: Any + Send + Sync + Clone>(&self, key: &str, value: &T, ttl_seconds: u64) {
-      let entry = Entry {
+   pub fn set<T>(&self, cache_key: &str, value: &T, ttl_seconds: u64)
+   where
+      T: Any + Send + Sync + Clone,
+   {
+      let cache_entry = Entry {
          value:   Arc::new(value.clone()),
          expires: Instant::now() + Duration::from_secs(ttl_seconds),
       };
       if let Ok(mut map) = self.inner.write() {
-         map.insert(key.to_owned(), entry);
+         map.insert(cache_key.to_owned(), cache_entry);
 
          if map.len() > self.max_entries {
             let now = Instant::now();
@@ -73,11 +79,13 @@ impl Cache {
             if map.len() > self.max_entries {
                let target = self.max_entries * 3 / 4;
                let drop_n = map.len() - target;
-               let mut by_expiry: Vec<(Instant, String)> =
-                  map.iter().map(|(k, e)| (e.expires, k.clone())).collect();
-               by_expiry.select_nth_unstable_by_key(drop_n, |&(t, _)| t);
-               for (_, k) in by_expiry.into_iter().take(drop_n) {
-                  map.remove(&k);
+               let mut by_expiry: Vec<(Instant, String)> = map
+                  .iter()
+                  .map(|(stored_key, stored_entry)| (stored_entry.expires, stored_key.clone()))
+                  .collect();
+               by_expiry.select_nth_unstable_by_key(drop_n, |&(expiry, _)| expiry);
+               for (_, eviction_key) in by_expiry.into_iter().take(drop_n) {
+                  map.remove(&eviction_key);
                }
             }
          }
@@ -93,81 +101,6 @@ impl Cache {
 }
 
 /// Cache key builders.
-pub mod keys {
-   pub fn user(username: &str) -> String {
-      format!("u:{}", username.to_lowercase())
-   }
-
-   pub fn profile(username: &str) -> String {
-      format!("p:{}", username.to_lowercase())
-   }
-
-   pub fn timeline(username: &str, kind: &str) -> String {
-      format!("tl:{}:{kind}", username.to_lowercase())
-   }
-
-   pub fn list(id: &str) -> String {
-      format!("l:{id}")
-   }
-
-   pub fn list_members(id: &str) -> String {
-      format!("lm:{id}")
-   }
-
-   pub fn conversation(id: &str) -> String {
-      format!("conv:{id}")
-   }
-
-   pub fn rss(key: &str) -> String {
-      format!("rss:{key}")
-   }
-
-   /// User ID to username mapping.
-   pub fn user_id(id: &str) -> String {
-      format!("uid:{id}")
-   }
-
-   pub fn rss_user(username: &str) -> String {
-      rss(&format!("user:{}", username.to_lowercase()))
-   }
-
-   pub fn rss_replies(username: &str) -> String {
-      rss(&format!("replies:{}", username.to_lowercase()))
-   }
-
-   pub fn rss_media(username: &str) -> String {
-      rss(&format!("media:{}", username.to_lowercase()))
-   }
-
-   pub fn rss_search(query: &str) -> String {
-      rss(&format!("search:{}", query.to_lowercase()))
-   }
-
-   pub fn rss_user_search(username: &str, query: &str) -> String {
-      rss(&format!(
-         "usersearch:{}:{}",
-         username.to_lowercase(),
-         query.to_lowercase()
-      ))
-   }
-
-   pub fn rss_list(id: &str) -> String {
-      rss(&format!("list:{id}"))
-   }
-
-   pub fn rss_list_slug(username: &str, slug: &str) -> String {
-      rss(&format!("listslug:{}:{slug}", username.to_lowercase()))
-   }
-
-   pub fn rss_thread(tweet_id: &str) -> String {
-      rss(&format!("thread:{tweet_id}"))
-   }
-}
-
+pub mod keys;
 /// Cache TTL constants (in seconds).
-pub mod ttl {
-   /// Standard TTL for user/profile/tweet data (5 minutes).
-   pub const DEFAULT: u64 = 300;
-   /// Long TTL for immutable mappings like user ID -> username (24 hours).
-   pub const USER_ID_MAPPING: u64 = 86400;
-}
+pub mod ttl;

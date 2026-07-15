@@ -130,7 +130,7 @@ async fn resolve_url(state: &AppState, url: &str) -> Result<String> {
 fn apply_url_replacements(url: &str, prefs: &Prefs, config: &Config) -> String {
    let mut result = url.to_owned();
 
-   // Replace Twitter URLs — swap full origin so scheme+port are correct
+   // Replace the full Twitter origin so the scheme and port remain correct
    let twitter_prefix = if prefs.replace_twitter.is_empty() {
       config.url_prefix().to_owned()
    } else {

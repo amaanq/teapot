@@ -164,7 +164,7 @@ pub fn parse_search_timeline(data: &SearchTimelineData) -> Timeline {
                }
             }
          },
-         // TimelineReplaceEntry: replace bottom cursor
+         // TimelineReplaceEntry replaces the bottom cursor
          InstructionType::TimelineReplaceEntry => {
             if let Some(cursor) = instruction
                .entry_id_to_replace

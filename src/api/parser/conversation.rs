@@ -155,14 +155,14 @@ pub fn parse_conversation(
 
    // Twitter always sends a bottom_cursor even when there are no more
    // replies. The first page returns ~25 reply chains when there are more
-   // pages; subsequent pages return ~36. Strip dead cursors when the reply
+   // pages. Subsequent pages return about 36. Strip dead cursors when the reply
    // count is well below the typical first-page size.
    if !has_cursor && replies.content.len() < MIN_REPLIES_FOR_CURSOR {
       replies.bottom = None;
    }
 
    // Paginated requests (with cursor) don't include the main tweet in the
-   // response — Twitter only returns the next batch of replies.
+   // response. Twitter only returns the next batch of replies.
    let tweet = if has_cursor {
       main_tweet.unwrap_or_default()
    } else {

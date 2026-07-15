@@ -15,6 +15,7 @@ use crate::{
 
 pub const STYLE_CSS: &str = "/css/style.css";
 pub const FONTELLO_CSS: &str = "/css/fontello.css";
+pub const INTERNAL_ERROR_MESSAGE: &str = "An internal service error occurred.";
 
 /// Builder for rendering a full page layout.
 #[expect(
@@ -229,6 +230,7 @@ impl<'a> PageLayout<'a> {
 
                   // Scripts in <head> with defer
                   script src="/js/htmx.min.js" defer="" {}
+                  script src="/js/site.js" defer="" {}
                   @if infinite_scroll {
                       script src="/js/infiniteScroll.js" defer="" {}
                   }
@@ -278,21 +280,21 @@ pub fn render_navbar_full(config: &Config, rss: &str, canonical: &str, referer: 
                }
                div class="nav-item right" {
                    a class="nav-icon" title="Search" href="/search" {
-                       span class="material-symbols-outlined" { "search" }
+                       span class="icon-search" aria-hidden="true" {}
                    }
                    @if config.config.enable_rss && !rss.is_empty() {
                        a class="nav-icon" title="RSS Feed" href=(rss) {
-                           span class="material-symbols-outlined" { "rss_feed" }
+                           span class="icon-rss" aria-hidden="true" {}
                        }
                    }
                    a class="nav-icon" title="Open in X" href=(&canonical) {
                        (PreEscaped(r#"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.834L1.254 2.25H8.08l4.259 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>"#))
                    }
                    a class="nav-icon" title="About" href="/about" {
-                       span class="material-symbols-outlined" { "info" }
+                       span class="icon-info" aria-hidden="true" {}
                    }
                    a class="nav-icon" title="Preferences" href=(&settings_href) {
-                       span class="material-symbols-outlined" { "settings" }
+                       span class="icon-cog" aria-hidden="true" {}
                    }
                }
            }
@@ -320,7 +322,7 @@ static A_RE: LazyLock<Regex> =
 /// actual URL. Used for `og:description` where we want link targets, not
 /// display text.
 pub fn strip_html(text: &str) -> String {
-   // Replace <a> tags: show the href URL instead of display text
+   // Show each <a> tag's href URL instead of its display text
    let text = A_RE.replace_all(text, |caps: &regex::Captures| {
       let url = &caps[1];
       if url.contains("http") {

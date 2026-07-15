@@ -146,7 +146,7 @@ impl TryFrom<&CardData> for Card {
                // Convert YouTube embed URLs to watch URLs.
                // e.g. /embed/VIDEO_ID?list=LIST → /watch?v=VIDEO_ID&list=LIST
                let mut watch_url = player_url.replace("/embed/", "/watch?v=");
-               // Fix double query string: ?v=X?param → ?v=X&param
+               // Replace a second query marker in ?v=X?param with ?v=X&param
                if let Some(second_q) = watch_url[1..].find('?') {
                   watch_url.replace_range(second_q + 1..second_q + 2, "&");
                }
@@ -178,12 +178,12 @@ impl TryFrom<&CardData> for Card {
 }
 
 /// Parse promo video from card binding values.
-/// Only MP4 URLs are supported; HLS/VMAP streams are skipped.
+/// Only MP4 URLs are supported. HLS and VMAP streams are skipped.
 fn parse_promo_video(bv: &BindingValues) -> Video {
    let thumb = bv.image("player_image_large").to_owned();
    let duration_secs = bv.string("content_duration_seconds").parse().unwrap_or(0);
 
-   // Only use direct MP4 stream URLs; skip HLS/VMAP since we don't support them
+   // Use direct MP4 streams and skip unsupported HLS and VMAP URLs
    let raw_stream = bv.string("player_stream_url");
    let stream_url =
       if !raw_stream.is_empty() && !raw_stream.contains("m3u8") && !raw_stream.contains("vmap") {

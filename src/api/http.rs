@@ -1,8 +1,19 @@
 use std::{
    fmt::Write as _,
-   io::Read as _,
+   future::Future as _,
+   io::{
+      Error as IoError,
+      ErrorKind,
+      Read as _,
+   },
+   pin::Pin,
+   result::Result as StdResult,
    str,
    sync::Arc,
+   task::{
+      Context,
+      Poll,
+   },
    time::Duration,
 };
 
@@ -20,7 +31,10 @@ use http_body_util::{
 };
 use hyper::{
    StatusCode,
-   body as hyper_body,
+   body::{
+      self as hyper_body,
+      Frame,
+   },
    client::conn::http1,
    http::uri::PathAndQuery,
 };
@@ -42,6 +56,12 @@ use tokio::{
       AsyncWriteExt as _,
    },
    net::TcpStream,
+   time::{
+      Instant,
+      Sleep,
+      sleep,
+      timeout,
+   },
 };
 
 use crate::error::{
@@ -52,6 +72,9 @@ use crate::error::{
 type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
 
 const DEFAULT_BODY_LIMIT: usize = 32 * 1024 * 1024; // 32 MiB
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const BODY_TIMEOUT: Duration = Duration::from_secs(60);
+const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Parsed proxy configuration.
 #[derive(Clone)]
@@ -81,6 +104,77 @@ pub struct Response {
    status:  StatusCode,
    headers: HeaderMap,
    body:    hyper_body::Incoming,
+}
+
+/// Response body with both an overall deadline and an idle-chunk deadline.
+pub struct TimedBody {
+   inner:    hyper_body::Incoming,
+   deadline: Pin<Box<Sleep>>,
+   idle:     Pin<Box<Sleep>>,
+   done:     bool,
+}
+
+impl TimedBody {
+   fn new(inner: hyper_body::Incoming) -> Self {
+      Self {
+         inner,
+         deadline: Box::pin(sleep(BODY_TIMEOUT)),
+         idle: Box::pin(sleep(BODY_IDLE_TIMEOUT)),
+         done: false,
+      }
+   }
+}
+
+impl hyper_body::Body for TimedBody {
+   type Data = Bytes;
+   type Error = IoError;
+
+   fn poll_frame(
+      mut self: Pin<&mut Self>,
+      cx: &mut Context<'_>,
+   ) -> Poll<Option<StdResult<Frame<Self::Data>, Self::Error>>> {
+      if self.done {
+         return Poll::Ready(None);
+      }
+      if self.deadline.as_mut().poll(cx).is_ready() {
+         self.done = true;
+         return Poll::Ready(Some(Err(IoError::new(
+            ErrorKind::TimedOut,
+            "response body deadline exceeded",
+         ))));
+      }
+      if self.idle.as_mut().poll(cx).is_ready() {
+         self.done = true;
+         return Poll::Ready(Some(Err(IoError::new(
+            ErrorKind::TimedOut,
+            "response body stalled",
+         ))));
+      }
+
+      match Pin::new(&mut self.inner).poll_frame(cx) {
+         Poll::Ready(Some(Ok(frame))) => {
+            self.idle.as_mut().reset(Instant::now() + BODY_IDLE_TIMEOUT);
+            Poll::Ready(Some(Ok(frame)))
+         },
+         Poll::Ready(Some(Err(err))) => {
+            self.done = true;
+            Poll::Ready(Some(Err(IoError::other(err))))
+         },
+         Poll::Ready(None) => {
+            self.done = true;
+            Poll::Ready(None)
+         },
+         Poll::Pending => Poll::Pending,
+      }
+   }
+
+   fn is_end_stream(&self) -> bool {
+      self.done || self.inner.is_end_stream()
+   }
+
+   fn size_hint(&self) -> hyper_body::SizeHint {
+      self.inner.size_hint()
+   }
 }
 
 impl HttpClient {
@@ -135,10 +229,15 @@ impl HttpClient {
 
    /// Send a request with a given method and optional extra headers.
    async fn send(&self, method: Method, uri: &str, extra_headers: &HeaderMap) -> Result<Response> {
-      if let Some(ref proxy) = self.proxy {
-         return self.send_via_proxy(proxy, method, uri, extra_headers).await;
-      }
-      self.send_direct(method, uri, extra_headers).await
+      timeout(REQUEST_TIMEOUT, async {
+         if let Some(ref proxy) = self.proxy {
+            self.send_via_proxy(proxy, method, uri, extra_headers).await
+         } else {
+            self.send_direct(method, uri, extra_headers).await
+         }
+      })
+      .await
+      .map_err(|_| Error::Internal("HTTP request timed out".into()))?
    }
 
    /// Direct request through hyper's connection pool.
@@ -222,7 +321,7 @@ impl HttpClient {
             .await
             .map_err(|err| Error::Internal(format!("proxy CONNECT write: {err}")))?;
 
-         // Read CONNECT response — look for end of HTTP headers
+         // Read the CONNECT response and look for the end of its HTTP headers
          let mut buf = vec![0_u8; 4096];
          let mut filled = 0;
          loop {
@@ -302,7 +401,7 @@ impl HttpClient {
             body,
          })
       } else {
-         // Plain HTTP through proxy: send request with absolute URI
+         // Send plain HTTP proxy requests with an absolute URI
          let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
             .await
             .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
@@ -390,8 +489,8 @@ impl Response {
       &self.headers
    }
 
-   pub fn into_body(self) -> hyper_body::Incoming {
-      self.body
+   pub fn into_body(self) -> TimedBody {
+      TimedBody::new(self.body)
    }
 
    /// Collect the response body as bytes, decompressing gzip if needed.
@@ -407,7 +506,7 @@ impl Response {
          .and_then(|val| val.to_str().ok())
          .is_some_and(|val| val.contains("gzip"));
 
-      let mut body = self.body;
+      let mut body = TimedBody::new(self.body);
       let mut collected = Vec::new();
       while let Some(frame) = body.frame().await {
          let frame = frame.map_err(|err| Error::Internal(format!("read body: {err}")))?;
@@ -448,7 +547,10 @@ impl Response {
    }
 
    /// Deserialize the response body as JSON.
-   pub async fn json<T: DeserializeOwned>(self) -> Result<T> {
+   pub async fn json<T>(self) -> Result<T>
+   where
+      T: DeserializeOwned,
+   {
       let data = self.bytes().await?;
       serde_json::from_slice(&data).map_err(Into::into)
    }

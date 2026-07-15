@@ -19,10 +19,7 @@ use serde::Deserialize;
 
 use crate::{
    AppState,
-   cache::{
-      keys as cache_keys,
-      ttl,
-   },
+   cache::keys as cache_keys,
    error::{
       Error,
       Result,
@@ -148,7 +145,9 @@ async fn list_by_id(
             return Ok::<_, Error>(cached);
          }
          let fetched = state.api.get_list(&id).await?;
-         state.cache.set(&cache_key, &fetched, ttl::DEFAULT);
+         state
+            .cache
+            .set(&cache_key, &fetched, state.config.cache.list_minutes * 60);
          Ok(fetched)
       },
       state.api.get_list_tweets(&id, query.cursor.as_deref()),
@@ -190,7 +189,9 @@ async fn list_members(
             return Ok::<_, Error>(cached);
          }
          let fetched = state.api.get_list(&id).await?;
-         state.cache.set(&cache_key, &fetched, ttl::DEFAULT);
+         state
+            .cache
+            .set(&cache_key, &fetched, state.config.cache.list_minutes * 60);
          Ok(fetched)
       },
       async {
@@ -202,7 +203,11 @@ async fn list_members(
             }
             let result = state.api.get_list_members(&id, None).await;
             if let Ok(ref members) = result {
-               state.cache.set(&members_cache_key, members, ttl::DEFAULT);
+               state.cache.set(
+                  &members_cache_key,
+                  members,
+                  state.config.cache.list_minutes * 60,
+               );
             }
             result
          } else {
@@ -234,8 +239,12 @@ async fn list_members(
          Ok(Html(markup.into_string()).into_response())
       },
       Err(err) => {
-         let markup =
-            layout::render_error(&state.config, "Error loading members", &err.to_string());
+         tracing::error!(error = ?err, "failed to load list members");
+         let markup = layout::render_error(
+            &state.config,
+            "Error loading members",
+            layout::INTERNAL_ERROR_MESSAGE,
+         );
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),

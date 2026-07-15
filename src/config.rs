@@ -63,7 +63,7 @@ pub struct Config {
    pub preferences:     PreferencesConfig,
    #[serde(default, rename = "gifTranscoding")]
    pub gif_transcoding: GifTranscodingConfig,
-   /// Precomputed `{scheme}://{hostname}` — set in `Config::load`.
+   /// Precomputed `{scheme}://{hostname}` value set in `Config::load`.
    #[serde(skip)]
    pub url_prefix:      String,
 }
@@ -199,7 +199,10 @@ const fn default_true() -> bool {
 
 impl Config {
    #[expect(clippy::cognitive_complexity, reason = "validation is straightforward")]
-   pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+   pub fn load<P>(path: P) -> Result<Self>
+   where
+      P: AsRef<Path>,
+   {
       let content = fs::read_to_string(path)?;
       let mut config = toml::from_str::<Self>(&content)?;
       let hmac_key = config.config.hmac_key.trim();
@@ -212,6 +215,26 @@ impl Config {
          return Err(Error::InvalidConfig(
             "config.debugToken must be set to at least 32 characters when enableDebug is true"
                .into(),
+         ));
+      }
+      if config.server.http_max_connections == 0 {
+         return Err(Error::InvalidConfig(
+            "server.httpMaxConnections must be greater than zero".into(),
+         ));
+      }
+      if config.config.max_concurrent_reqs == 0 {
+         return Err(Error::InvalidConfig(
+            "config.maxConcurrentReqs must be greater than zero".into(),
+         ));
+      }
+      if config.cache.max_entries == 0 {
+         return Err(Error::InvalidConfig(
+            "cache.maxEntries must be greater than zero".into(),
+         ));
+      }
+      if config.cache.list_minutes == 0 || config.cache.rss_minutes == 0 {
+         return Err(Error::InvalidConfig(
+            "cache listMinutes and rssMinutes must be greater than zero".into(),
          ));
       }
       // Validate GIF transcoding config
@@ -237,7 +260,7 @@ impl Config {
          GifTranscodingMode::Off => {},
       }
 
-      // Resolve Kagi token: file takes precedence over inline value
+      // The Kagi token file takes precedence over the inline value
       if !config.config.kagi_token_file.is_empty() {
          match fs::read_to_string(&config.config.kagi_token_file) {
             Ok(token) => {

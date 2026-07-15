@@ -165,7 +165,8 @@ async fn proxy_image(state: &AppState, url: &str, original: bool) -> Result<Resp
       .headers()
       .get(header::CONTENT_TYPE)
       .and_then(|hv| hv.to_str().ok())
-      .unwrap_or("image/jpeg")
+      .filter(|value| value.to_ascii_lowercase().starts_with("image/"))
+      .ok_or_else(|| Error::InvalidUrl("upstream did not return an image".into()))?
       .to_owned();
    ensure_content_length_under(response.headers(), MAX_IMAGE_BYTES as u64)?;
 
@@ -317,7 +318,9 @@ fn validate_media_url(url: &str, kind: MediaKind) -> Result<()> {
       .ok_or_else(|| Error::InvalidUrl("media URL is missing host".into()))?
       .to_ascii_lowercase();
    let allowed = match kind {
-      MediaKind::Image => is_twimg_host(&host) || is_pscp_image_host(&host),
+      MediaKind::Image => {
+         (is_twimg_host(&host) && host != "video.twimg.com") || is_pscp_image_host(&host)
+      },
       MediaKind::Video => host == "video.twimg.com",
    };
    if allowed {
@@ -358,19 +361,20 @@ mod tests {
 
    #[test]
    fn broadcast_thumbnail_hosts_are_allowed() {
-      assert!(
-         validate_media_url(
-            "https://prod-fastly-us-east-1.video.pscp.tv/Transcoding/v1/live_thumbnail/latest.jpg",
-            MediaKind::Image,
-         )
-         .is_ok()
-      );
+      validate_media_url(
+         "https://prod-fastly-us-east-1.video.pscp.tv/Transcoding/v1/live_thumbnail/latest.jpg",
+         MediaKind::Image,
+      )
+      .unwrap();
       assert!(
          validate_media_url(
             "https://prod-fastly-us-east-1.video.pscp.tv.evil.example/latest.jpg",
             MediaKind::Image,
          )
          .is_err()
+      );
+      assert!(
+         validate_media_url("https://video.twimg.com/path/video.mp4", MediaKind::Image).is_err()
       );
    }
 }

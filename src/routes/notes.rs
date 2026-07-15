@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{
+   HashMap,
+   HashSet,
+   VecDeque,
+};
 
 use axum::{
    Router,
@@ -14,6 +18,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use maud::html;
+use tokio::task::JoinSet;
 
 use crate::{
    AppState,
@@ -36,7 +41,7 @@ pub fn router() -> Router<AppState> {
       .route("/i/article/{id}", get(show_note_by_id))
 }
 
-/// `/i/article/{id}` — article by tweet ID only.
+/// Serves `/i/article/{id}` using only the tweet ID.
 async fn show_note_by_id(
    State(state): State<AppState>,
    jar: CookieJar,
@@ -45,7 +50,7 @@ async fn show_note_by_id(
    show_note_inner(state, jar, id).await
 }
 
-/// `/{username}/article/{id}` — article with username context.
+/// Serves `/{username}/article/{id}` with username context.
 async fn show_note(
    State(state): State<AppState>,
    jar: CookieJar,
@@ -58,19 +63,34 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
    let prefs = Prefs::from_cookies(&jar, &state.config);
    let (_tweet, article) = state.api.get_article_tweet(&id).await?;
 
-   // Fetch embedded tweets in parallel
-   let tweet_futures: Vec<_> = article
+   // Fetch embedded tweets concurrently with a small bound so a large article
+   // cannot consume the entire upstream session pool.
+   let mut seen = HashSet::new();
+   let mut tweet_ids = article
       .entities
       .iter()
       .filter(|entity| entity.entity_type == ArticleEntityType::Tweet)
       .filter(|entity| !entity.tweet_id.is_empty())
-      .map(|entity| state.api.get_tweet(&entity.tweet_id))
-      .collect();
+      .filter(|entity| seen.insert(entity.tweet_id.clone()))
+      .map(|entity| entity.tweet_id.clone())
+      .collect::<VecDeque<_>>();
 
    let mut tweets = HashMap::new();
-   for future in tweet_futures {
-      if let Ok(tweet) = future.await {
+   let mut tasks = JoinSet::new();
+   for _ in 0..8 {
+      let Some(tweet_id) = tweet_ids.pop_front() else {
+         break;
+      };
+      let api = state.api.clone();
+      tasks.spawn(async move { api.get_tweet(&tweet_id).await });
+   }
+   while let Some(joined) = tasks.join_next().await {
+      if let Ok(Ok(tweet)) = joined {
          tweets.insert(tweet.id, tweet);
+      }
+      if let Some(tweet_id) = tweet_ids.pop_front() {
+         let api = state.api.clone();
+         tasks.spawn(async move { api.get_tweet(&tweet_id).await });
       }
    }
 
@@ -94,7 +114,7 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
       })
       .unwrap_or_default();
 
-   // Cover image for og:image — proxy through our media pipeline
+   // Proxy the og:image cover through the media pipeline
    let og_image = if article.cover_image.is_empty() {
       String::new()
    } else {

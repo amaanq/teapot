@@ -5,11 +5,7 @@ use axum::{
       Query,
       State,
    },
-   http::header,
-   response::{
-      IntoResponse as _,
-      Response,
-   },
+   response::Response,
    routing::get,
 };
 use serde::Deserialize;
@@ -19,6 +15,7 @@ use super::helpers::{
    check_rss_cache,
    get_cached_user,
    rss_response,
+   rss_response_with_min_id,
 };
 use crate::{
    AppState,
@@ -48,7 +45,7 @@ pub fn router() -> Router<AppState> {
       .route("/i/lists/{id}/rss", get(list_rss))
 }
 
-/// Check if RSS is enabled; return 404 error if not.
+/// Return a 404 error when RSS is disabled.
 fn check_rss_enabled(state: &AppState) -> Result<()> {
    if !state.config.config.enable_rss {
       return Err(Error::NotFound("RSS feeds are disabled".to_owned()));
@@ -103,7 +100,7 @@ async fn user_rss_handler(
    let rss = rss_view::render_user_rss(&user, &tweets, &state.config, feed_kind);
 
    if let Some(ref key) = rss_cache_key {
-      cache_rss(state, key, &rss);
+      cache_rss(state, key, &rss, tweets.iter().map(|tweet| tweet.id).min());
    }
 
    Ok(rss_response(rss, &tweets))
@@ -173,7 +170,12 @@ async fn search_rss(
    let tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
    let rss = rss_view::render_search_rss(search_query, &tweets, &state.config);
 
-   cache_rss(&state, &rss_cache_key, &rss);
+   cache_rss(
+      &state,
+      &rss_cache_key,
+      &rss,
+      tweets.iter().map(|tweet| tweet.id).min(),
+   );
    Ok(rss_response(rss, &tweets))
 }
 
@@ -209,7 +211,12 @@ async fn user_search_rss(
       &state.config,
    );
 
-   cache_rss(&state, &rss_cache_key, &rss);
+   cache_rss(
+      &state,
+      &rss_cache_key,
+      &rss,
+      tweets.iter().map(|tweet| tweet.id).min(),
+   );
    Ok(rss_response(rss, &tweets))
 }
 
@@ -244,20 +251,9 @@ async fn thread_rss(
    }
 
    let rss = rss_view::render_thread_rss(&conversation.tweet, &tweets, &state.config);
-   cache_rss(&state, &rss_cache_key, &rss);
    let min_id = tweets.iter().map(|tweet| tweet.id).min();
-   let mut response = (
-      [(header::CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
-      rss,
-   )
-      .into_response();
-   if let Some(min) = min_id {
-      response.headers_mut().insert(
-         header::HeaderName::from_static("min-id"),
-         header::HeaderValue::from(min),
-      );
-   }
-   Ok(response)
+   cache_rss(&state, &rss_cache_key, &rss, min_id);
+   Ok(rss_response_with_min_id(rss, min_id))
 }
 
 async fn list_rss(
@@ -286,7 +282,7 @@ async fn list_rss(
    let rss = rss_view::render_list_rss(&list, &tweets, &state.config);
 
    if let Some(ref key) = rss_cache_key {
-      cache_rss(&state, key, &rss);
+      cache_rss(&state, key, &rss, tweets.iter().map(|tweet| tweet.id).min());
    }
    Ok(rss_response(rss, &tweets))
 }
@@ -317,7 +313,7 @@ async fn list_by_slug_rss(
    let rss = rss_view::render_list_rss(&list, &tweets, &state.config);
 
    if let Some(ref key) = rss_cache_key {
-      cache_rss(&state, key, &rss);
+      cache_rss(&state, key, &rss, tweets.iter().map(|tweet| tweet.id).min());
    }
    Ok(rss_response(rss, &tweets))
 }

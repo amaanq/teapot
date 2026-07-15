@@ -36,7 +36,7 @@ mod tests {
    use super::*;
 
    #[test]
-   fn test_hmac_sign() {
+   fn signs_and_verifies_hmac() {
       let url = "https://video.twimg.com/ext_tw_video/123/pu/vid/1280x720/test.mp4";
       let key = "secretkey";
 

@@ -69,7 +69,7 @@ impl GifCache {
    pub async fn get(&self, hash: &str) -> Option<PathBuf> {
       let path = self.dir.join(format!("{hash}.gif"));
       if !fs::try_exists(&path).await.unwrap_or(false) {
-         // File was deleted externally — remove from tracking
+         // The file was deleted externally, so remove it from tracking
          self.entries.write().await.shift_remove(hash);
          return None;
       }

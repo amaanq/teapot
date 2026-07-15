@@ -82,14 +82,31 @@ impl IntoResponse for Error {
             StatusCode::NOT_FOUND
          },
          &Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+         &Self::InvalidUrl(_) => StatusCode::BAD_REQUEST,
+         &Self::NoSessions => StatusCode::SERVICE_UNAVAILABLE,
          &Self::UserSuspended(_) | &Self::ProtectedUser(_) | &Self::HmacVerification => {
             StatusCode::FORBIDDEN
          },
          _ => StatusCode::INTERNAL_SERVER_ERROR,
       };
 
+      if status.is_server_error() {
+         tracing::error!(error = ?self, "request failed");
+      }
+
       // Render styled error page
-      let msg = self.to_string();
+      let msg = match &self {
+         &Self::NotFound(ref message)
+         | &Self::UserNotFound(ref message)
+         | &Self::TweetNotFound(ref message)
+         | &Self::UserSuspended(ref message)
+         | &Self::ProtectedUser(ref message)
+         | &Self::InvalidUrl(ref message) => message.as_str(),
+         &Self::RateLimited => "Upstream rate limit reached; please try again later.",
+         &Self::HmacVerification => "The media URL signature is invalid.",
+         &Self::NoSessions => "The service has no available upstream sessions.",
+         _ => "An internal service error occurred.",
+      };
       let html = format!(
          r#"<!DOCTYPE html>
 <html>
@@ -105,7 +122,7 @@ impl IntoResponse for Error {
 <div class="container"><div class="panel-container"><div class="error-panel"><span>{}</span></div></div></div>
 </body>
 </html>"#,
-         html_escape(&msg)
+         html_escape(msg)
       );
 
       (status, Html(html)).into_response()

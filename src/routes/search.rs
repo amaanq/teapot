@@ -290,7 +290,12 @@ async fn search(
             Ok(Html(markup.into_string()).into_response())
          },
          Err(err) => {
-            let markup = layout::render_error(&state.config, "Search Error", &err.to_string());
+            tracing::error!(error = ?err, "tweet search failed");
+            let markup = layout::render_error(
+               &state.config,
+               "Search Error",
+               layout::INTERNAL_ERROR_MESSAGE,
+            );
             Ok((
                StatusCode::INTERNAL_SERVER_ERROR,
                Html(markup.into_string()),
@@ -375,7 +380,12 @@ async fn search(
             Ok(Html(markup.into_string()).into_response())
          },
          Err(err) => {
-            let markup = layout::render_error(&state.config, "Search Error", &err.to_string());
+            tracing::error!(error = ?err, "user search failed");
+            let markup = layout::render_error(
+               &state.config,
+               "Search Error",
+               layout::INTERNAL_ERROR_MESSAGE,
+            );
             Ok((
                StatusCode::INTERNAL_SERVER_ERROR,
                Html(markup.into_string()),

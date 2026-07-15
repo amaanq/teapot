@@ -44,25 +44,27 @@ pub enum QueryKind {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Query {
    #[serde(default)]
-   pub kind:      QueryKind,
+   pub kind:           QueryKind,
    #[serde(default)]
-   pub text:      String,
+   pub text:           String,
    #[serde(default)]
-   pub filters:   Vec<String>,
+   pub filters:        Vec<String>,
    #[serde(default)]
-   pub includes:  Vec<String>,
+   pub includes:       Vec<String>,
    #[serde(default)]
-   pub excludes:  Vec<String>,
+   pub excludes:       Vec<String>,
    #[serde(default)]
-   pub from_user: Vec<String>,
+   pub negative_terms: Vec<String>,
    #[serde(default)]
-   pub since:     String,
+   pub from_user:      Vec<String>,
    #[serde(default)]
-   pub until:     String,
+   pub since:          String,
    #[serde(default)]
-   pub min_likes: String,
+   pub until:          String,
    #[serde(default)]
-   pub sep:       String,
+   pub min_likes:      String,
+   #[serde(default)]
+   pub sep:            String,
 }
 
 impl Query {
@@ -125,6 +127,10 @@ impl Query {
       }
       if !self.min_likes.is_empty() {
          let _ = write!(result, " min_faves:{}", self.min_likes);
+      }
+
+      for term in &self.negative_terms {
+         let _ = write!(result, " -{term}");
       }
 
       // Add text last
@@ -202,7 +208,7 @@ impl Query {
             }
          } else if part.starts_with('-') && part.len() > 1 {
             // Negative word filter like "-spam"
-            query.excludes.push(part[1..].to_string());
+            query.negative_terms.push(part[1..].to_owned());
          } else {
             remaining_text.push(part.to_owned());
          }
@@ -216,8 +222,15 @@ impl Query {
    pub fn to_url_params(&self) -> String {
       let mut params = Vec::new();
 
-      if !self.text.is_empty() {
-         params.push(format!("q={}", urlencoding::encode(&self.text)));
+      let mut query_text = self.text.clone();
+      for term in &self.negative_terms {
+         if !query_text.is_empty() {
+            query_text.push(' ');
+         }
+         let _ = write!(query_text, "-{term}");
+      }
+      if !query_text.is_empty() {
+         params.push(format!("q={}", encode_query_component(&query_text)));
       }
 
       match self.kind {
@@ -239,7 +252,7 @@ impl Query {
       }
 
       for user in &self.from_user {
-         params.push(format!("from={}", urlencoding::encode(user)));
+         params.push(format!("from={}", encode_query_component(user)));
       }
 
       if !self.since.is_empty() {
@@ -261,6 +274,7 @@ impl Query {
    pub const fn has_filters(&self) -> bool {
       !self.filters.is_empty()
          || !self.excludes.is_empty()
+         || !self.negative_terms.is_empty()
          || !self.from_user.is_empty()
          || !self.since.is_empty()
          || !self.until.is_empty()
@@ -287,8 +301,29 @@ fn is_valid_date(date_str: &str) -> bool {
          .all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
 }
 
-mod urlencoding {
-   pub fn encode(input: &str) -> String {
-      percent_encoding::utf8_percent_encode(input, percent_encoding::NON_ALPHANUMERIC).to_string()
+fn encode_query_component(input: &str) -> String {
+   percent_encoding::utf8_percent_encode(input, percent_encoding::NON_ALPHANUMERIC).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::{
+      Query,
+      QueryKind,
+   };
+
+   #[test]
+   fn negative_words_remain_search_terms() {
+      let query = Query::parse("rust -spam filter:media", QueryKind::Posts);
+      assert_eq!(query.negative_terms, ["spam"]);
+      assert!(!query.excludes.iter().any(|value| value == "spam"));
+      assert!(query.build().contains("-spam"));
+      assert!(!query.build().contains("-filter:spam"));
+   }
+
+   #[test]
+   fn negative_words_survive_url_round_trip_text() {
+      let query = Query::parse("rust -spam", QueryKind::Posts);
+      assert!(query.to_url_params().contains("q=rust%20%2Dspam"));
    }
 }

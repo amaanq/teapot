@@ -240,7 +240,8 @@ async fn user_timeline(
          Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
       },
       Err(err) => {
-         let markup = layout::render_error(&state.config, "Error", &err.to_string());
+         tracing::error!(error = ?err, "failed to load profile timeline");
+         let markup = layout::render_error(&state.config, "Error", layout::INTERNAL_ERROR_MESSAGE);
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),
@@ -342,7 +343,8 @@ async fn user_tab_handler(
          Ok(Html(markup.into_string()).into_response())
       },
       Err(err) => {
-         let markup = layout::render_error(&state.config, "Error", &err.to_string());
+         tracing::error!(error = ?err, "failed to load timeline");
+         let markup = layout::render_error(&state.config, "Error", layout::INTERNAL_ERROR_MESSAGE);
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),
@@ -469,7 +471,12 @@ async fn user_search(
          Ok(Html(markup.into_string()).into_response())
       },
       Err(err) => {
-         let markup = layout::render_error(&state.config, "Search Error", &err.to_string());
+         tracing::error!(error = ?err, "failed to search user timeline");
+         let markup = layout::render_error(
+            &state.config,
+            "Search Error",
+            layout::INTERNAL_ERROR_MESSAGE,
+         );
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),

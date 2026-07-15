@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod routes;
 mod transcode;
+mod translation;
 mod types;
 mod utils;
 mod views;
@@ -12,21 +13,27 @@ use std::{
    env,
    net::SocketAddr,
    sync::Arc,
+   time::Duration,
 };
 
 use axum::{
    Router,
-   http::header::HeaderValue,
+   http::{
+      StatusCode,
+      header::HeaderValue,
+   },
    middleware,
 };
 use hyper::header;
 use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
    services::{
       ServeDir,
       ServeFile,
    },
    set_header::SetResponseHeaderLayer,
+   timeout::TimeoutLayer,
 };
 use tracing_subscriber::{
    fmt,
@@ -51,11 +58,12 @@ use crate::{
 /// Application state shared across all routes.
 #[derive(Clone)]
 pub struct AppState {
-   pub config:         Arc<Config>,
-   pub cache:          Cache,
-   pub api:            ApiClient,
-   pub http_client:    HttpClient,
-   pub gif_transcoder: Option<Arc<GifTranscoder>>,
+   pub config:              Arc<Config>,
+   pub cache:               Cache,
+   pub api:                 ApiClient,
+   pub http_client:         HttpClient,
+   pub gif_transcoder:      Option<Arc<GifTranscoder>>,
+   pub translation_limiter: Arc<translation::TranslationLimiter>,
 }
 
 #[tokio::main]
@@ -88,7 +96,7 @@ async fn main() -> eyre::Result<()> {
    // Initialize session pool
    let sessions_path =
       env::var("TEAPOT_SESSIONS_FILE").unwrap_or_else(|_| "sessions.jsonl".to_owned());
-   let sessions = SessionPool::load(&sessions_path).await?;
+   let sessions = SessionPool::load(&sessions_path, config.config.max_concurrent_reqs).await?;
 
    // Initialize API client
    let api = ApiClient::new(&config, sessions);
@@ -123,9 +131,10 @@ async fn main() -> eyre::Result<()> {
       api,
       http_client,
       gif_transcoder,
+      translation_limiter: Arc::new(translation::TranslationLimiter::new()),
    };
 
-   // Build router - order matters: specific routes first, then static files
+   // Build the router with specific routes before static files
    let static_dir = config.server.static_dir.clone();
    let app = Router::new()
         .merge(routes::router())
@@ -155,15 +164,30 @@ async fn main() -> eyre::Result<()> {
             HeaderValue::from_static(
                 "default-src 'none'; \
                  script-src 'self'; \
-                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
+                 style-src 'self' 'unsafe-inline'; \
                  img-src 'self' data:; \
                  media-src 'self' blob:; \
-                 font-src 'self' https://fonts.gstatic.com; \
+                 font-src 'self'; \
                  connect-src 'self'; \
                  form-action 'self'; \
                  base-uri 'self'; \
                  frame-ancestors 'none'"
             ),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(45),
+        ))
+        .layer(ConcurrencyLimitLayer::new(
+            usize::try_from(config.server.http_max_connections).unwrap_or(usize::MAX),
         ))
         .with_state(state);
 

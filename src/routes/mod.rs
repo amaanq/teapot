@@ -20,6 +20,10 @@ use axum::{
       Request,
       State,
    },
+   http::{
+      HeaderValue,
+      header,
+   },
    middleware::Next,
    response::{
       Html,
@@ -98,10 +102,10 @@ pub fn router() -> Router<AppState> {
         .merge(timeline::router()) // Rule 4: MUST BE LAST
 }
 
-/// Middleware: apply ?prefs= URL parameter overrides.
+/// Middleware that applies `?prefs=` URL parameter overrides.
 /// Parses `?prefs=key1=val1,key2=val2` and individual `?key=val`
 /// params, sets them as cookies, then redirects to the clean URL.
-pub async fn prefs_middleware(request: Request, next: Next) -> Response {
+pub async fn prefs_middleware(mut request: Request, next: Next) -> Response {
    let uri = request.uri().clone();
    let query_string = uri.query().unwrap_or("");
 
@@ -111,7 +115,7 @@ pub async fn prefs_middleware(request: Request, next: Next) -> Response {
       .map(|(_, val)| val.to_string());
 
    if let Some(prefs_value) = prefs_param {
-      // Parse prefs: "key=val,key2=val2"
+      // Parse prefs in "key=val,key2=val2" form
       let mut jar = CookieJar::new();
       let pref_names = Prefs::URL_PREF_NAMES;
 
@@ -154,10 +158,49 @@ pub async fn prefs_middleware(request: Request, next: Next) -> Response {
       return (jar, Redirect::to(&redirect_url)).into_response();
    }
 
-   // Also handle individual pref params (e.g., ?mp4Playback=on) for cookieless
-   // overrides These don't redirect — they just override the cookie jar for
-   // this request
+   // Individual preference parameters are transient. Inject them into this
+   // request's Cookie header so every existing CookieJar extractor sees the
+   // override, without emitting Set-Cookie or changing the URL.
+   let overrides = form_urlencoded::parse(query_string.as_bytes())
+      .filter(|&(ref key, ref value)| {
+         Prefs::URL_PREF_NAMES.contains(&key.as_ref()) && valid_cookie_value(value)
+      })
+      .map(|(key, value)| (key.into_owned(), value.into_owned()))
+      .collect::<Vec<_>>();
+   if !overrides.is_empty() {
+      let mut cookies = request
+         .headers()
+         .get(header::COOKIE)
+         .and_then(|value| value.to_str().ok())
+         .unwrap_or_default()
+         .split(';')
+         .map(str::trim)
+         .filter(|cookie| {
+            cookie
+               .split_once('=')
+               .is_none_or(|(name, _)| !overrides.iter().any(|&(ref key, _)| key == name))
+         })
+         .filter(|cookie| !cookie.is_empty())
+         .map(str::to_owned)
+         .collect::<Vec<_>>();
+      cookies.extend(
+         overrides
+            .into_iter()
+            .map(|(key, value)| format!("{key}={value}")),
+      );
+      if let Ok(value) = HeaderValue::from_str(&cookies.join("; ")) {
+         request.headers_mut().insert(header::COOKIE, value);
+      }
+   }
+
    next.run(request).await
+}
+
+fn valid_cookie_value(value: &str) -> bool {
+   value.len() <= 512
+      && value
+         .bytes()
+         .all(|byte| matches!(byte, 0x21 | 0x23..=0x2B | 0x2D..=0x3A | 0x3C..=0x5B | 0x5D..=0x7E))
 }
 
 async fn home(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
@@ -184,7 +227,7 @@ async fn about(State(state): State<AppState>, jar: CookieJar) -> impl IntoRespon
            }
 
            ul {
-               li { "No JavaScript or ads" }
+               li { "No third-party JavaScript or ads" }
                li { "All requests go through the backend, client never talks to Twitter" }
                li { "Prevents Twitter from tracking your IP or JavaScript fingerprint" }
                li { "Uses Twitter's unofficial API (no developer account required)" }
@@ -237,4 +280,52 @@ async fn about(State(state): State<AppState>, jar: CookieJar) -> impl IntoRespon
       .prefs(&prefs)
       .render();
    Html(markup.into_string())
+}
+
+#[cfg(test)]
+mod tests {
+   use axum::{
+      Router,
+      body::Body,
+      http::{
+         Request,
+         StatusCode,
+         header,
+      },
+      middleware,
+      response::IntoResponse,
+      routing::get,
+   };
+   use axum_extra::extract::CookieJar;
+   use http_body_util::BodyExt as _;
+   use tower::ServiceExt as _;
+
+   use super::prefs_middleware;
+
+   async fn preference_value(jar: CookieJar) -> impl IntoResponse {
+      jar.get("mp4Playback")
+         .map_or_else(String::new, |cookie| cookie.value().to_owned())
+         .into_response()
+   }
+
+   #[tokio::test]
+   async fn individual_preference_query_overrides_only_current_request() {
+      let app = Router::new()
+         .route("/", get(preference_value))
+         .layer(middleware::from_fn(prefs_middleware));
+      let response = app
+         .oneshot(
+            Request::builder()
+               .uri("/?mp4Playback=on")
+               .body(Body::empty())
+               .unwrap(),
+         )
+         .await
+         .unwrap();
+
+      assert_eq!(response.status(), StatusCode::OK);
+      assert!(response.headers().get(header::SET_COOKIE).is_none());
+      let body = response.into_body().collect().await.unwrap().to_bytes();
+      assert_eq!(body, "on");
+   }
 }

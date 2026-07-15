@@ -18,8 +18,10 @@ use axum::{
    },
    routing::get,
 };
+use maud::html;
 use serde::Deserialize;
 
+use super::helpers::get_cached_translation;
 use crate::{
    AppState,
    cache::{
@@ -67,7 +69,7 @@ pub fn router() -> Router<AppState> {
         // ActivityPub endpoint for Discord multi-image support
         .route("/users/{username}/statuses/{id}", get(activity_pub_status))
         // Discord turns the Mastodon-looking discovery URL above into this
-        // API request; the discovery URL itself is not the JSON endpoint.
+        // API request. The discovery URL itself is not the JSON endpoint.
         .route("/api/v1/statuses/{id}", get(mastodon_status))
         // oEmbed endpoints
         .route("/owoembed", get(oembed))
@@ -176,7 +178,7 @@ async fn activity_response(state: &AppState, id: &str) -> Result<Response> {
    if tweet.is_translatable {
       let kagi = &state.config.config.kagi_token;
       let token = (!kagi.is_empty()).then_some(kagi.as_str());
-      if let Ok(translation) = state.api.translate_auto(id, token).await
+      if let Ok(translation) = get_cached_translation(state, &tweet, token).await
          && !translation.text.is_empty()
       {
          tweet.translation = Some(translation);
@@ -276,7 +278,7 @@ async fn oembed_standard(
    State(state): State<AppState>,
    Query(query): Query<StandardOEmbedQuery>,
 ) -> Result<Response> {
-   // Parse tweet ID from URL: /{username}/status/{id}
+   // Parse the tweet ID from /{username}/status/{id}
    let tweet_id = extract_tweet_id(&query.url)
       .ok_or_else(|| Error::InvalidUrl("Could not parse tweet URL".into()))?;
 
@@ -287,15 +289,17 @@ async fn oembed_standard(
    let author_url = format!("{url_prefix}/{}", tweet.user.username);
    let tweet_text = strip_html(&tweet.text);
 
-   // Build a minimal HTML embed
-   let html = format!(
-      r#"<blockquote><p>{}</p>&mdash; {} <a href="{url_prefix}/{}/status/{}">{}</a></blockquote>"#,
-      tweet_text,
-      author_name,
-      tweet.user.username,
-      tweet.id,
-      tweet.time.map(format_relative_time).unwrap_or_default(),
-   );
+   // Maud escapes all tweet-controlled text and attribute values.
+   let html = html! {
+      blockquote {
+         p { (tweet_text) }
+         "— " (author_name) " "
+         a href=(format!("{url_prefix}/{}/status/{}", tweet.user.username, tweet.id)) {
+            (tweet.time.map(format_relative_time).unwrap_or_default())
+         }
+      }
+   }
+   .into_string();
 
    let data = StandardOEmbed {
       version: "1.0",
@@ -319,7 +323,7 @@ async fn oembed_standard(
 
 /// Extract tweet ID from a URL path like `/user/status/123` or full URL.
 fn extract_tweet_id(url: &str) -> Option<&str> {
-   // Try path segments: look for "status" or "statuses" followed by the ID
+   // Find "status" or "statuses" followed by the ID in the path
    let path = url
       .strip_prefix("http://")
       .or_else(|| url.strip_prefix("https://"))

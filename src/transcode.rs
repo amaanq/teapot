@@ -1,8 +1,10 @@
 use std::{
    collections::HashMap,
+   fs as std_fs,
    path::PathBuf,
    process::Stdio,
    sync::Arc,
+   time::Duration,
 };
 
 use data_encoding::HEXLOWER;
@@ -12,9 +14,9 @@ use tokio::{
    process::Command,
    sync::{
       Mutex,
-      Notify,
       Semaphore,
    },
+   time::timeout,
 };
 
 use crate::{
@@ -24,13 +26,24 @@ use crate::{
 };
 
 const MAX_TRANSCODE_INPUT_BYTES: usize = 100 * 1024 * 1024;
+const FFMPEG_TIMEOUT: Duration = Duration::from_secs(90);
+
+struct TempFiles(Vec<PathBuf>);
+
+impl Drop for TempFiles {
+   fn drop(&mut self) {
+      for path in &self.0 {
+         let _ = std_fs::remove_file(path);
+      }
+   }
+}
 
 pub struct GifTranscoder {
    cache:       GifCache,
    http_client: HttpClient,
    cache_dir:   PathBuf,
    semaphore:   Semaphore,
-   inflight:    Mutex<HashMap<String, Arc<Notify>>>,
+   inflight:    Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl GifTranscoder {
@@ -60,43 +73,44 @@ impl GifTranscoder {
          return Ok(path);
       }
 
-      // Atomically check-and-register: either wait on an existing transcoder or
-      // register ourselves as the inflight one.
-      let existing = {
-         let map = self.inflight.lock().await;
-         map.get(&hash).map(Arc::clone)
+      // Atomically register or join the per-URL operation. A mutex is
+      // cancellation safe. If the active task is dropped, the next waiter
+      // acquires it and resumes the work instead of missing a notification.
+      let operation = {
+         let mut map = self.inflight.lock().await;
+         Arc::clone(
+            map.entry(hash.clone())
+               .or_insert_with(|| Arc::new(Mutex::new(()))),
+         )
       };
-      if let Some(existing) = existing {
-         existing.notified().await;
-         if let Some(path) = self.cache.get(&hash).await {
-            return Ok(path);
-         }
-      }
-
-      let notify = Arc::new(Notify::new());
-      self
-         .inflight
-         .lock()
-         .await
-         .insert(hash.clone(), Arc::clone(&notify));
+      let operation_guard = operation.lock().await;
 
       // Acquire semaphore
       let _permit = self.semaphore.acquire().await?;
 
       // Double-check cache after acquiring permit
       if let Some(path) = self.cache.get(&hash).await {
-         self.inflight.lock().await.remove(&hash);
-         notify.notify_waiters();
+         drop(operation_guard);
+         self.remove_inflight_if_last(&hash, &operation).await;
          return Ok(path);
       }
 
       let result = self.do_transcode(mp4_url, &hash).await;
-
-      // Notify waiters and remove inflight entry
-      self.inflight.lock().await.remove(&hash);
-      notify.notify_waiters();
+      drop(operation_guard);
+      self.remove_inflight_if_last(&hash, &operation).await;
 
       result
+   }
+
+   async fn remove_inflight_if_last(&self, hash: &str, operation: &Arc<Mutex<()>>) {
+      let mut map = self.inflight.lock().await;
+      if Arc::strong_count(operation) == 2
+         && map
+            .get(hash)
+            .is_some_and(|current| Arc::ptr_eq(current, operation))
+      {
+         map.remove(hash);
+      }
    }
 
    async fn do_transcode(&self, mp4_url: &str, hash: &str) -> eyre::Result<PathBuf> {
@@ -104,6 +118,7 @@ impl GifTranscoder {
       let input = cache_dir.join(format!("{hash}.mp4.tmp"));
       let palette = cache_dir.join(format!("{hash}.palette.png"));
       let output = cache_dir.join(format!("{hash}.gif.tmp"));
+      let _temp_files = TempFiles(vec![input.clone(), palette.clone(), output.clone()]);
 
       // Fetch MP4
       let response = self
@@ -123,8 +138,12 @@ impl GifTranscoder {
       fs::write(&input, &bytes).await?;
 
       // Pass 1: generate palette
-      let palette_out = Command::new("ffmpeg")
+      let mut palette_command = Command::new("ffmpeg");
+      palette_command
+         .kill_on_drop(true)
          .args([
+            "-loglevel",
+            "error",
             "-i",
             &input.to_string_lossy(),
             "-vf",
@@ -133,19 +152,23 @@ impl GifTranscoder {
             &palette.to_string_lossy(),
          ])
          .stdout(Stdio::null())
-         .stderr(Stdio::piped())
-         .output()
-         .await?;
+         .stderr(Stdio::piped());
+      let palette_out = timeout(FFMPEG_TIMEOUT, palette_command.output())
+         .await
+         .map_err(|_| eyre::eyre!("ffmpeg palettegen timed out"))??;
 
       if !palette_out.status.success() {
          let stderr = String::from_utf8_lossy(&palette_out.stderr);
-         Self::cleanup(&[&input, &palette, &output]).await;
          return Err(eyre::eyre!("ffmpeg palettegen failed: {stderr}"));
       }
 
       // Pass 2: generate GIF with palette
-      let gif_out = Command::new("ffmpeg")
+      let mut gif_command = Command::new("ffmpeg");
+      gif_command
+         .kill_on_drop(true)
          .args([
+            "-loglevel",
+            "error",
             "-i",
             &input.to_string_lossy(),
             "-i",
@@ -158,29 +181,18 @@ impl GifTranscoder {
             &output.to_string_lossy(),
          ])
          .stdout(Stdio::null())
-         .stderr(Stdio::piped())
-         .output()
-         .await?;
+         .stderr(Stdio::piped());
+      let gif_out = timeout(FFMPEG_TIMEOUT, gif_command.output())
+         .await
+         .map_err(|_| eyre::eyre!("ffmpeg paletteuse timed out"))??;
 
       if !gif_out.status.success() {
          let stderr = String::from_utf8_lossy(&gif_out.stderr);
-         Self::cleanup(&[&input, &palette, &output]).await;
          return Err(eyre::eyre!("ffmpeg paletteuse failed: {stderr}"));
       }
 
       // Read the output GIF and insert into cache
       let gif_data = fs::read(&output).await?;
-      let result = self.cache.put(hash, &gif_data).await;
-
-      // Clean up temp files
-      Self::cleanup(&[&input, &palette, &output]).await;
-
-      result
-   }
-
-   async fn cleanup(paths: &[&PathBuf]) {
-      for path in paths {
-         let _ = fs::remove_file(path).await;
-      }
+      self.cache.put(hash, &gif_data).await
    }
 }

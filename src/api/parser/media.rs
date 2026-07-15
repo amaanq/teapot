@@ -118,7 +118,7 @@ pub fn parse_video(media: &MediaItem) -> Video {
             RawVideoContentType::M3u8 | RawVideoContentType::Other => continue,
          };
 
-         // Parse resolution from URL (format: /vid/WIDTHxHEIGHT/ or
+         // Parse resolution from URL paths shaped like /vid/WIDTHxHEIGHT/ or
          // /vid/avc1/WIDTHxHEIGHT/)
          let resolution = url
             .split("/vid/")
@@ -233,7 +233,7 @@ mod tests {
                   "video_info": {
                      "variants": [{
                         "content_type": "video/mp4",
-                        "bitrate": 832000,
+                        "bitrate": 832_000,
                         "url": "https://video.twimg.com/vid/640x360/first.mp4"
                      }]
                   }
@@ -244,7 +244,7 @@ mod tests {
                   "video_info": {
                      "variants": [{
                         "content_type": "video/mp4",
-                        "bitrate": 832000,
+                        "bitrate": 832_000,
                         "url": "https://video.twimg.com/vid/1280x720/second.mp4"
                      }]
                   }

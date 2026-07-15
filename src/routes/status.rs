@@ -27,6 +27,10 @@ use tweet_view::{
    thread_context,
 };
 
+use super::helpers::{
+   get_cached_translation,
+   get_cached_tweet,
+};
 use crate::{
    AppState,
    cache::{
@@ -181,10 +185,9 @@ async fn status(
 
          // Auto-translate for embeds (OG tags / ActivityPub show translated text)
          if !discord_activity && !is_scroll && !has_cursor && conversation.tweet.is_translatable {
-            let tid = conversation.tweet.id.to_string();
             let kagi = &state.config.config.kagi_token;
             let token = (!kagi.is_empty()).then_some(kagi.as_str());
-            if let Ok(tl) = state.api.translate_auto(&tid, token).await
+            if let Ok(tl) = get_cached_translation(&state, &conversation.tweet, token).await
                && !tl.text.is_empty()
             {
                conversation.tweet.translation = Some(tl);
@@ -192,7 +195,7 @@ async fn status(
          }
 
          // For AJAX scroll requests, return only the replies HTML fragment.
-         // Check this first — paginated responses don't include the main tweet.
+         // Check this first because paginated responses omit the main tweet.
          if is_scroll {
             if conversation.replies.content.is_empty() {
                return Ok(StatusCode::NO_CONTENT.into_response());
@@ -208,20 +211,20 @@ async fn status(
             return Ok(Html(content.into_string()).into_response());
          }
 
-         // Paginated (cursor) requests with no replies — the cursor was a
+         // Paginated requests with no replies indicate that the cursor reached a
          // dead end. Re-fetch the first page and render it without the bottom
          // cursor so "Load more replies" disappears.
          if has_cursor && conversation.replies.content.is_empty() {
-            let cache_key = cache_keys::conversation(&id);
-            let mut first_page = if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
-               cached
+            let mut first_page = if is_sorted {
+               state.api.get_conversation(&id, None, sort).await?
             } else {
-               match state.api.get_conversation(&id, None, sort).await {
-                  Ok(fresh) => {
-                     state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
-                     fresh
-                  },
-                  Err(err) => return Err(err),
+               let cache_key = cache_keys::conversation(&id);
+               if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
+                  cached
+               } else {
+                  let fresh = state.api.get_conversation(&id, None, sort).await?;
+                  state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
+                  fresh
                }
             };
             first_page.replies.bottom = None;
@@ -242,12 +245,18 @@ async fn status(
          #[expect(clippy::shadow_same, reason = "rebinding as mutable")]
          let mut conversation = conversation;
          if conversation.tweet.id == 0 && has_cursor {
-            let cache_key = cache_keys::conversation(&id);
-            if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
-               conversation.tweet = cached.tweet;
-            } else if let Ok(fresh) = state.api.get_conversation(&id, None, sort).await {
-               state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
-               conversation.tweet = fresh.tweet;
+            if is_sorted {
+               if let Ok(fresh) = state.api.get_conversation(&id, None, sort).await {
+                  conversation.tweet = fresh.tweet;
+               }
+            } else {
+               let cache_key = cache_keys::conversation(&id);
+               if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
+                  conversation.tweet = cached.tweet;
+               } else if let Ok(fresh) = state.api.get_conversation(&id, None, sort).await {
+                  state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
+                  conversation.tweet = fresh.tweet;
+               }
             }
          }
 
@@ -267,7 +276,8 @@ async fn status(
          Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
       },
       Err(err) => {
-         let markup = layout::render_error(&state.config, "Error", &err.to_string());
+         tracing::error!(error = ?err, "failed to render status");
+         let markup = layout::render_error(&state.config, "Error", layout::INTERNAL_ERROR_MESSAGE);
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),
@@ -338,7 +348,7 @@ fn render_conversation(
    let content = html! {
        div class="conversation" {
            @if has_cursor {
-               // Paginated replies page: compact tweet header + replies only
+               // Render paginated replies with a compact tweet header
                div class="main-thread" {
                    div class="main-tweet" id="m" {
                        (TweetRenderer::new(tweet, config, false).prefs(prefs).render())
@@ -379,7 +389,7 @@ fn render_conversation(
                        }
                    }
 
-                   // Main tweet (highlighted, larger) — sort toggle injected into stats row
+                   // Highlight the larger main tweet and inject sorting into its stats row
                    @let has_after = !conversation.after.content.is_empty();
                    @let after_class = if has_after { "thread thread-line" } else { "" };
                    div class="main-tweet" id="m" {
@@ -473,7 +483,7 @@ async fn status_by_id(
       .is_some_and(|user_agent| user_agent.contains("Discordbot"));
    let sort = ranking_mode(query.sort.as_deref());
 
-   // Fetch conversation directly — render the tweet page inline instead of
+   // Fetch the conversation directly and render the tweet page inline instead of
    // redirecting, matching X.com behaviour.
    let cache_key = cache_keys::conversation(&id);
    let conv_result = if query.cursor.is_none() && sort == "Relevance" {
@@ -506,10 +516,9 @@ async fn status_by_id(
       Ok(mut conversation) => {
          // Auto-translate for embeds (OG tags / ActivityPub show translated text)
          if !discord_activity && conversation.tweet.is_translatable {
-            let tid = conversation.tweet.id.to_string();
             let kagi = &state.config.config.kagi_token;
             let token = (!kagi.is_empty()).then_some(kagi.as_str());
-            if let Ok(tl) = state.api.translate_auto(&tid, token).await
+            if let Ok(tl) = get_cached_translation(&state, &conversation.tweet, token).await
                && !tl.text.is_empty()
             {
                conversation.tweet.translation = Some(tl);
@@ -533,7 +542,8 @@ async fn status_by_id(
          Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
       },
       Err(err) => {
-         let markup = layout::render_error(&state.config, "Error", &err.to_string());
+         tracing::error!(error = ?err, "failed to render status by ID");
+         let markup = layout::render_error(&state.config, "Error", layout::INTERNAL_ERROR_MESSAGE);
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),
@@ -543,7 +553,7 @@ async fn status_by_id(
    }
 }
 
-/// Translate a tweet — returns an HTML fragment for htmx swap.
+/// Translate a tweet and return an HTML fragment for an htmx swap.
 /// Uses Kagi Translate if the user has a token set, otherwise Twitter's Strato
 /// API.
 async fn translate(
@@ -555,7 +565,7 @@ async fn translate(
       return Ok(StatusCode::BAD_REQUEST.into_response());
    }
 
-   // Priority: user cookie > server config > Twitter Strato
+   // Prefer the user cookie, then server config, then Twitter Strato
    let kagi_token = jar
       .get("kagiToken")
       .map(|cookie| cookie.value().to_owned())
@@ -565,7 +575,10 @@ async fn translate(
          (!server_token.is_empty()).then(|| server_token.clone())
       });
 
-   let result = state.api.translate_auto(&id, kagi_token.as_deref()).await;
+   let result = match get_cached_tweet(&state, &id).await {
+      Ok(tweet) => get_cached_translation(&state, &tweet, kagi_token.as_deref()).await,
+      Err(err) => Err(err),
+   };
 
    match result {
       Ok(tl) if !tl.text.is_empty() => {
@@ -617,7 +630,8 @@ async fn user_by_id(State(state): State<AppState>, Path(id): Path<String>) -> Re
          Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
       },
       Err(err) => {
-         let markup = layout::render_error(&state.config, "Error", &err.to_string());
+         tracing::error!(error = ?err, "failed to load edit history");
+         let markup = layout::render_error(&state.config, "Error", layout::INTERNAL_ERROR_MESSAGE);
          Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Html(markup.into_string()),
@@ -652,7 +666,7 @@ fn engagement_tabs(username: &str, id: &str, active: &str) -> maud::Markup {
    }
 }
 
-/// Retweets page — lists users who retweeted, with infinite scroll support.
+/// Render users who retweeted with infinite scrolling support.
 async fn retweets(
    State(state): State<AppState>,
    jar: CookieJar,
@@ -670,7 +684,7 @@ async fn retweets(
    let cursor = result.bottom.as_deref();
    let base_url = format!("/{username}/status/{id}/retweets");
 
-   // Scroll request: return just the user list HTML fragment
+   // Return only the user list HTML fragment for a scroll request
    if is_scroll {
       let fragment = user_list::render_user_list(
          &result.content,
@@ -696,8 +710,7 @@ async fn retweets(
    Ok(Html(markup.into_string()).into_response())
 }
 
-/// Quotes page — shows tweets that quote this tweet, with infinite scroll
-/// support.
+/// Render tweets that quote this tweet with infinite scrolling support.
 async fn quotes(
    State(state): State<AppState>,
    jar: CookieJar,
@@ -717,7 +730,7 @@ async fn quotes(
    let cursor = timeline.bottom.as_deref();
    let base_url = format!("/{username}/status/{id}/quotes");
 
-   // Scroll request: return just the timeline HTML fragment
+   // Return only the timeline HTML fragment for a scroll request
    if is_scroll {
       let fragment = render_timeline_with_prefs(
          &groups,
