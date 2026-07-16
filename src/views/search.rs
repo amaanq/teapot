@@ -11,6 +11,7 @@ use crate::{
       Tweets,
       User,
    },
+   utils::formatters,
    views::{
       renderutils::icon,
       user_list::render_user,
@@ -74,7 +75,7 @@ pub fn render_search_results_with_prefs(
 
                    @if let Some(cur) = cursor {
                        div class="show-more" {
-                           a href=(format!("/search?q={}&cursor={}", urlencoding::encode(query), cur)) {
+                           a href=(format!("/search?q={}&cursor={}", formatters::url_encode(query), cur)) {
                                "Load more"
                            }
                        }
@@ -131,7 +132,7 @@ pub fn render_user_search_results(
 
                    @if let Some(cur) = cursor {
                        div class="show-more" {
-                           a href=(format!("/search?q={}&f=users&cursor={}", urlencoding::encode(query), cur)) {
+                           a href=(format!("/search?q={}&f=users&cursor={}", formatters::url_encode(query), cur)) {
                                "Load more"
                            }
                        }
@@ -148,7 +149,7 @@ pub fn render_user_search_results(
 
 /// Render search tabs (Top / Latest / Media / Users).
 fn render_search_tabs(query: &str, active: &str) -> Markup {
-   let encoded_query = urlencoding::encode(query);
+   let encoded_query = formatters::url_encode(query);
    let tabs: &[(&str, &str, &str)] = &[
       ("top", "Top", &format!("/search?q={encoded_query}&f=top")),
       ("tweets", "Latest", &format!("/search?q={encoded_query}")),
@@ -305,13 +306,5 @@ fn gen_search_checkbox(name: &str, label: &str, checked: bool) -> Markup {
            input id=(id) type="checkbox" name=(name) value="on" checked[checked];
            span class="checkbox" {}
        }
-   }
-}
-
-mod urlencoding {
-   use crate::utils::formatters;
-
-   pub fn encode(input: &str) -> String {
-      formatters::url_encode(input)
    }
 }

@@ -201,7 +201,7 @@ fn render_atomic(
              div class="code-block" {
                  div class="code-header" {
                      span class="code-lang" { (lang) }
-                     button class="copy-btn" onclick="navigator.clipboard.writeText(this.closest('.code-block').querySelector('code').textContent).then(()=>{let t=document.createElement('div');t.className='copy-toast';t.textContent='Copied!';this.closest('.code-block').appendChild(t);setTimeout(()=>t.remove(),1500)})" title="Copy" {
+                    button class="copy-btn" type="button" title="Copy" {
                          (PreEscaped(COPY_ICON_SVG))
                      }
                  }

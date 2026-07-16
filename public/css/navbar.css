@@ -1,17 +1,12 @@
-.material-symbols-outlined {
-  font-family: 'Material Symbols Outlined';
-  font-weight: 300;
-  font-style: normal;
+.nav-icon span {
   font-size: 18px !important;
   display: inline-block;
   line-height: 1;
-  text-transform: none;
-  letter-spacing: normal;
-  word-wrap: normal;
-  white-space: nowrap;
-  direction: ltr;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   user-select: none;
+}
+
+.nav-icon span::before {
+  margin-right: 0;
 }
 
 nav {

@@ -109,7 +109,7 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
    html! {
        div class="thread-line" {
            @for (idx, tweet) in sorted.iter().enumerate() {
-               // Detect gap: if this tweet's reply_id doesn't match the previous tweet's id
+               // Detect a gap when reply_id does not match the previous tweet's ID
                @if idx > 0 && tweet.reply_id != sorted[idx - 1].id {
                    div class="timeline-item thread more-replies-thread" {
                        div class="more-replies" {
@@ -141,7 +141,7 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
 }
 
 /// Full timeline rendering with all options.
-/// `groups` preserves conversation structure from the API: each inner
+/// `groups` preserves conversation structure from the API. Each inner
 /// Vec<Tweet> is a conversation thread (parent -> reply chain).
 fn render_timeline_full(
    groups: &[Tweets],
@@ -181,7 +181,7 @@ fn render_timeline_full(
                    }
                }
 
-               // Render groups: each group is a conversation thread from the API
+               // Each group renders as one conversation thread from the API
                @for group in groups {
                    // Filter out pinned duplicates
                    @let filtered = group.iter().filter(|tweet| Some(tweet.id) != pinned_id).collect::<Vec<_>>();

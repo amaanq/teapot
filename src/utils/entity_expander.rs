@@ -231,12 +231,12 @@ mod tests {
    use super::*;
 
    #[test]
-   fn test_expand_mention() {
+   fn expands_mention() {
       let entities = vec![Entity {
          indices: (0, 5),
          kind:    EntityKind::Mention,
-         url:     "/test".to_string(),
-         display: "Test User".to_string(),
+         url:     "/test".to_owned(),
+         display: "Test User".to_owned(),
       }];
       let result = expand_entities("@test hello", &entities);
       assert!(result.contains(r#"<a href="/test""#));
@@ -244,7 +244,7 @@ mod tests {
    }
 
    #[test]
-   fn test_expand_hashtag() {
+   fn expands_hashtag() {
       let entities = vec![Entity {
          indices: (0, 5),
          kind:    EntityKind::Hashtag,
@@ -291,11 +291,11 @@ mod tests {
    }
 
    #[test]
-   fn test_expand_url() {
+   fn expands_url() {
       let entities = vec![Entity {
          indices: (6, 26),
          kind: EntityKind::Url,
-         url: "https://example.com/long/path".to_string(),
+         url: "https://example.com/long/path".to_owned(),
          ..Default::default()
       }];
       let result = expand_entities("Check https://t.co/xyz out!", &entities);
@@ -304,7 +304,7 @@ mod tests {
    }
 
    #[test]
-   fn test_html_escape() {
+   fn escapes_html() {
       let result = html_escape("<script>alert('xss')</script>");
       assert!(!result.contains('<'));
       assert!(!result.contains('>'));
@@ -313,15 +313,15 @@ mod tests {
    }
 
    #[test]
-   fn test_regex_fallback() {
+   fn regex_fallback_expands_entities() {
       let result = expand_with_regex("Hello @user and #topic!");
       assert!(result.contains(r#"<a href="/user">@user</a>"#));
       assert!(result.contains(r#"<a href="/search?q=%23topic">#topic</a>"#));
    }
 
    #[test]
-   fn test_html_entity_not_treated_as_hashtag() {
-      // &#x27; is the HTML entity for single quote — the #x27 must NOT become
+   fn html_entity_is_not_treated_as_hashtag() {
+      // &#x27; is the HTML entity for a single quote. The #x27 must not become
       // a hashtag link. Twitter sends this pre-escaped.
       let result = expand_with_regex("It&#x27;s a test");
       assert!(
@@ -335,7 +335,7 @@ mod tests {
    }
 
    #[test]
-   fn test_html_entity_ampersand_not_treated_as_hashtag() {
+   fn html_entity_ampersand_is_not_treated_as_hashtag() {
       let result = expand_with_regex("Test &amp; &#x27;end");
       assert!(
          !result.contains(r#"<a href="/search?q=%23x27">"#),
@@ -344,15 +344,16 @@ mod tests {
    }
 
    #[test]
-   fn test_no_double_escape() {
-      // Twitter returns &lt; in full_text — should stay as &lt; not become &amp;lt;
+   fn avoids_double_escape() {
+      // Twitter returns &lt; in full_text. It must stay &lt; instead of becoming
+      // &amp;lt;
       let result = expand_entities("x &lt; y", &[]);
       assert_eq!(result, "x &lt; y");
       assert!(!result.contains("&amp;"), "should not double-escape");
    }
 
    #[test]
-   fn test_passthrough_preserves_twitter_escaping() {
+   fn passthrough_preserves_twitter_escaping() {
       // Twitter pre-escapes: &amp; &lt; &gt; &quot;
       let result = expand_entities("A &amp; B &lt; C &gt; D", &[]);
       assert_eq!(result, "A &amp; B &lt; C &gt; D");

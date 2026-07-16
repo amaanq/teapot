@@ -74,7 +74,7 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
    let result = X_LINK_RE.replace_all(&result, link_replacement.as_str());
    let result = TW_LINK_RE.replace_all(&result, link_replacement.as_str());
 
-   // Handle raw URLs: replace domain after "://" boundary.
+   // Replace domains in raw URLs after the "://" boundary.
    let url_replacement = format!("${{1}}{replace_with}");
    let result = X_URL_RE.replace_all(&result, url_replacement.as_str());
    let result = TW_URL_RE.replace_all(&result, url_replacement.as_str());
@@ -202,7 +202,7 @@ pub fn get_video_embed_url(config: &Config, tweet_id: i64) -> String {
 }
 
 /// Generate GIF URL with HMAC signature (for local transcoding).
-/// The `.gif` suffix is critical: Discord's image proxy uses the URL
+/// The `.gif` suffix is critical because Discord's image proxy uses the URL
 /// extension to decide whether to preserve animation.
 pub fn get_gif_url(mp4_url: &str, hmac_key: &str, base64_media: bool) -> String {
    let sig = super::sign(mp4_url, hmac_key);
@@ -439,10 +439,10 @@ mod tests {
    use super::*;
 
    #[test]
-   fn test_parse_twitter_time_zero_padded_day() {
+   fn parses_twitter_time_with_zero_padded_day() {
       use time::macros::format_description;
 
-      // Elon Musk's created_at: zero-padded day
+      // Elon Musk's created_at uses a zero-padded day
       let result = parse_twitter_time("Tue Jun 02 20:12:29 +0000 2009");
       assert!(result.is_some(), "Failed to parse zero-padded day");
       let dt = result.unwrap();
@@ -454,7 +454,7 @@ mod tests {
    }
 
    #[test]
-   fn test_parse_twitter_time_space_padded_day() {
+   fn parses_twitter_time_with_space_padded_day() {
       use time::macros::format_description;
 
       // Space-padded day (single digit)
@@ -469,7 +469,7 @@ mod tests {
    }
 
    #[test]
-   fn test_format_join_date() {
+   fn formats_join_date() {
       let dt = parse_twitter_time("Tue Jun 02 20:12:29 +0000 2009").unwrap();
       assert_eq!(format_join_date(dt), "Joined June 2009");
    }

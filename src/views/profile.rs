@@ -302,7 +302,7 @@ fn render_photo_rail(photos: &[GalleryPhoto], user: &User, config: &Config) -> M
            div class="photo-rail-header" {
                a href=(format!("/{}/media", user.username)) {
                    span class="photo-rail-icon-wrap" {
-                       span class="material-symbols-outlined photo-rail-media-icon" { "photo_library" }
+                       span class="icon-picture photo-rail-media-icon" aria-hidden="true" {}
                        span class="photo-rail-media-badge" { (count) }
                    }
                    span class="photo-rail-media-label" { "Media" }
@@ -314,7 +314,7 @@ fn render_photo_rail(photos: &[GalleryPhoto], user: &User, config: &Config) -> M
            label for="photo-rail-grid-toggle" class="photo-rail-header-mobile" {
                div class="photo-rail-header-mobile-inner" {
                    span class="photo-rail-icon-wrap" {
-                       span class="material-symbols-outlined photo-rail-media-icon" { "photo_library" }
+                       span class="icon-picture photo-rail-media-icon" aria-hidden="true" {}
                        span class="photo-rail-media-badge" { (count) }
                    }
                    span { "Media" }

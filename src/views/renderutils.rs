@@ -111,7 +111,7 @@ pub fn verified_icon(user: &User) -> Markup {
 /// Render a linked user.
 ///
 /// Renders as fullname (when class doesn't contain "username") or "@username".
-/// The verified icon is NOT included — callers must add `verified_icon()` as a
+/// The verified icon is not included. Callers must add `verified_icon()` as a
 /// sibling after this element.
 pub fn link_user(user: &User, class: &str) -> Markup {
    let is_name = !class.contains("username");

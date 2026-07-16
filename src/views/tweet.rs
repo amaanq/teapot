@@ -154,7 +154,7 @@ impl<'a> TweetRenderer<'a> {
       let extra_class = self.extra_class;
       let index = self.index;
 
-      // Handle unavailable tweets (tombstoned) — use <a> to make clickable
+      // Use <a> to make unavailable tombstoned tweets clickable
       if !tweet.available {
          let link = get_link(tweet);
          let text = if !tweet.tombstone.is_empty() {
@@ -174,14 +174,14 @@ impl<'a> TweetRenderer<'a> {
          };
       }
 
-      // Handle retweets: extract the inner tweet and show retweet header
+      // Extract the inner tweet and show its retweet header
       let (display_tweet, retweet_by) = tweet
          .retweet
          .as_ref()
          .map_or((tweet, None), |rt| (rt.as_ref(), Some(&tweet.user)));
 
       // Build CSS class based on context.
-      // Only "thread-last" for the final tweet; no start/middle classes.
+      // Use "thread-last" only for the final tweet. Omit start and middle classes.
       // Includes .author-{user} and .retweet-{user} for adblock filtering.
       let author_class = format!("author-{}", display_tweet.user.username);
       let retweet_class = retweet_by.map(|rt_user| format!("retweet-{}", rt_user.username));
@@ -264,7 +264,7 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Reply indicator: only shown for the first tweet (index 0) in a
+                  // Show the reply indicator only for the first tweet in a
                   // thread group, not for main tweets, not in thread context (conversation
                   // page), and not for self-replies.
                   @if !is_main && index == 0 && thread_ctx == ThreadContext::None && !display_tweet.reply.is_empty() && !is_reply_to_self(display_tweet, pinned) {
@@ -306,7 +306,7 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Attribution (when another user owns the content) — after tweet-content
+                  // Show attribution after tweet-content when another user owns it
                   @if let Some(ref attr_user) = display_tweet.attribution {
                       a class="attribution" href=(format!("/{}", attr_user.username)) {
                           (render_mini_avatar(attr_user, config, prefs))
@@ -337,7 +337,7 @@ impl<'a> TweetRenderer<'a> {
                   @if let Some(ref gif) = display_tweet.gif {
                       @let autoplay_gifs = prefs.is_none_or(|pref| pref.autoplay_gifs);
                       @let poster = get_small_pic(&gif.thumb, config);
-                      @let gif_src = formatters::get_pic_url(&gif.url, config.config.base64_media);
+                      @let gif_src = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
                       div class="attachments media-gif" {
                           div class="gallery-gif" style="max-height: unset" {
                               div class="attachment" {
@@ -692,7 +692,7 @@ fn render_card_content(card: &Card) -> Markup {
            @if !card.text.is_empty() {
                p class="card-description" { (card.text) }
            }
-           // Format destination: "List · 42 Members" for list/community, else raw dest
+           // Format list and community destinations as "List · 42 Members"
            @if card.member_count > 0 && !card.dest.is_empty() {
                span class="card-destination" {
                    (format!("{} · {} Members", card.dest, card.member_count))
@@ -706,8 +706,9 @@ fn render_card_content(card: &Card) -> Markup {
 
 /// Render card preview for links.
 ///
-/// Small cards: App, Player, Summary, `StoreLink`.
-/// Large cards: everything else (`SummaryLarge`, `PromoWebsite`, etc.).
+/// App, Player, Summary, and `StoreLink` use small cards.
+/// All other variants, including `SummaryLarge` and `PromoWebsite`, use large
+/// cards.
 fn render_card(card: &Card, config: &Config, prefs: Option<&Prefs>) -> Markup {
    // Skip hidden or unknown cards
    if matches!(card.kind, CardKind::Hidden | CardKind::Unknown) {
@@ -754,7 +755,7 @@ fn render_user_avatar(user: &User, config: &Config, prefs: Option<&Prefs>) -> Ma
 }
 
 /// Render tweet text and location as a single HTML string (for verbatim
-/// output). This avoids wrapping in an extra `<p>` tag — the original version
+/// output). This avoids wrapping in an extra `<p>` tag. The original version
 /// uses `verbatim` directly inside the content div.
 fn render_tweet_text_html(
    text: &str,
@@ -824,7 +825,7 @@ fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup
                            (button_referer("/enablemp4", "Enable mp4 playback", "", "", ""))
                        }
                    } @else if let Some(mp4_url) = video.best_mp4_url() {
-                       // MP4 playback: native video element with controls
+                       // Render MP4 playback with a native video element and controls
                        @let video_src = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
                        video poster=(thumb) controls="" muted=[mute_videos.then_some("")] {
                            source src=(video_src) type="video/mp4";
@@ -851,7 +852,7 @@ fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup
 }
 
 /// Render tweet stats using `icon()` helper from renderutils.
-/// Retweet count links to the retweeters page; quote count links to search.
+/// Retweet counts link to the retweeters page. Quote counts link to search.
 /// Optional `extra` markup is appended after the stat icons (used for the
 /// reply-sort toggle on the main tweet).
 fn render_stats(stats: &TweetStats, username: &str, id: i64, extra: Option<&Markup>) -> Markup {
