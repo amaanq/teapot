@@ -1,8 +1,8 @@
 {
-  description = "A privacy-focused Twitter/X frontend written in Rust";
+  description = "A privacy-focused Twitter/X frontend";
 
   outputs =
-    { self, ... }@args:
+    args:
     let
       inputs = (import ./.tack) { overrides = args.tackOverrides or { }; };
       inherit (inputs) nixpkgs fenix;
@@ -11,6 +11,13 @@
       pkgsFor = system: nixpkgs.legacyPackages.${system} or (import nixpkgs { inherit system; });
 
       hasFenix = system: fenix.packages ? ${system};
+      hasWild = platform: platform.isLinux && (platform.isx86_64 || platform.isAarch64);
+      nativeDeps =
+        pkgs:
+        lib.optionals (hasWild pkgs.stdenv.hostPlatform) [
+          pkgs.wild
+          pkgs.clang
+        ];
       rustPlatformFor =
         system:
         let
@@ -45,19 +52,23 @@
             else
               (with pkgs; [
                 cargo
+                clippy
                 rustc
                 rustfmt
               ]);
         in
         {
           default = pkgs.mkShell {
-            buildInputs = toolchain ++ [
-              pkgs.rust-analyzer
-              pkgs.pkg-config
-              pkgs.mold
-              pkgs.clang
-              pkgs.ffmpeg-headless
-            ];
+            packages =
+              toolchain
+              ++ [
+                pkgs.cargo-deny
+                pkgs.cargo-nextest
+                pkgs.rust-analyzer
+                pkgs.pkg-config
+                pkgs.ffmpeg-headless
+              ]
+              ++ nativeDeps pkgs;
           };
         }
       );
@@ -97,7 +108,7 @@
               )
             }
           '';
-          preStart = pkgs.writers.writePython3 "teapot-prestart" { } ''
+          preStart = pkgs.writers.writePython3 "teapot-prestart" { } /* py */ ''
             import os
             import secrets
 
@@ -132,8 +143,6 @@
 
             package = lib.mkOption {
               type = lib.types.package;
-              # built from the caller's pkgs, including cross stdenvs, so any
-              # host platform works without the flake having to enumerate it
               default = pkgs.callPackage ./nix/package.nix { };
               defaultText = lib.literalExpression "pkgs.callPackage ./nix/package.nix { }";
               description = "The teapot package to use.";
@@ -190,6 +199,11 @@
                 default = 10;
                 description = "How long to cache RSS queries (minutes).";
               };
+              maxEntries = lib.mkOption {
+                type = lib.types.ints.positive;
+                default = 50000;
+                description = "Maximum number of entries in the in-process cache.";
+              };
             };
 
             config = {
@@ -215,7 +229,7 @@
               apiProxy = lib.mkOption {
                 type = lib.types.str;
                 default = "";
-                description = "API proxy host for requests.";
+                description = "HTTP/HTTPS proxy URL used only for X API requests.";
               };
               disableTid = lib.mkOption {
                 type = lib.types.bool;
@@ -287,11 +301,6 @@
                 default = "";
                 description = "Replace Reddit links with this instance.";
               };
-              proxyVideos = lib.mkOption {
-                type = lib.types.bool;
-                default = true;
-                description = "Proxy video streaming through the server.";
-              };
               infiniteScroll = lib.mkOption {
                 type = lib.types.bool;
                 default = false;
@@ -311,7 +320,7 @@
               description = ''
                 Path to the session tokens file (JSONL format).
 
-                Each line: {"oauth_token":"...","oauth_token_secret":"..."}
+                Each line: {"kind":"oauth","oauth_token":"...","oauth_secret":"..."}
               '';
             };
 

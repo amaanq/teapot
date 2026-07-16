@@ -13,7 +13,7 @@ title              = "teapot"
 [cache]
 # Cache TTL settings (in-process cache, no external dependencies)
 listMinutes = 240   # How long to cache list info
-maxEntries  = 50000 # Cap on in-memory entries; over cap, soonest-expiring are evicted
+maxEntries  = 50000 # Evict the soonest-expiring entries when this limit is exceeded
 rssMinutes  = 10    # How long to cache RSS queries
 
 [config]
@@ -38,7 +38,7 @@ debugToken = ""
 proxy     = ""
 proxyAuth = ""
 
-# API proxy host, e.g. localhost:7000
+# HTTP/HTTPS proxy URL used only for X API requests, e.g. http://localhost:7000
 apiProxy = ""
 
 # Enable this if cookie-based auth is failing
@@ -47,7 +47,7 @@ disableTid = false
 # Max requests per session to avoid race conditions
 maxConcurrentReqs = 2
 
-# Kagi Translate: server-side translation for non-English tweets
+# Configure server-side Kagi translation for non-English tweets
 # Set either kagiToken (inline) or kagiTokenFile (path to file)
 # Get your token from kagi.com/settings → Session Link
 kagiToken     = ""

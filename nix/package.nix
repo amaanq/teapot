@@ -1,10 +1,17 @@
 {
   lib,
   rustPlatform,
+  stdenv,
   pkg-config,
   makeWrapper,
   ffmpeg-headless,
+  clang,
+  wild ? null,
 }:
+let
+  hasWild =
+    stdenv.hostPlatform.isLinux && (stdenv.hostPlatform.isx86_64 || stdenv.hostPlatform.isAarch64);
+in
 rustPlatform.buildRustPackage {
   pname = "teapot";
   version = "0.1.0";
@@ -14,9 +21,10 @@ rustPlatform.buildRustPackage {
     fileset = lib.fileset.unions [
       ../Cargo.toml
       ../Cargo.lock
+      ../LICENSE
       ../src
       ../public
-      ../config
+      ../config/teapot.example.toml
     ];
   };
 
@@ -25,15 +33,24 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [
     pkg-config
     makeWrapper
+  ]
+  ++ lib.optionals hasWild [
+    wild
+    clang
   ];
 
-  doCheck = false;
+  env = lib.optionalAttrs hasWild {
+    RUSTFLAGS = "-Clinker=${clang}/bin/clang -Clink-arg=--ld-path=wild";
+  };
+
+  doCheck = true;
   stripAllList = [ "bin" ];
 
   postInstall = ''
     mkdir -p $out/share/teapot
     cp -r public $out/share/teapot/
-    cp -r config $out/share/teapot/
+    mkdir -p $out/share/teapot/config
+    cp config/teapot.example.toml $out/share/teapot/config/
     wrapProgram $out/bin/teapot \
       --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]}
   '';

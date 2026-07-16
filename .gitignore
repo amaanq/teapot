@@ -10,13 +10,20 @@
 !flake.lock
 !Cargo.lock
 !Cargo.toml
+!deny.toml
 !README.md
+!LICENSE
 
-# Config (example only, not real config)
+# CI
+!.github/
+!.github/workflows/
+!.github/workflows/ci.yml
+
+# Example config
 !config/
 !config/teapot.example.toml
 
-# Session example (never real sessions)
+# Session example
 !sessions.example.jsonl
 
 # Source

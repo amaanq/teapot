@@ -1,76 +1,85 @@
 [package]
-name        = "teapot"
-version     = "0.1.0"
-edition     = "2024"
+name         = "teapot"
+version      = "0.1.0"
+edition      = "2024"
 rust-version = "1.96.1"
-authors     = [ "amaanq" ]
-description = "A privacy-focused Twitter/X frontend written in Rust"
-license     = "AGPL-3.0-only"
-repository  = "https://github.com/amaanq/teapot"
-keywords    = [ "twitter", "privacy", "frontend", "teapot" ]
-categories  = [ "web-programming::http-server" ]
+authors      = [ "Amaan Qureshi <contact@amaanq.com>" ]
+description  = "A privacy-focused Twitter/X frontend written in Rust"
+license      = "AGPL-3.0-only"
+repository   = "https://github.com/amaanq/teapot"
+keywords     = [ "twitter", "privacy", "frontend", "teapot" ]
+categories   = [ "web-programming::http-server" ]
 
 [dependencies]
-axum = { features = [ "macros" ], version = "0.8.8" }
-axum-extra = { features = [ "cookie" ], version = "0.12.5" }
-bytes = "1.11.1"
-data-encoding = "2.10.0"
+axum = { features = [ "macros" ], version = "0.8.9" }
+axum-extra = { features = [ "cookie" ], version = "0.12.6" }
+bytes = "1.12.1"
+data-encoding = "2.11.0"
 eyre = "0.6.12"
 flate2 = "1.1.9"
 form_urlencoded = "1.2.2"
-indexmap = "2.9.0"
-http-body-util = "0.1.3"
-hyper = { features = [ "http1", "client" ], version = "1.8.1" }
+http-body-util = "0.1.4"
+hyper = { features = [ "http1", "client" ], version = "1.10.1" }
 hyper-rustls = {
-	default-features = false,
-	features = [
-		"ring",
-		"http1",
-		"tls12",
-		"logging",
-		"native-tokio",
-	],
-	version = "0.27.7",
+  default-features = false,
+  features = [
+    "ring",
+    "http1",
+    "tls12",
+    "logging",
+    "native-tokio",
+  ],
+  version = "0.27.9",
 }
 hyper-util = { features = [ "client-legacy", "http1", "tokio" ], version = "0.1.20" }
+indexmap = "2.14.0"
 maud = { features = [ "axum" ], version = "0.27.0" }
 percent-encoding = "2.3.2"
-regex = "1.12.3"
+regex = "1.13.1"
 ring = "0.17.14"
 rustls = {
-	default-features = false,
-	features = [
-		"ring",
-		"logging",
-		"std",
-		"tls12",
-	],
-	version = "0.23.37",
+  default-features = false,
+  features = [
+    "ring",
+    "logging",
+    "std",
+    "tls12",
+  ],
+  version = "0.23.42",
 }
-rustls-native-certs = "0.8.3"
+rustls-native-certs = "0.8.4"
 serde = { features = [ "derive" ], version = "1.0.228" }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 thiserror = "2.0.18"
-time = { features = [ "formatting", "parsing", "macros", "serde" ], version = "0.3.47" }
+time = { features = [ "formatting", "parsing", "macros", "serde" ], version = "0.3.53" }
 tokio = {
-	features = [
-		"rt-multi-thread",
-		"net",
-		"macros",
-		"sync",
-		"fs",
-		"io-util",
-		"process",
-		"time",
-	],
-	version = "1.49.0",
+  features = [
+    "rt-multi-thread",
+    "net",
+    "macros",
+    "sync",
+    "fs",
+    "io-util",
+    "process",
+    "time",
+  ],
+  version = "1.53.0",
 }
 tokio-rustls = { default-features = false, features = [ "ring", "tls12" ], version = "0.26.4" }
-toml = "1.0.3"
+toml = "1.1.3"
 tower = { features = [ "limit", "util" ], version = "0.5.3" }
-tower-http = { features = [ "fs", "cors", "compression-gzip", "set-header", "timeout" ], version = "0.6.8" }
+tower-http = {
+  features = [
+    "fs",
+    "cors",
+    "compression-gzip",
+    "set-header",
+    "timeout",
+  ],
+  version = "0.7.0",
+}
 tracing = "0.1.44"
-tracing-subscriber = { features = [ "env-filter" ], version = "0.3.22" }
+tracing-subscriber = { features = [ "env-filter" ], version = "0.3.23" }
 xitter-txid = { default-features = false, version = "0.1.0" }
 
 [dev-dependencies]

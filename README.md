@@ -4,7 +4,7 @@ A privacy-focused Twitter/X frontend written in Rust.
 
 ## Features
 
-- **Privacy-focused**: No JavaScript required, no tracking, no ads
+- **Privacy-focused**: No third-party JavaScript, tracking, ads, or remote fonts
 - **RSS feeds**: Subscribe to any user's tweets
 - **FxEmbed-style Discord embeds**:
   - Multiple images displayed in carousel on mobile
@@ -14,7 +14,7 @@ A privacy-focused Twitter/X frontend written in Rust.
 
 ## Requirements
 
-- Rust 1.70+
+- Rust 1.96.1+
 - Twitter/X session tokens for API access
 
 ## Building
@@ -39,6 +39,10 @@ cp config/teapot.example.toml config/teapot.toml
 cp sessions.example.jsonl sessions.jsonl
 # Edit sessions.jsonl with your auth_token and ct0 from browser cookies
 ```
+
+Cookie sessions use `auth_token` and `ct0`. OAuth sessions use
+`oauth_token` and `oauth_secret`. See `sessions.example.jsonl` for the JSONL
+shape. Never commit a real session or generated `teapot.toml`.
 
 ## Running
 
@@ -102,4 +106,4 @@ All images include `og:image:width` and `og:image:height` meta tags for proper l
 
 ## License
 
-AGPL-3.0
+[GNU Affero General Public License v3.0](LICENSE)
