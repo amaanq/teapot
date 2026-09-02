@@ -2,6 +2,10 @@
 
 A privacy-focused Twitter/X frontend written in Rust.
 
+## Public instances
+
+- [nitter.cf](https://nitter.cf) — public instance (backup: [xitter.cf](https://xitter.cf))
+
 ## Features
 
 - **Privacy-focused**: No third-party JavaScript, tracking, ads, or remote fonts
