@@ -301,10 +301,10 @@ impl<'a> TweetRenderer<'a> {
                               div class="disclosure-label" { (ai_label) }
                           }
                       } @else {
-                          @let labels: Vec<&str> = [
+                          @let labels = [
                               display_tweet.paid_promotion.then_some(paid_label.as_str()),
                               display_tweet.ai_generated.then_some(ai_label.as_str()),
-                          ].into_iter().flatten().collect();
+                          ].into_iter().flatten().collect::<Vec<&str>>();
                           div class="disclosure-label" { (labels.join(" · ")) }
                       }
                   }
@@ -424,7 +424,7 @@ impl<'a> TweetRenderer<'a> {
 /// - 1-2 photos: single row
 /// - 3+ photos: distributed into 2 rows (e.g. 3 → [2, 1], 4 → [2, 2])
 fn render_photos(photos: &[Photo], config: &Config) -> Markup {
-   let groups: Vec<&[Photo]> = if photos.len() < 3 {
+   let groups = if photos.len() < 3 {
       vec![photos]
    } else {
       let mid = photos.len() / 2 + photos.len() % 2;

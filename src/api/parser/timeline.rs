@@ -42,7 +42,7 @@ pub fn parse_list_timeline(data: &ListTimelineData) -> Result<Timeline> {
 }
 
 fn parse_timeline_instructions(raw_instructions: &[Instruction]) -> Result<Timeline> {
-   let mut tweets: Vec<Tweets> = Vec::new();
+   let mut tweets = Vec::<Tweets>::new();
    let mut top_cursor = None;
    let mut bottom_cursor = None;
 
@@ -140,7 +140,7 @@ fn parse_timeline_entry(entry: &Entry) -> Tweets {
 pub fn parse_search_timeline(data: &SearchTimelineData) -> Timeline {
    let raw_instructions = data.instructions();
 
-   let mut tweets: Vec<Tweets> = Vec::new();
+   let mut tweets = Vec::<Tweets>::new();
    let mut bottom_cursor = None;
 
    for instruction in raw_instructions {

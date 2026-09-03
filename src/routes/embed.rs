@@ -331,7 +331,7 @@ fn extract_tweet_id(url: &str) -> Option<&str> {
          stripped.split_once('/').map_or("", |(_, rest)| rest)
       });
 
-   let segments: Vec<&str> = path.split('/').collect();
+   let segments = path.split('/').collect::<Vec<&str>>();
    for window in segments.windows(2) {
       assert!(window.len() > 1, "windows(2) guarantees length 2");
       if (window[0] == "status" || window[0] == "statuses") && !window[1].is_empty() {

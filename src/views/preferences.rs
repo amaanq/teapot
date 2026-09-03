@@ -31,7 +31,7 @@ fn gen_input(name: &str, label: &str, value: &str, placeholder: &str) -> Markup 
 
 /// Render the font size select with live preview on change.
 fn gen_font_size_select(selected: &str) -> Markup {
-   let options: &[(&str, &str, &str)] = &[
+   let options = &[
       ("", "Default", ""),
       ("Small", "Small (14px)", "14px"),
       ("Medium", "Medium (16px)", "16px"),

@@ -160,7 +160,7 @@ impl TryFrom<&TweetData> for Tweet {
             .unwrap_or(0);
       }
 
-      let mut reply: Vec<String> = legacy
+      let mut reply = legacy
          .in_reply_to_screen_name
          .as_ref()
          .map(|name| vec![name.clone()])

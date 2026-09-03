@@ -515,7 +515,7 @@ async fn multi_user_timeline(
       .and_then(|val| val.parse::<i64>().ok());
 
    let mut all_tweets = Vec::new();
-   let handles: Vec<_> = usernames
+   let handles = usernames
       .iter()
       .map(|username| {
          let state = state.clone();
@@ -528,7 +528,7 @@ async fn multi_user_timeline(
             Some(timeline.content.into_iter().flatten().collect::<Vec<_>>())
          }))
       })
-      .collect();
+      .collect::<Vec<_>>();
 
    for handle in handles {
       if let Ok(Some(tweets)) = handle.await {

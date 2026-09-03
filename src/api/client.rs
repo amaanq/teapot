@@ -853,7 +853,7 @@ mod tests {
 
    #[test]
    fn parses_recorded_audio_space_metadata() {
-      let data: AudioSpaceData = serde_json::from_str(
+      let data = serde_json::from_str::<AudioSpaceData>(
          r#"{
             "audioSpace": {
                "metadata": {
@@ -874,7 +874,7 @@ mod tests {
 
    #[test]
    fn parses_live_broadcast_metadata() {
-      let data: BroadcastsData = serde_json::from_str(
+      let data = serde_json::from_str::<BroadcastsData>(
          r#"{
             "broadcasts": {
                "1XxyggAaLzvGM": {

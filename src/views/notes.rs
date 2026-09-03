@@ -83,10 +83,10 @@ fn render_paragraphs(
    config: &Config,
    prefs: Option<&Prefs>,
 ) -> Markup {
-   let mut parts: Vec<Markup> = Vec::new();
-   let mut cur_list_type: Option<ArticleBlockType> = None;
-   let mut list_items: Vec<Markup> = Vec::new();
-   let mut code_lines: Vec<String> = Vec::new();
+   let mut parts = Vec::<Markup>::new();
+   let mut cur_list_type = None::<ArticleBlockType>;
+   let mut list_items = Vec::<Markup>::new();
+   let mut code_lines = Vec::<String>::new();
 
    let flush_list =
       |lt: &mut Option<ArticleBlockType>, items: &mut Vec<Markup>, out: &mut Vec<Markup>| {
@@ -274,8 +274,8 @@ fn strip_markdown_fences(md: &str) -> (&str, &str) {
 /// styles.
 fn render_text_with_entities(para: &ArticleParagraph, article: &Article) -> Markup {
    let text = &para.text;
-   let chars: Vec<char> = text.chars().collect();
-   let mut parts: Vec<Markup> = Vec::new();
+   let chars = text.chars().collect::<Vec<char>>();
+   let mut parts = Vec::<Markup>::new();
    let mut last = 0;
 
    for er in &para.entity_ranges {
@@ -316,9 +316,9 @@ fn render_text_with_entities(para: &ArticleParagraph, article: &Article) -> Mark
 /// Render a range of text with inline style ranges applied.
 fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end: usize) -> Markup {
    if para.inline_style_ranges.is_empty() {
-      let text: String = chars
+      let text = chars
          .get(start..end)
-         .map(|slice| slice.iter().collect())
+         .map(|slice| slice.iter().collect::<String>())
          .unwrap_or_default();
       return html! { (text) };
    }
@@ -356,9 +356,9 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
          }
       }
 
-      let chunk: String = chars
+      let chunk = chars
          .get(pos..style_end)
-         .map(|slice| slice.iter().collect())
+         .map(|slice| slice.iter().collect::<String>())
          .unwrap_or_default();
 
       let mut markup = html! { (chunk) };

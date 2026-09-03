@@ -150,10 +150,10 @@ impl Cache {
             if map.len() > self.max_entries {
                let target = self.max_entries * 3 / 4;
                let drop_n = map.len() - target;
-               let mut by_expiry: Vec<(Instant, String)> = map
+               let mut by_expiry = map
                   .iter()
                   .map(|(stored_key, stored_entry)| (stored_entry.stale_until, stored_key.clone()))
-                  .collect();
+                  .collect::<Vec<(Instant, String)>>();
                by_expiry.select_nth_unstable_by_key(drop_n, |&(expiry, _)| expiry);
                for (_, eviction_key) in by_expiry.into_iter().take(drop_n) {
                   map.remove(&eviction_key);

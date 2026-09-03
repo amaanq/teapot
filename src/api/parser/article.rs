@@ -86,7 +86,7 @@ pub fn attach_article_preview(tweet: &mut Tweet, article: &Article) {
          paragraph.base_type == ArticleBlockType::Unstyled && !paragraph.text.trim().is_empty()
       })
       .map(|paragraph| {
-         let mut excerpt: String = paragraph.text.chars().take(200).collect();
+         let mut excerpt = paragraph.text.chars().take(200).collect::<String>();
          if paragraph.text.chars().count() > 200 {
             excerpt.push('…');
          }
@@ -175,7 +175,7 @@ fn parse_inline_article(raw: &InlineArticle, user: User) -> Article {
 }
 
 fn parse_content_state(state: &InlineContentState) -> (Vec<ArticleParagraph>, Vec<ArticleEntity>) {
-   let paragraphs: Vec<ArticleParagraph> = state
+   let paragraphs = state
       .blocks
       .iter()
       .map(|block| {
@@ -228,14 +228,14 @@ fn parse_content_state(state: &InlineContentState) -> (Vec<ArticleParagraph>, Ve
             entity_ranges,
          }
       })
-      .collect();
+      .collect::<Vec<ArticleParagraph>>();
 
    // entity_map is now a list of {key, value} pairs. Sort by numeric key
-   let mut sorted_entries: Vec<_> = state
+   let mut sorted_entries = state
       .entity_map
       .iter()
       .filter_map(|entry| entry.key.parse::<usize>().ok().map(|idx| (idx, entry)))
-      .collect();
+      .collect::<Vec<_>>();
    sorted_entries.sort_by_key(|&(idx, _)| idx);
 
    let mut entities = Vec::new();

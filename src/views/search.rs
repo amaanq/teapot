@@ -153,7 +153,7 @@ pub fn render_user_search_results(
 /// Render search tabs (Top / Latest / Media / Users).
 fn render_search_tabs(query: &str, active: &str) -> Markup {
    let encoded_query = formatters::url_encode(query);
-   let tabs: &[(&str, &str, &str)] = &[
+   let tabs = &[
       ("top", "Top", &format!("/search?q={encoded_query}&f=top")),
       ("tweets", "Latest", &format!("/search?q={encoded_query}")),
       (

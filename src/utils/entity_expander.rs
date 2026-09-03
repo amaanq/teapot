@@ -58,7 +58,7 @@ fn expand_entities_with_target(text: &str, entities: &[Entity], link_to_x: bool)
    }
 
    // Sort entities by start position
-   let mut sorted_entities: Vec<&Entity> = entities.iter().collect();
+   let mut sorted_entities = entities.iter().collect::<Vec<&Entity>>();
    sorted_entities.sort_by_key(|ent| ent.indices.0);
 
    // Deduplicate entities at same position
@@ -218,7 +218,7 @@ pub fn short_url(url: &str, max_len: usize) -> String {
       return stripped.to_owned();
    }
 
-   let truncated: String = stripped.chars().take(max_len).collect();
+   let truncated = stripped.chars().take(max_len).collect::<String>();
    if stripped.chars().count() > max_len {
       format!("{truncated}\u{2026}")
    } else {

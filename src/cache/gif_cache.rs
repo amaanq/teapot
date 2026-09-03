@@ -107,7 +107,7 @@ impl GifCache {
 
    /// Remove oldest entries until total size is under the limit.
    async fn evict(dir: &Path, entries: &mut IndexMap<String, GifCacheEntry>, max_bytes: u64) {
-      let total: u64 = entries.values().map(|entry| entry.file_size).sum();
+      let total = entries.values().map(|entry| entry.file_size).sum::<u64>();
       if total <= max_bytes {
          return;
       }

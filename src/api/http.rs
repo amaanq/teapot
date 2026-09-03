@@ -247,8 +247,8 @@ impl HttpClient {
       uri: &str,
       extra_headers: &HeaderMap,
    ) -> Result<Response> {
-      let parsed: Uri = uri
-         .parse()
+      let parsed = uri
+         .parse::<Uri>()
          .map_err(|err| Error::Internal(format!("invalid URI: {err}")))?;
 
       let mut builder = hyper::Request::builder().method(method).uri(parsed);
@@ -285,8 +285,8 @@ impl HttpClient {
       uri: &str,
       extra_headers: &HeaderMap,
    ) -> Result<Response> {
-      let parsed: Uri = uri
-         .parse()
+      let parsed = uri
+         .parse::<Uri>()
          .map_err(|err| Error::Internal(format!("invalid URI: {err}")))?;
 
       let target_host = parsed

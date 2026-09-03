@@ -138,7 +138,7 @@ impl SearchQuery {
       }
 
       // Add filter toggles (data-driven to avoid repetition)
-      let filter_toggles: &[(&Option<String>, &str)] = &[
+      let filter_toggles = &[
          (&self.f_media, "media"),
          (&self.f_images, "images"),
          (&self.f_videos, "videos"),
@@ -154,8 +154,7 @@ impl SearchQuery {
       }
 
       // Add exclude toggles
-      let exclude_toggles: &[(&Option<String>, &str)] =
-         &[(&self.e_replies, "replies"), (&self.e_retweets, "retweets")];
+      let exclude_toggles = &[(&self.e_replies, "replies"), (&self.e_retweets, "retweets")];
       for &(param, name) in exclude_toggles {
          if param.as_deref() == Some("on") && !query.excludes.iter().any(|excl| excl == name) {
             query.excludes.push((*name).to_owned());
@@ -181,10 +180,10 @@ async fn search(
 ) -> Result<Response> {
    // Strip empty query parameters (e.g. since=&until=&min_faves=) for clean URLs
    if let Some(ref qs) = raw_qs {
-      let clean: Vec<&str> = qs
+      let clean = qs
          .split('&')
          .filter(|pair| pair.split_once('=').is_none_or(|(_, val)| !val.is_empty()))
-         .collect();
+         .collect::<Vec<&str>>();
       if clean.len() < qs.split('&').count() {
          let url = if clean.is_empty() {
             "/search".to_owned()

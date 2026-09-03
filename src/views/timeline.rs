@@ -103,7 +103,7 @@ use super::renderutils::tweet_link;
 /// Render a thread group wrapped in thread-line.
 fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> Markup {
    // Sort by ID for correct order
-   let mut sorted: Vec<&Tweet> = thread.to_vec();
+   let mut sorted = thread.to_vec();
    sorted.sort_by_key(|tweet| tweet.id);
 
    html! {

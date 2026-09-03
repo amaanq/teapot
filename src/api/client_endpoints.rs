@@ -173,7 +173,7 @@ impl ApiClient {
          }
 
          let bytes = response.bytes_limited(1024 * 1024).await?;
-         let lookup: Lookup = serde_json::from_slice(&bytes)
+         let lookup = serde_json::from_slice::<Lookup>(&bytes)
             .map_err(|err| Error::Internal(format!("X-Posed community cache: {err}")))?;
          for (username, info) in lookup.results {
             let username = username.to_lowercase();
@@ -748,7 +748,7 @@ impl ApiClient {
       }
 
       drop(session);
-      let resp: TranslationResponse = serde_json::from_slice(&bytes)
+      let resp = serde_json::from_slice::<TranslationResponse>(&bytes)
          .map_err(|err| Error::Internal(format!("Translation parse error: {err}")))?;
 
       Ok(Translation {
@@ -815,8 +815,8 @@ impl ApiClient {
 
       let request_body = serde_json::to_string(&payload)
          .map_err(|err| Error::Internal(format!("Kagi request: {err}")))?;
-      let uri: hyper::Uri = url
-         .parse()
+      let uri = url
+         .parse::<hyper::Uri>()
          .map_err(|err| Error::Internal(format!("invalid Kagi URL: {err}")))?;
 
       let connector = HttpsConnectorBuilder::new()
@@ -856,7 +856,7 @@ impl ApiClient {
          )));
       }
 
-      let kagi: KagiResponse = serde_json::from_slice(&body_bytes)
+      let kagi = serde_json::from_slice::<KagiResponse>(&body_bytes)
          .map_err(|err| Error::Internal(format!("Kagi parse error: {err}")))?;
 
       let source_display = kagi

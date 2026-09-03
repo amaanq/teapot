@@ -251,7 +251,7 @@ mod tests {
 
    #[test]
    fn parse_media_preserves_multiple_videos() {
-      let legacy: TweetLegacy = serde_json::from_str(TWO_VIDEOS).unwrap();
+      let legacy = serde_json::from_str::<TweetLegacy>(TWO_VIDEOS).unwrap();
 
       let parsed = parse_media(&legacy);
 

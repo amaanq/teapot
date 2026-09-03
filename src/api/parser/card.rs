@@ -376,7 +376,7 @@ fn parse_unified_card(bv: &BindingValues) -> Card {
                "Answer by Grok".clone_into(&mut result.dest);
 
                let truncate = |text: &str, max: usize| {
-                  let truncated: String = text.chars().take(max).collect();
+                  let truncated = text.chars().take(max).collect::<String>();
                   if truncated.len() < text.len() {
                      format!("{truncated}...")
                   } else {

@@ -635,7 +635,7 @@ pub fn oauth1_sign(
    ];
 
    // RFC 5849 requires sorting by percent-encoded key and then encoded value.
-   let mut all_params: Vec<(&str, &str)> = params.to_vec();
+   let mut all_params = params.to_vec();
    all_params.extend(oauth_params.iter().copied());
    let param_string = normalized_parameter_string(&all_params);
 

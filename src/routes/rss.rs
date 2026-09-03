@@ -67,10 +67,10 @@ async fn user_rss_handler(
    cursor: Option<&str>,
    kind: UserRssKind,
 ) -> Result<Response> {
-   let (feed_kind, cache_key_fn): (&str, fn(&str) -> String) = match kind {
-      UserRssKind::Tweets => ("tweets", cache_keys::rss_user),
-      UserRssKind::Replies => ("replies", cache_keys::rss_replies),
-      UserRssKind::Media => ("media", cache_keys::rss_media),
+   let (feed_kind, cache_key_fn) = match kind {
+      UserRssKind::Tweets => ("tweets", cache_keys::rss_user as fn(&str) -> String),
+      UserRssKind::Replies => ("replies", cache_keys::rss_replies as fn(&str) -> String),
+      UserRssKind::Media => ("media", cache_keys::rss_media as fn(&str) -> String),
    };
 
    // Check RSS cache (first page only)
@@ -235,7 +235,7 @@ async fn thread_rss(
    let conversation = state.api.get_conversation(&id, None, "Relevance").await?;
 
    // Collect thread tweet references: before → main → after
-   let mut tweets: Vec<&Tweet> = Vec::new();
+   let mut tweets = Vec::<&Tweet>::new();
    for tweet in &conversation.before.content {
       if tweet.available {
          tweets.push(tweet);
