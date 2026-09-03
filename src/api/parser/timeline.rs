@@ -8,10 +8,7 @@ use crate::{
       SearchTimelineData,
       UserTimelineData,
    },
-   error::{
-      Error,
-      Result,
-   },
+   error::Result,
    types::{
       Query,
       Timeline,
@@ -21,14 +18,16 @@ use crate::{
 
 /// Parse a user timeline (tweets, media, tweets-and-replies).
 pub fn parse_timeline(data: &UserTimelineData) -> Result<Timeline> {
-   let instructions = data
+   let Some(instructions) = data
       .user
       .as_ref()
       .or(data.user_result.as_ref())
       .and_then(|nested| nested.result.as_ref())
       .map(super::super::schema::TimelineResultData::instructions)
       .filter(|instr| !instr.is_empty())
-      .ok_or_else(|| Error::Internal("Timeline instructions not found".into()))?;
+   else {
+      return Ok(Timeline::default());
+   };
 
    parse_timeline_instructions(instructions)
 }
@@ -37,7 +36,7 @@ pub fn parse_timeline(data: &UserTimelineData) -> Result<Timeline> {
 pub fn parse_list_timeline(data: &ListTimelineData) -> Result<Timeline> {
    let instructions = data.instructions();
    if instructions.is_empty() {
-      return Err(Error::Internal("Timeline instructions not found".into()));
+      return Ok(Timeline::default());
    }
    parse_timeline_instructions(instructions)
 }
