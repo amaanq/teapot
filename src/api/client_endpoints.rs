@@ -47,6 +47,26 @@ use super::{
    timeout,
 };
 
+fn search_page_is_stuck(timeline: &Timeline) -> bool {
+   let mut ids = timeline.content.iter().flatten().map(|tweet| {
+      tweet
+         .retweet
+         .as_deref()
+         .map_or(tweet.id, |original| original.id)
+   });
+   let Some(first) = ids.next() else {
+      return false;
+   };
+   let mut count = 1_usize;
+   for id in ids {
+      if id != first {
+         return false;
+      }
+      count += 1;
+   }
+   count >= 3
+}
+
 #[expect(
    clippy::multiple_inherent_impl,
    reason = "endpoint methods are split from transport/authentication internals"
@@ -457,13 +477,11 @@ impl ApiClient {
          .await?;
       let mut timeline = parser::parse_search_timeline(&data);
 
-      // When no more items are available the API returns the last page again.
-      // Detect this by comparing the first 64 chars of the input and output cursors.
+      // X repeats the last page under a fresh cursor that still shares a long
+      // prefix, so a prefix comparison stopped one page early. Stop only when
+      // the cursor is unchanged or the page is one post over and over.
       if let Some(after) = cursor
-         && let Some(ref bottom) = timeline.bottom
-         && let Some(after_prefix) = after.get(..64)
-         && let Some(bottom_prefix) = bottom.get(..64)
-         && after_prefix == bottom_prefix
+         && (timeline.bottom.as_deref() == Some(after) || search_page_is_stuck(&timeline))
       {
          timeline.content.clear();
          timeline.bottom = None;
