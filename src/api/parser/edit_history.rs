@@ -1,14 +1,14 @@
 use super::tweet::parse_tweet_object;
 use crate::{
-   api::schema::{
-      EditHistoryData,
-      InstructionType,
+   api::{
+      schema::InstructionType,
+      schema_responses::EditHistoryData,
    },
    error::{
       Error,
       Result,
    },
-   types::EditHistory,
+   types::timeline::EditHistory,
 };
 
 /// Parse a `TweetEditHistory` response.

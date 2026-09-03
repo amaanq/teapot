@@ -14,7 +14,7 @@ use crate::{
       Error,
       Result,
    },
-   types::{
+   types::tweet::{
       Card,
       CardKind,
       Poll,

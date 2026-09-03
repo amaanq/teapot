@@ -9,12 +9,18 @@ use crate::{
       ServerConfig,
    },
    types::{
-      Card,
-      Photo,
-      Poll,
-      User,
-      VideoType,
-      VideoVariant,
+      tweet::{
+         Card,
+         Photo,
+         Poll,
+         VideoType,
+         VideoVariant,
+      },
+      user::User,
+   },
+   views::embed_activity::{
+      build_activity_pub,
+      build_activity_pub_with_reply,
    },
 };
 

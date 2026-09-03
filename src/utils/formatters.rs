@@ -193,7 +193,7 @@ pub fn get_orig_pic_url(url: &str, base64_media: bool) -> String {
 
 /// Generate video URL with HMAC signature.
 pub fn get_vid_url(url: &str, hmac_key: &str, base64_media: bool) -> String {
-   let sig = super::sign(url, hmac_key);
+   let sig = super::hmac::sign(url, hmac_key);
    encode_media_url(&format!("/video/{sig}"), url, base64_media)
 }
 
@@ -206,7 +206,7 @@ pub fn get_video_embed_url(config: &Config, tweet_id: i64) -> String {
 /// The `.gif` suffix is critical because Discord's image proxy uses the URL
 /// extension to decide whether to preserve animation.
 pub fn get_gif_url(mp4_url: &str, hmac_key: &str, base64_media: bool) -> String {
-   let sig = super::sign(mp4_url, hmac_key);
+   let sig = super::hmac::sign(mp4_url, hmac_key);
    format!(
       "{}.gif",
       encode_media_url(&format!("/gif/{sig}"), mp4_url, base64_media)

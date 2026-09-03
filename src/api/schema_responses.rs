@@ -1,4 +1,21 @@
-use super::*;
+use std::{
+   collections::HashMap,
+   result,
+};
+
+use serde::{
+   Deserialize,
+   Deserializer,
+   de::Error as _,
+};
+
+use super::schema::{
+   Instruction,
+   ListData,
+   NestedResult,
+   TweetData,
+   UserData,
+};
 
 // ── GraphQL response envelope types ─────────────────────────────────────
 

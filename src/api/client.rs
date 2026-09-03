@@ -1,5 +1,7 @@
-use std::time::Duration;
-
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use axum::http::header;
 use serde::{
    Deserialize,
@@ -8,39 +10,31 @@ use serde::{
       IgnoredAny,
    },
 };
-use tokio::time::timeout;
 
 use super::{
-   SessionLease,
-   SessionPool,
-   TidClient,
+   auth::{
+      SessionLease,
+      SessionPool,
+   },
    budget::{
-      self,
       ClientBudget,
+      {
+         self,
+      },
    },
    endpoints,
    http::HttpClient,
-   parser,
+   tid::TidClient,
 };
 use crate::{
-   api::schema::{
-      AboutAccountData,
-      AudioSpaceData,
-      AudioSpaceMetadata,
-      BroadcastMetadata,
-      BroadcastsData,
-      ConversationData,
-      EditHistoryData,
-      GqlResponse,
-      ListByIdData,
-      ListBySlugData,
-      ListMembersData,
-      ListTimelineData,
-      RetweetersData,
-      SearchTimelineData,
-      TweetData,
-      UserResultData,
-      UserTimelineData,
+   api::{
+      schema::TweetData,
+      schema_responses::{
+         AudioSpaceMetadata,
+         BroadcastMetadata,
+         ConversationData,
+         GqlResponse,
+      },
    },
    config::Config,
    error::{
@@ -48,22 +42,7 @@ use crate::{
       Result,
       TwitterError,
    },
-   types::{
-      AccountContext,
-      Article,
-      CardKind,
-      Conversation,
-      EditHistory,
-      GalleryPhoto,
-      List,
-      PaginatedResult,
-      Profile,
-      SessionKind,
-      Timeline,
-      Translation,
-      Tweet,
-      User,
-   },
+   types::session::SessionKind,
    utils::formatters,
 };
 
@@ -683,7 +662,7 @@ impl ApiClient {
             if let Some(toggles) = field_toggles {
                oauth_params.push(("fieldToggles", toggles));
             }
-            let auth = super::oauth1_sign(
+            let auth = super::auth::oauth1_sign(
                "GET",
                &auth_url,
                &oauth_params,
@@ -836,6 +815,10 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::api::schema_responses::{
+      AudioSpaceData,
+      BroadcastsData,
+   };
 
    #[test]
    fn formats_scheduled_audio_space_status() {

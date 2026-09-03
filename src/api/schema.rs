@@ -7,12 +7,10 @@ use serde::{
    Deserialize,
    Deserializer,
    Serialize,
-   de::{
-      Error as _,
-      IgnoredAny,
-   },
+   de::IgnoredAny,
 };
 
+use super::schema_responses::ArticleWrapper;
 use crate::utils::formatters::parse_twitter_time;
 
 // ── Shared enums ──────────────────────────────────────────────────────
@@ -895,6 +893,3 @@ pub fn indices(raw: &[u64]) -> (usize, usize) {
       raw.get(1).copied().unwrap_or(0) as usize,
    )
 }
-
-#[path = "schema_endpoints.rs"] mod endpoint_types;
-pub use endpoint_types::*;

@@ -1,9 +1,13 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use serde::{
    Deserialize,
    Serialize,
 };
 
-use super::User;
+use super::user::User;
 use crate::api::schema::CommunityNote;
 
 /// Entity type for text expansion.

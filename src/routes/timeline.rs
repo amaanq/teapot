@@ -37,11 +37,13 @@ use crate::{
       Result,
    },
    types::{
-      GalleryPhoto,
-      Prefs,
-      Profile,
-      Timeline,
-      TimelineKind,
+      prefs::Prefs,
+      timeline::{
+         Profile,
+         Timeline,
+         TimelineKind,
+      },
+      tweet::GalleryPhoto,
    },
    utils::formatters,
    views::{

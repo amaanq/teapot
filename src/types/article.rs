@@ -1,3 +1,7 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use std::collections::HashMap;
 
 use serde::{
@@ -5,7 +9,7 @@ use serde::{
    Serialize,
 };
 
-use super::User;
+use super::user::User;
 
 /// A Twitter Article (long-form Notes).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

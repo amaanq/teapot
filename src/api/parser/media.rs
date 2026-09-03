@@ -8,12 +8,14 @@ use crate::{
       TweetLegacy,
    },
    types::{
-      Gif,
-      Photo,
-      User,
-      Video,
-      VideoType,
-      VideoVariant,
+      tweet::{
+         Gif,
+         Photo,
+         Video,
+         VideoType,
+         VideoVariant,
+      },
+      user::User,
    },
 };
 

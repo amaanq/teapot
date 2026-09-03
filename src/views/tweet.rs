@@ -7,21 +7,25 @@ use maud::{
 use crate::{
    config::Config,
    types::{
-      Card,
-      CardKind,
-      Chain,
-      Entity,
-      Photo,
-      Poll,
-      Prefs,
-      Tweet,
-      TweetStats,
-      User,
-      Video,
+      prefs::Prefs,
+      timeline::Chain,
+      tweet::{
+         Card,
+         CardKind,
+         Entity,
+         Photo,
+         Poll,
+         Tweet,
+         TweetStats,
+         Video,
+      },
+      user::User,
    },
    utils::{
-      entity_expander::expand_with_regex,
-      expand_entities,
+      entity_expander::{
+         expand_entities,
+         expand_with_regex,
+      },
       formatters,
    },
    views::renderutils::{
@@ -958,7 +962,7 @@ fn render_stats(stats: &TweetStats, username: &str, id: i64, extra: Option<&Mark
 
 /// Render tweet location as HTML string (for concatenation with tweet text).
 fn render_location_html(location: &str) -> String {
-   use crate::utils::html_escape;
+   use crate::utils::entity_expander::html_escape;
    let (place, url) = parse_location(location);
    let place = html_escape(&place);
    if url.is_empty() {

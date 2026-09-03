@@ -46,8 +46,8 @@ use crate::{
       Result,
    },
    types::{
-      Conversation,
-      Prefs,
+      prefs::Prefs,
+      timeline::Conversation,
    },
    views::{
       embed,

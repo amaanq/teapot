@@ -7,8 +7,8 @@ use maud::{
 use crate::{
    config::Config,
    types::{
-      Prefs,
-      User,
+      prefs::Prefs,
+      user::User,
    },
    utils::formatters,
    views::renderutils::{

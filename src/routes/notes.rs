@@ -25,9 +25,11 @@ use crate::{
    api::budget,
    error::Result,
    types::{
-      ArticleBlockType,
-      ArticleEntityType,
-      Prefs,
+      article::{
+         ArticleBlockType,
+         ArticleEntityType,
+      },
+      prefs::Prefs,
    },
    utils::formatters,
    views::{

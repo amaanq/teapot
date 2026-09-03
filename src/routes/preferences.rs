@@ -41,7 +41,7 @@ use crate::{
    AppState,
    config::Config,
    error::Result,
-   types::Prefs,
+   types::prefs::Prefs,
    views::{
       layout,
       preferences as pref_view,

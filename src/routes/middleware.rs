@@ -1,5 +1,9 @@
 //! Request middleware.
 
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use std::net::SocketAddr;
 
 use axum::{
@@ -33,7 +37,7 @@ use crate::{
    AppState,
    api::budget,
    error::Error,
-   types::Prefs,
+   types::prefs::Prefs,
 };
 
 /// Refuse any route whose `{id}` cannot be a snowflake before a handler spends

@@ -7,9 +7,9 @@ use super::tweet::TweetRenderer;
 use crate::{
    config::Config,
    types::{
-      Prefs,
-      Tweets,
-      User,
+      prefs::Prefs,
+      timeline::Tweets,
+      user::User,
    },
    utils::formatters,
    views::{

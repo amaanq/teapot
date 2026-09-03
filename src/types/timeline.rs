@@ -1,8 +1,14 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use super::{
-   PhotoRail,
-   Query,
-   Tweet,
-   User,
+   query::Query,
+   tweet::{
+      PhotoRail,
+      Tweet,
+   },
+   user::User,
 };
 
 pub type Tweets = Vec<Tweet>;

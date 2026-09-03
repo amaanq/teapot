@@ -12,11 +12,13 @@ use super::timeline::{
 use crate::{
    config::Config,
    types::{
-      GalleryPhoto,
-      Prefs,
-      Profile,
-      TimelineKind,
-      User,
+      prefs::Prefs,
+      timeline::{
+         Profile,
+         TimelineKind,
+      },
+      tweet::GalleryPhoto,
+      user::User,
    },
    utils::formatters,
    views::renderutils::{

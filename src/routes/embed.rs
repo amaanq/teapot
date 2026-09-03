@@ -32,10 +32,11 @@ use crate::{
       Error,
       Result,
    },
-   types::Conversation,
+   types::timeline::Conversation,
    utils::formatters::format_relative_time,
    views::{
       embed as embed_view,
+      embed_activity,
       layout::strip_html,
    },
 };
@@ -186,8 +187,10 @@ async fn activity_response(state: &AppState, id: &str) -> Result<Response> {
    }
 
    let activity = replied_to.as_ref().map_or_else(
-      || embed_view::build_activity_pub(&tweet, &state.config),
-      |original| embed_view::build_activity_pub_with_reply(&tweet, Some(original), &state.config),
+      || embed_activity::build_activity_pub(&tweet, &state.config),
+      |original| {
+         embed_activity::build_activity_pub_with_reply(&tweet, Some(original), &state.config)
+      },
    );
    Ok((
       [(header::CONTENT_TYPE, "application/json; charset=utf-8")],

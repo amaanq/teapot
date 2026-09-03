@@ -13,18 +13,20 @@ use crate::{
    api::schema::CommunityNote,
    config::Config,
    types::{
-      Prefs,
-      Tweet,
-      User,
-      VerifiedType,
+      prefs::Prefs,
+      tweet::Tweet,
+      user::{
+         User,
+         VerifiedType,
+      },
    },
    utils::{
       entity_expander::{
          expand_with_regex,
+         html_escape,
          short_url,
       },
       formatters,
-      html_escape,
    },
 };
 

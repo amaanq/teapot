@@ -15,7 +15,7 @@ use std::{
 
 use regex::Regex;
 
-use crate::types::{
+use crate::types::tweet::{
    Entity,
    EntityKind,
 };

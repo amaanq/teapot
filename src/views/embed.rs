@@ -5,12 +5,10 @@ use maud::{
    Markup,
    html,
 };
-use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 
 use super::{
    layout::strip_html,
-   renderutils::community_note_to_html,
    tweet::TweetRenderer,
 };
 use crate::{
@@ -19,26 +17,22 @@ use crate::{
       GifTranscodingMode,
    },
    types::{
-      CardKind,
-      Gif,
-      Photo,
-      Prefs,
-      Tweet,
-      Video,
-   },
-   utils::{
-      entity_expander::{
-         expand_entities_for_x,
-         html_escape,
+      prefs::Prefs,
+      tweet::{
+         CardKind,
+         Gif,
+         Photo,
+         Tweet,
+         Video,
       },
-      formatters,
    },
+   utils::formatters,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /// Compute aspect ratio from integer dimensions.
-fn aspect_ratio(width: i32, height: i32) -> f64 {
+pub(in crate::views) fn aspect_ratio(width: i32, height: i32) -> f64 {
    if width > 0 && height > 0 {
       f64::from(width) / f64::from(height)
    } else {
@@ -232,7 +226,7 @@ fn text_without_urls(text: &str) -> String {
       .join(" ")
 }
 
-fn broadcast_title_repeats_tweet(tweet: &Tweet, title: &str) -> bool {
+pub(in crate::views) fn broadcast_title_repeats_tweet(tweet: &Tweet, title: &str) -> bool {
    let tweet_text = text_without_urls(&tweet.text);
    !tweet_text.is_empty() && tweet_text.eq_ignore_ascii_case(title.trim())
 }
@@ -581,8 +575,6 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
    }
 }
 
-#[path = "embed_activity.rs"] mod activity;
-pub use activity::*;
 /// Render a full status page with OG meta tags, video embeds, and
 /// `ActivityPub` discovery. Uses [`super::layout::PageLayout`] with custom
 /// head content for media-specific OG tags, oEmbed, and `ActivityPub` links.

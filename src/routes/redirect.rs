@@ -22,7 +22,7 @@ use crate::{
       Error,
       Result,
    },
-   types::Prefs,
+   types::prefs::Prefs,
 };
 
 pub fn router() -> Router<AppState> {

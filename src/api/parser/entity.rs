@@ -3,7 +3,7 @@ use crate::{
       Entities,
       indices,
    },
-   types::{
+   types::tweet::{
       Entity,
       EntityKind,
    },

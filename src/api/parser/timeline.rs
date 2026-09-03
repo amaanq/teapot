@@ -1,18 +1,28 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use super::tweet::parse_tweet_object;
 use crate::{
-   api::schema::{
-      Entry,
-      Instruction,
-      InstructionType,
-      ListTimelineData,
-      SearchTimelineData,
-      UserTimelineData,
+   api::{
+      schema::{
+         Entry,
+         Instruction,
+         InstructionType,
+      },
+      schema_responses::{
+         ListTimelineData,
+         SearchTimelineData,
+         UserTimelineData,
+      },
    },
    error::Result,
    types::{
-      Query,
-      Timeline,
-      Tweets,
+      query::Query,
+      timeline::{
+         Timeline,
+         Tweets,
+      },
    },
 };
 
@@ -23,7 +33,7 @@ pub fn parse_timeline(data: &UserTimelineData) -> Result<Timeline> {
       .as_ref()
       .or(data.user_result.as_ref())
       .and_then(|nested| nested.result.as_ref())
-      .map(super::super::schema::TimelineResultData::instructions)
+      .map(super::super::schema_responses::TimelineResultData::instructions)
       .filter(|instr| !instr.is_empty())
    else {
       return Ok(Timeline::default());

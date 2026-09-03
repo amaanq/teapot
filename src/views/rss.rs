@@ -6,14 +6,16 @@ use std::{
 use crate::{
    config::Config,
    types::{
-      List,
-      Tweet,
-      Tweets,
-      User,
+      timeline::{
+         List,
+         Tweets,
+      },
+      tweet::Tweet,
+      user::User,
    },
    utils::{
+      entity_expander::html_escape,
       formatters,
-      html_escape,
    },
    views::{
       layout::strip_html,

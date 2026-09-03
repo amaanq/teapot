@@ -1,14 +1,20 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use crate::{
-   api::schema::{
-      UserData,
-      UserLegacy,
-      UserResultData,
+   api::{
+      schema::{
+         UserData,
+         UserLegacy,
+      },
+      schema_responses::UserResultData,
    },
    error::{
       Error,
       Result,
    },
-   types::{
+   types::user::{
       User,
       VerifiedType,
    },

@@ -1,3 +1,7 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use std::fmt::Write as _;
 
 use serde::{

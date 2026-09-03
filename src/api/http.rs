@@ -32,8 +32,10 @@ use http_body_util::{
 use hyper::{
    StatusCode,
    body::{
-      self as hyper_body,
       Frame,
+      {
+         self as hyper_body,
+      },
    },
    client::conn::http1,
    http::uri::PathAndQuery,

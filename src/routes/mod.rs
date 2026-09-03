@@ -1,13 +1,13 @@
 //! HTTP routes.
 
-mod app;
+pub mod app;
 mod debug;
 mod embed;
 pub mod helpers;
 mod intent;
 mod list;
 mod media;
-mod middleware;
+pub mod middleware;
 mod notes;
 mod pages;
 mod preferences;
@@ -17,10 +17,3 @@ mod search;
 mod status;
 mod timeline;
 mod unsupported;
-
-pub use app::router;
-pub use middleware::{
-   client_middleware,
-   prefs_middleware,
-   snowflake_guard,
-};

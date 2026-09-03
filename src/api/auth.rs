@@ -43,7 +43,7 @@ use crate::{
       Error,
       Result,
    },
-   types::{
+   types::session::{
       RateLimit,
       Session,
       SessionCredentials,

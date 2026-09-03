@@ -15,7 +15,7 @@ use maud::html;
 
 use crate::{
    AppState,
-   types::Prefs,
+   types::prefs::Prefs,
    views::{
       layout::PageLayout,
       search as search_view,

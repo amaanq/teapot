@@ -20,8 +20,8 @@ use tokio::{
 };
 
 use crate::{
-   api::HttpClient,
-   cache::GifCache,
+   api::http::HttpClient,
+   cache::gif_cache::GifCache,
    config::GifTranscodingConfig,
 };
 

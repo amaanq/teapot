@@ -21,8 +21,8 @@ use axum::{
 use crate::{
    AppState,
    cache::{
-      Hit,
       keys as cache_keys,
+      store::Hit,
       ttl,
    },
    config::Config,
@@ -31,13 +31,19 @@ use crate::{
       Result,
    },
    types::{
-      AccountContext,
-      Conversation,
-      Timeline,
-      Translation,
-      Tweet,
-      Tweets,
-      User,
+      timeline::{
+         Conversation,
+         Timeline,
+         Tweets,
+      },
+      tweet::{
+         Translation,
+         Tweet,
+      },
+      user::{
+         AccountContext,
+         User,
+      },
    },
    views::layout,
 };

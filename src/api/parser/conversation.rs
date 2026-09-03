@@ -1,18 +1,24 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use super::tweet::parse_tweet_object;
 use crate::{
-   api::schema::{
-      ConversationData,
-      InstructionType,
+   api::{
+      schema::InstructionType,
+      schema_responses::ConversationData,
    },
    error::{
       Error,
       Result,
    },
    types::{
-      Chain,
-      Conversation,
-      PaginatedResult,
-      Tweet,
+      timeline::{
+         Chain,
+         Conversation,
+         PaginatedResult,
+      },
+      tweet::Tweet,
    },
 };
 

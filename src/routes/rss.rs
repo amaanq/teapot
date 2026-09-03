@@ -24,7 +24,7 @@ use crate::{
       Error,
       Result,
    },
-   types::Tweet,
+   types::tweet::Tweet,
    views::rss as rss_view,
 };
 

@@ -25,11 +25,13 @@ use crate::{
       Result,
    },
    types::{
-      List,
-      PaginatedResult,
-      Prefs,
-      Tweet,
-      User,
+      prefs::Prefs,
+      timeline::{
+         List,
+         PaginatedResult,
+      },
+      tweet::Tweet,
+      user::User,
    },
    views::{
       layout,

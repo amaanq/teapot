@@ -1,4 +1,32 @@
-use super::*;
+use std::fmt::Write as _;
+
+use serde::Serialize;
+use time::format_description::well_known::Rfc3339;
+
+use super::{
+   embed::{
+      aspect_ratio,
+      broadcast_title_repeats_tweet,
+   },
+   renderutils::community_note_to_html,
+};
+use crate::{
+   config::{
+      Config,
+      GifTranscodingMode,
+   },
+   types::tweet::{
+      CardKind,
+      Tweet,
+   },
+   utils::{
+      entity_expander::{
+         expand_entities_for_x,
+         html_escape,
+      },
+      formatters,
+   },
+};
 
 /// Mastodon API v1-compatible status for Discord embed support.
 /// Discord uses `created_at` for the footer timestamp and `content`

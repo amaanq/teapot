@@ -29,12 +29,16 @@ use crate::{
    },
    error::Result,
    types::{
-      PaginatedResult,
-      Prefs,
-      Query,
-      QueryKind,
-      Timeline,
-      User,
+      prefs::Prefs,
+      query::{
+         Query,
+         QueryKind,
+      },
+      timeline::{
+         PaginatedResult,
+         Timeline,
+      },
+      user::User,
    },
    views::{
       layout,

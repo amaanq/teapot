@@ -1,52 +1,76 @@
-use std::collections::BTreeMap;
+use std::{
+   collections::BTreeMap,
+   time::Duration,
+};
 
-use serde::Serialize;
+use axum::http::header;
+use serde::{
+   Deserialize,
+   Serialize,
+};
+use tokio::time::timeout;
 
 use super::{
-   AboutAccountData,
-   AccountContext,
    ApiClient,
-   Article,
-   AudioSpaceData,
-   BroadcastsData,
-   CardKind,
-   Conversation,
-   ConversationData,
-   Deserialize,
-   Duration,
-   EditHistory,
-   EditHistoryData,
-   Error,
-   GalleryPhoto,
-   List,
-   ListByIdData,
-   ListBySlugData,
-   ListMembersData,
-   ListTimelineData,
-   PaginatedResult,
-   Profile,
-   Result,
-   RetweetersData,
-   SearchTimelineData,
-   SessionKind,
-   Timeline,
-   Translation,
-   Tweet,
-   User,
-   UserResultData,
-   UserTimelineData,
    article_tweet_data,
    audio_space_host,
    audio_space_status,
    broadcast_id_from_url,
    broadcast_status,
    clamp_community_value,
-   endpoints,
-   header,
    hosted_by,
-   parser,
    space_id_from_url,
-   timeout,
+};
+use crate::{
+   api::{
+      auth::{
+         DebugResponse,
+         HealthResponse,
+      },
+      endpoints,
+      parser,
+      schema::AboutAccountData,
+      schema_responses::{
+         AudioSpaceData,
+         BroadcastsData,
+         ConversationData,
+         EditHistoryData,
+         ListByIdData,
+         ListBySlugData,
+         ListMembersData,
+         ListTimelineData,
+         RetweetersData,
+         SearchTimelineData,
+         UserResultData,
+         UserTimelineData,
+      },
+   },
+   error::{
+      Error,
+      Result,
+   },
+   types::{
+      article::Article,
+      session::SessionKind,
+      timeline::{
+         Conversation,
+         EditHistory,
+         List,
+         PaginatedResult,
+         Profile,
+         Timeline,
+      },
+      tweet::{
+         CardKind,
+         GalleryPhoto,
+         Translation,
+         Tweet,
+      },
+      user::{
+         AccountContext,
+         User,
+      },
+   },
 };
 
 /// Refuse an id that cannot be a snowflake before it spends a session.
@@ -92,7 +116,7 @@ impl ApiClient {
             Some(endpoints::USER_FIELD_TOGGLES),
          )
          .await?;
-      parser::parse_user(&data)
+      parser::user::parse_user(&data)
    }
 
    /// Read X's About Account record.
@@ -204,7 +228,7 @@ impl ApiClient {
             Some(endpoints::USER_FIELD_TOGGLES),
          )
          .await?;
-      parser::parse_user(&data)
+      parser::user::parse_user(&data)
    }
 
    /// Get edit history for a tweet.
@@ -349,12 +373,13 @@ impl ApiClient {
             Some(endpoints::TWEET_DETAIL_FIELD_TOGGLES),
          )
          .await?;
-      let mut conversation = parser::parse_conversation(&data, tweet_id, cursor.is_some())?;
+      let mut conversation =
+         parser::conversation::parse_conversation(&data, tweet_id, cursor.is_some())?;
       if cursor.is_none()
          && let Some(tweet_data) = article_tweet_data(&data, tweet_id)
-         && let Ok(article) = parser::parse_article(tweet_data)
+         && let Ok(article) = parser::article::parse_article(tweet_data)
       {
-         parser::attach_article_preview(&mut conversation.tweet, &article);
+         parser::article::attach_article_preview(&mut conversation.tweet, &article);
       }
       if cursor.is_none()
          && conversation
@@ -364,7 +389,7 @@ impl ApiClient {
             .any(|entity| entity.url.contains("/article/"))
          && let Ok((_tweet, article)) = self.get_article_tweet(tweet_id).await
       {
-         parser::attach_article_preview(&mut conversation.tweet, &article);
+         parser::article::attach_article_preview(&mut conversation.tweet, &article);
       }
       if cursor.is_none() {
          self.enrich_audio_space_card(&mut conversation.tweet).await;
@@ -383,7 +408,7 @@ impl ApiClient {
             Some(endpoints::USER_TWEETS_FIELD_TOGGLES),
          )
          .await?;
-      parser::parse_timeline(&data)
+      parser::timeline::parse_timeline(&data)
    }
 
    /// Get user's media timeline.
@@ -423,7 +448,7 @@ impl ApiClient {
          )
          .await?;
 
-      parser::parse_timeline(&data)
+      parser::timeline::parse_timeline(&data)
    }
 
    /// Get user's profile with tweets.
@@ -484,7 +509,7 @@ impl ApiClient {
             None,
          )
          .await?;
-      let mut timeline = parser::parse_search_timeline(&data);
+      let mut timeline = parser::timeline::parse_search_timeline(&data);
 
       // X repeats the last page under a fresh cursor that still shares a long
       // prefix, so a prefix comparison stopped one page early. Stop only when
@@ -513,7 +538,7 @@ impl ApiClient {
             None,
          )
          .await?;
-      Ok(parser::parse_user_search(&data))
+      Ok(parser::search::parse_user_search(&data))
    }
 
    /// Get list by ID.
@@ -530,7 +555,7 @@ impl ApiClient {
          .list
          .as_ref()
          .ok_or_else(|| Error::NotFound("List not found".into()))?;
-      Ok(parser::parse_list(wrapper.list_data()))
+      Ok(parser::search::parse_list(wrapper.list_data()))
    }
 
    /// Get list by owner username and slug.
@@ -547,7 +572,7 @@ impl ApiClient {
          .user_by_screen_name
          .as_ref()
          .and_then(|nested| nested.list.as_ref())
-         .map(|ld| Ok(parser::parse_list(ld)))
+         .map(|ld| Ok(parser::search::parse_list(ld)))
          .ok_or_else(|| Error::NotFound("List not found".into()))?
    }
 
@@ -561,7 +586,7 @@ impl ApiClient {
             None,
          )
          .await?;
-      parser::parse_list_timeline(&data)
+      parser::timeline::parse_list_timeline(&data)
    }
 
    /// Get list members.
@@ -578,7 +603,7 @@ impl ApiClient {
             None,
          )
          .await?;
-      Ok(parser::parse_list_members(&data))
+      Ok(parser::search::parse_list_members(&data))
    }
 
    /// Get users who retweeted a tweet.
@@ -595,7 +620,7 @@ impl ApiClient {
             None,
          )
          .await?;
-      Ok(parser::parse_retweeters(&data))
+      Ok(parser::search::parse_retweeters(&data))
    }
 
    /// Get user's tweets and replies timeline.
@@ -641,7 +666,7 @@ impl ApiClient {
             Some(retry_kind),
          )
          .await?;
-      parser::parse_timeline(&data)
+      parser::timeline::parse_timeline(&data)
    }
 
    /// Get a tweet with its inline article data.
@@ -659,14 +684,14 @@ impl ApiClient {
          .await?;
 
       // Parse the conversation to get the Tweet (reuses proven logic).
-      let conversation = parser::parse_conversation(&data, tweet_id, false)?;
+      let conversation = parser::conversation::parse_conversation(&data, tweet_id, false)?;
       let mut tweet = conversation.tweet;
 
       let tweet_data = article_tweet_data(&data, tweet_id)
          .ok_or_else(|| Error::TweetNotFound("Tweet data not found in response".into()))?;
 
-      let article = parser::parse_article(tweet_data)?;
-      parser::attach_article_preview(&mut tweet, &article);
+      let article = parser::article::parse_article(tweet_data)?;
+      parser::article::attach_article_preview(&mut tweet, &article);
       Ok((tweet, article))
    }
 
@@ -887,12 +912,12 @@ impl ApiClient {
    }
 
    /// Get session pool health statistics.
-   pub async fn get_session_health(&self) -> super::super::HealthResponse {
+   pub async fn get_session_health(&self) -> HealthResponse {
       self.sessions.get_health().await
    }
 
    /// Get detailed session debug info.
-   pub async fn get_session_debug(&self) -> super::super::DebugResponse {
+   pub async fn get_session_debug(&self) -> DebugResponse {
       self.sessions.get_debug().await
    }
 

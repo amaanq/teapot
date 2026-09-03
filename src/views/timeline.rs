@@ -7,11 +7,13 @@ use super::tweet::TweetRenderer;
 use crate::{
    config::Config,
    types::{
-      List,
-      Prefs,
-      TimelineKind,
-      Tweet,
-      Tweets,
+      prefs::Prefs,
+      timeline::{
+         List,
+         TimelineKind,
+         Tweets,
+      },
+      tweet::Tweet,
    },
    utils::formatters,
    views::renderutils::{

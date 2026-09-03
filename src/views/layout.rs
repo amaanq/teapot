@@ -10,7 +10,7 @@ use regex::Regex;
 
 use crate::{
    config::Config,
-   types::Prefs,
+   types::prefs::Prefs,
 };
 
 pub const STYLE_CSS: &str = "/css/style.css";

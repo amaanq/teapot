@@ -46,11 +46,11 @@ use tracing_subscriber::{
 
 use crate::{
    api::{
-      ApiClient,
-      HttpClient,
-      SessionPool,
+      auth::SessionPool,
+      client::ApiClient,
+      http::HttpClient,
    },
-   cache::Cache,
+   cache::store::Cache,
    config::{
       Config,
       GifTranscodingMode,
@@ -160,7 +160,7 @@ async fn main() -> eyre::Result<()> {
    // Build the router with specific routes before static files
    let static_dir = config.server.static_dir.clone();
    let app = Router::new()
-        .merge(routes::router())
+        .merge(routes::app::router())
         // Serve static files at various paths
         .nest_service("/public", ServeDir::new(&static_dir))
         .nest_service("/css", ServeDir::new(format!("{static_dir}/css")))
@@ -177,11 +177,11 @@ async fn main() -> eyre::Result<()> {
         .route_service("/site.webmanifest", ServeFile::new(format!("{static_dir}/site.webmanifest")))
         .route_service("/robots.txt", ServeFile::new(format!("{static_dir}/robots.txt")))
         .route_service("/opensearch.xml", ServeFile::new(format!("{static_dir}/opensearch.xml")))
-        .layer(middleware::from_fn(routes::prefs_middleware))
-        .layer(middleware::from_fn(routes::snowflake_guard))
+        .layer(middleware::from_fn(routes::middleware::prefs_middleware))
+        .layer(middleware::from_fn(routes::middleware::snowflake_guard))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            routes::client_middleware,
+            routes::middleware::client_middleware,
         ))
         .layer(SetResponseHeaderLayer::overriding(
             header::REFERRER_POLICY,

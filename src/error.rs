@@ -22,7 +22,7 @@ use thiserror::Error;
 use toml::de::Error as TomlError;
 
 use crate::{
-   utils::html_escape,
+   utils::entity_expander::html_escape,
    views::layout::{
       FONTELLO_CSS,
       STYLE_CSS,

@@ -1,17 +1,27 @@
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use super::user::parse_user_object;
 use crate::{
-   api::schema::{
-      InstructionType,
-      ListData,
-      ListMembersData,
-      RetweetersData,
-      SearchTimelineData,
+   api::{
+      schema::{
+         InstructionType,
+         ListData,
+      },
+      schema_responses::{
+         ListMembersData,
+         RetweetersData,
+         SearchTimelineData,
+      },
    },
    types::{
-      List,
-      PaginatedResult,
-      Query,
-      User,
+      query::Query,
+      timeline::{
+         List,
+         PaginatedResult,
+      },
+      user::User,
    },
 };
 

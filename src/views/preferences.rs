@@ -4,7 +4,7 @@ use maud::{
    html,
 };
 
-use crate::types::Prefs;
+use crate::types::prefs::Prefs;
 
 /// Render a checkbox preference row with title tooltip.
 fn gen_checkbox(name: &str, label: &str, checked: bool) -> Markup {

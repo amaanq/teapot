@@ -13,14 +13,16 @@ use super::renderutils;
 use crate::{
    config::Config,
    types::{
-      Article,
-      ArticleBlockType,
-      ArticleEntityType,
-      ArticleMediaType,
-      ArticleParagraph,
-      ArticleStyle,
-      Prefs,
-      Tweet,
+      article::{
+         Article,
+         ArticleBlockType,
+         ArticleEntityType,
+         ArticleMediaType,
+         ArticleParagraph,
+         ArticleStyle,
+      },
+      prefs::Prefs,
+      tweet::Tweet,
    },
    utils::formatters,
 };

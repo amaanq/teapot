@@ -1,4 +1,5 @@
 pub mod embed;
+pub mod embed_activity;
 pub mod layout;
 pub mod notes;
 pub mod preferences;

@@ -2,31 +2,37 @@ use std::collections::HashMap;
 
 use super::user::parse_user_object;
 use crate::{
-   api::schema::{
-      InlineArticle,
-      InlineContentState,
-      TweetData,
+   api::{
+      schema::TweetData,
+      schema_responses::{
+         InlineArticle,
+         InlineContentState,
+      },
    },
    error::{
       Error,
       Result,
    },
    types::{
-      Article,
-      ArticleBlockType,
-      ArticleEntity,
-      ArticleEntityRange,
-      ArticleEntityType,
-      ArticleMedia,
-      ArticleMediaType,
-      ArticleParagraph,
-      ArticleStyle,
-      ArticleStyleRange,
-      Card,
-      CardKind,
-      EntityKind,
-      Tweet,
-      User,
+      article::{
+         Article,
+         ArticleBlockType,
+         ArticleEntity,
+         ArticleEntityRange,
+         ArticleEntityType,
+         ArticleMedia,
+         ArticleMediaType,
+         ArticleParagraph,
+         ArticleStyle,
+         ArticleStyleRange,
+      },
+      tweet::{
+         Card,
+         CardKind,
+         EntityKind,
+         Tweet,
+      },
+      user::User,
    },
 };
 

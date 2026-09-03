@@ -5,6 +5,10 @@
 //! sessions to get full API responses (e.g., conversation-grouped entries
 //! in `UserTweetsAndReplies`).
 
+#![expect(
+   clippy::module_name_repetitions,
+   reason = "the module is the namespace and the prefix names the domain"
+)]
 use std::{
    sync::Arc,
    time::{
