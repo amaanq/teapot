@@ -101,7 +101,7 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
       }
    }
 
-   let content = notes_view::render_note(&article, &tweets, &state.config, Some(&prefs));
+   let content = notes_view::render_note(&article, &tweets, &state.config, &prefs);
 
    let description = article
       .paragraphs

@@ -200,11 +200,12 @@ async fn user_timeline(
             let (mut tweets, cursor) = extract_timeline(profile_data.tweets);
             helpers::enrich_tweet_groups(&state, &mut tweets).await;
             let base_url = format!("/{}", profile_data.user.username);
-            let content = timeline::render_timeline_with_prefs(
+            let content = timeline::render_timeline(
                &tweets,
                &state.config,
                cursor.as_deref(),
                Some(&base_url),
+               None,
                &prefs,
                None,
             );
@@ -231,11 +232,11 @@ async fn user_timeline(
             .cursor
             .is_some()
             .then(|| format!("/{}", profile_data.user.username));
-         let content = profile::render_profile_with_prefs(
+         let content = profile::render_profile(
             &profile_data,
             &state.config,
             timeline::tab_to_kind(tab),
-            Some(&prefs),
+            &prefs,
             newer.as_deref(),
          );
          let markup = layout::PageLayout::new(&state.config, &title, content)
@@ -316,11 +317,12 @@ async fn user_tab_handler(
          let base_url = format!("/{username}/{tab_str}");
          let newer = has_request_cursor.then_some(base_url.as_str());
 
-         let timeline_content = timeline::render_timeline_with_prefs(
+         let timeline_content = timeline::render_timeline(
             &tweets,
             &state.config,
             next_cursor.as_deref(),
             Some(&base_url),
+            None,
             prefs,
             newer,
          );
@@ -438,7 +440,7 @@ async fn user_search(
              div class="timeline-header" {
                  (render_search_panel_with_action(search_query, None, &search_action))
              }
-             (timeline::render_timeline_with_prefs(&tweets, &state.config, cursor.as_deref(), Some(&base_url), &prefs, newer))
+             (timeline::render_timeline(&tweets, &state.config, cursor.as_deref(), Some(&base_url), None, &prefs, newer))
          };
          let content = profile::render_profile_page(
             &user,
@@ -557,7 +559,7 @@ async fn multi_user_timeline(
    let content = html! {
        div class="multi-user-timeline" {
            h2 { "Combined timeline: " (usernames.iter().map(|name| format!("@{name}")).collect::<Vec<_>>().join(", ")) }
-           (timeline::render_timeline_with_prefs(&groups, &state.config, next_cursor.as_deref(), Some(&base_url), &prefs, newer))
+           (timeline::render_timeline(&groups, &state.config, next_cursor.as_deref(), Some(&base_url), None, &prefs, newer))
        }
    };
 

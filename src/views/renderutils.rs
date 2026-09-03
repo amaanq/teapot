@@ -172,8 +172,8 @@ pub fn gen_img(url: &str, class: &str, config: &Config) -> Markup {
 /// Get the avatar CSS class based on user preferences.
 ///
 /// Returns "avatar" for square avatars, "avatar round" for round (default).
-pub fn get_avatar_class(prefs: Option<&Prefs>) -> &'static str {
-   if prefs.is_some_and(|pref| pref.square_avatars) {
+pub const fn get_avatar_class(prefs: &Prefs) -> &'static str {
+   if prefs.square_avatars {
       "avatar"
    } else {
       "avatar round"

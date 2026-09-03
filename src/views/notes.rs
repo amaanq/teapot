@@ -35,7 +35,7 @@ pub fn render_note(
    article: &Article,
    tweets: &HashMap<i64, Tweet>,
    config: &Config,
-   prefs: Option<&Prefs>,
+   prefs: &Prefs,
 ) -> Markup {
    let cover = if article.cover_image.is_empty() {
       String::new()
@@ -83,7 +83,7 @@ fn render_paragraphs(
    article: &Article,
    tweets: &HashMap<i64, Tweet>,
    config: &Config,
-   prefs: Option<&Prefs>,
+   prefs: &Prefs,
 ) -> Markup {
    let mut parts = Vec::<Markup>::new();
    let mut cur_list_type = None::<ArticleBlockType>;
@@ -161,10 +161,10 @@ fn render_paragraph(
    article: &Article,
    tweets: &HashMap<i64, Tweet>,
    config: &Config,
-   _prefs: Option<&Prefs>,
+   prefs: &Prefs,
 ) -> Markup {
    if para.base_type == ArticleBlockType::Atomic {
-      return render_atomic(para, article, tweets, config);
+      return render_atomic(para, article, tweets, config, prefs);
    }
 
    let inner = render_text_with_entities(para, article);
@@ -188,6 +188,7 @@ fn render_atomic(
    article: &Article,
    tweets: &HashMap<i64, Tweet>,
    config: &Config,
+   prefs: &Prefs,
 ) -> Markup {
    let Some(er) = para.entity_ranges.first() else {
       return html! {};
@@ -250,7 +251,7 @@ fn render_atomic(
          let tweet_id = entity.tweet_id.parse::<i64>().unwrap_or(0);
          tweets.get(&tweet_id).map_or_else(
             || html! {},
-            |tweet| super::tweet::TweetRenderer::new(tweet, config, true).render(),
+            |tweet| super::tweet::TweetRenderer::new(tweet, config, prefs, true).render(),
          )
       },
       ArticleEntityType::Divider => html! { hr; },

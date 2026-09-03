@@ -46,12 +46,12 @@ pub fn render_search_page(config: &Config) -> Markup {
    clippy::too_many_arguments,
    reason = "search page has many orthogonal display options"
 )]
-pub fn render_search_results_with_prefs(
+pub fn render_search_results(
    query: &str,
    tweets: &Tweets,
    config: &Config,
    cursor: Option<&str>,
-   prefs: Option<&Prefs>,
+   prefs: &Prefs,
    filters: Option<&SearchFilters>,
    newer_url: Option<&str>,
    active_tab: QueryKind,
@@ -76,7 +76,7 @@ pub fn render_search_results_with_prefs(
                    div class="search-empty" { "No posts found" }
                } @else {
                    @for tweet in tweets {
-                       (TweetRenderer::new(tweet, config, false).maybe_prefs(prefs).render())
+                       (TweetRenderer::new(tweet, config, prefs, false).render())
                    }
 
                    @if let Some(cur) = cursor {
@@ -103,7 +103,7 @@ pub fn render_user_search_results(
    config: &Config,
    cursor: Option<&str>,
    newer_url: Option<&str>,
-   prefs: Option<&Prefs>,
+   prefs: &Prefs,
 ) -> Markup {
    html! {
        div class="timeline-container search-results" {

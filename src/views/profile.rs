@@ -5,8 +5,8 @@ use maud::{
 };
 
 use super::timeline::{
+   render_timeline,
    render_timeline_tabs,
-   render_timeline_with_pinned_and_prefs,
 };
 use crate::{
    config::Config,
@@ -32,12 +32,16 @@ use crate::{
    },
 };
 
-/// Render a user profile page with prefs support (for bidi).
-pub fn render_profile_with_prefs(
+/// Render a user profile page.
+#[expect(
+   clippy::module_name_repetitions,
+   reason = "render_profile is the canonical name"
+)]
+pub fn render_profile(
    profile: &Profile,
    config: &Config,
    timeline_kind: TimelineKind,
-   prefs: Option<&Prefs>,
+   prefs: &Prefs,
    newer_url: Option<&str>,
 ) -> Markup {
    let groups = &profile.tweets.content;
@@ -50,8 +54,8 @@ pub fn render_profile_with_prefs(
       None
    };
 
-   let hide_banner = prefs.is_some_and(|pref| pref.hide_banner);
-   let sticky = prefs.is_some_and(|pref| pref.sticky_profile);
+   let hide_banner = prefs.hide_banner;
+   let sticky = prefs.sticky_profile;
    let profile_tab_class = if sticky {
       "profile-tab sticky"
    } else {
@@ -92,7 +96,7 @@ pub fn render_profile_with_prefs(
            } @else {
                div class="timeline-container" {
                    (render_timeline_tabs(timeline_kind, &profile.user.username))
-                   (render_timeline_with_pinned_and_prefs(groups, config, cursor, Some(&base_url), pinned, prefs, newer_url))
+                   (render_timeline(groups, config, cursor, Some(&base_url), pinned, prefs, newer_url))
                }
            }
        }
@@ -128,7 +132,7 @@ pub fn render_profile_page(
                            (render_banner(&user.banner, config))
                        }
                    }
-                   (render_user_card(user, config, Some(prefs)))
+                   (render_user_card(user, config, prefs))
                }
 
                @if !photo_rail.is_empty() {
@@ -248,13 +252,13 @@ fn render_account_context(user: &User) -> Markup {
 }
 
 /// Render user card.
-fn render_user_card(user: &User, config: &Config, prefs: Option<&Prefs>) -> Markup {
+fn render_user_card(user: &User, config: &Config, prefs: &Prefs) -> Markup {
    let avatar_class = get_avatar_class(prefs);
 
    // Use _400x400 suffix for avatar, unless it's a gif and autoplay is on.
    // get_user_pic strips any existing size suffix (_normal, _400x400, etc.)
    // and inserts the new one.
-   let autoplay_gifs = prefs.is_none_or(|pref| pref.autoplay_gifs);
+   let autoplay_gifs = prefs.autoplay_gifs;
    let avatar_pic = if user.user_pic.is_empty() {
       String::new()
    } else if autoplay_gifs && user.user_pic.ends_with("gif") {

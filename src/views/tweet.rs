@@ -87,7 +87,7 @@ pub struct TweetRenderer<'a> {
    config:      &'a Config,
    is_main:     bool,
    pinned:      bool,
-   prefs:       Option<&'a Prefs>,
+   prefs:       &'a Prefs,
    thread_ctx:  ThreadContext,
    extra_class: &'a str,
    index:       usize,
@@ -95,13 +95,13 @@ pub struct TweetRenderer<'a> {
 }
 
 impl<'a> TweetRenderer<'a> {
-   pub const fn new(tweet: &'a Tweet, config: &'a Config, is_main: bool) -> Self {
+   pub const fn new(tweet: &'a Tweet, config: &'a Config, prefs: &'a Prefs, is_main: bool) -> Self {
       Self {
          tweet,
          config,
          is_main,
          pinned: false,
-         prefs: None,
+         prefs,
          thread_ctx: ThreadContext::None,
          extra_class: "",
          index: 0,
@@ -111,16 +111,6 @@ impl<'a> TweetRenderer<'a> {
 
    pub const fn pinned(mut self, pinned: bool) -> Self {
       self.pinned = pinned;
-      self
-   }
-
-   pub const fn prefs(mut self, prefs: &'a Prefs) -> Self {
-      self.prefs = Some(prefs);
-      self
-   }
-
-   pub const fn maybe_prefs(mut self, prefs: Option<&'a Prefs>) -> Self {
-      self.prefs = prefs;
       self
    }
 
@@ -205,7 +195,7 @@ impl<'a> TweetRenderer<'a> {
          display_tweet.user.username, display_tweet.id
       );
 
-      let content_class = if prefs.is_some_and(|pref| pref.bidi_support) {
+      let content_class = if prefs.bidi_support {
          "tweet-content media-body tweet-bidi"
       } else {
          "tweet-content media-body"
@@ -324,7 +314,7 @@ impl<'a> TweetRenderer<'a> {
                   }
 
                   @if let Some(ref gif) = display_tweet.gif {
-                      @let autoplay_gifs = prefs.is_none_or(|pref| pref.autoplay_gifs);
+                      @let autoplay_gifs = prefs.autoplay_gifs;
                       @let poster = get_small_pic(&gif.thumb, config);
                       @let gif_src = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
                       div class="attachments media-gif" {
@@ -346,7 +336,7 @@ impl<'a> TweetRenderer<'a> {
                       (render_quote(quote, config, prefs))
                   }
 
-                  (render_community_note(display_tweet.note.as_ref(), prefs.is_some_and(|pref| pref.hide_community_notes)))
+                  (render_community_note(display_tweet.note.as_ref(), prefs.hide_community_notes))
 
                   // Published time for main tweet
                   @if is_main {
@@ -388,7 +378,7 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  @if !prefs.is_some_and(|pref| pref.hide_tweet_stats) {
+                  @if !prefs.hide_tweet_stats {
                       (render_stats(&display_tweet.stats, &display_tweet.user.username, display_tweet.id, self.sort_toggle))
                   } @else if let Some(toggle) = self.sort_toggle {
                       div class="tweet-stats" { (toggle) }
@@ -465,8 +455,8 @@ fn render_reply(tweet: &Tweet) -> Markup {
 }
 
 /// Render a mini avatar image for quote tweets.
-fn render_mini_avatar(user: &User, config: &Config, prefs: Option<&Prefs>) -> Markup {
-   let avatar_class = if prefs.is_some_and(|pref| pref.square_avatars) {
+fn render_mini_avatar(user: &User, config: &Config, prefs: &Prefs) -> Markup {
+   let avatar_class = if prefs.square_avatars {
       "avatar mini"
    } else {
       "avatar round mini"
@@ -479,7 +469,7 @@ fn render_mini_avatar(user: &User, config: &Config, prefs: Option<&Prefs>) -> Ma
 }
 
 /// Render a quote tweet with dedicated structure.
-fn render_quote(quote: &Tweet, config: &Config, prefs: Option<&Prefs>) -> Markup {
+fn render_quote(quote: &Tweet, config: &Config, prefs: &Prefs) -> Markup {
    if !quote.available {
       let has_id = quote.id != 0;
       let user = if quote.user.username.is_empty() {
@@ -584,7 +574,7 @@ fn render_quote(quote: &Tweet, config: &Config, prefs: Option<&Prefs>) -> Markup
            }
 
            // Community note for quoted tweet
-           (render_community_note(quote.note.as_ref(), prefs.is_some_and(|pref| pref.hide_community_notes)))
+           (render_community_note(quote.note.as_ref(), prefs.hide_community_notes))
 
            @if quote.has_thread {
                a class="show-thread" href=(&quote_link) {
@@ -699,7 +689,7 @@ fn render_card_content(card: &Card) -> Markup {
 /// App, Player, Summary, and `StoreLink` use small cards.
 /// All other variants, including `SummaryLarge` and `PromoWebsite`, use large
 /// cards.
-fn render_card(card: &Card, config: &Config, prefs: Option<&Prefs>) -> Markup {
+fn render_card(card: &Card, config: &Config, prefs: &Prefs) -> Markup {
    if matches!(card.kind, CardKind::Hidden | CardKind::Unknown) {
       return html! {};
    }
@@ -735,7 +725,7 @@ fn render_card(card: &Card, config: &Config, prefs: Option<&Prefs>) -> Markup {
 }
 
 /// Render user avatar image with proper class from prefs.
-fn render_user_avatar(user: &User, config: &Config, prefs: Option<&Prefs>) -> Markup {
+fn render_user_avatar(user: &User, config: &Config, prefs: &Prefs) -> Markup {
    let avatar_url = formatters::get_pic_url(&user.user_pic, config.config.base64_media);
    let avatar_class = get_avatar_class(prefs);
    html! {
@@ -831,7 +821,7 @@ fn render_tweet_text_html(
 ///
 /// Structure: `attachments card` > `gallery-video [card-container]` >
 ///   `attachment video-container` > video/img + overlay.
-fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup {
+fn render_video(video: &Video, config: &Config, prefs: &Prefs) -> Markup {
    let has_card_content = !video.description.is_empty() || !video.title.is_empty();
    let container = if has_card_content {
       " card-container"
@@ -847,9 +837,9 @@ fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup
 
    let duration = formatters::format_duration(video.duration_ms);
 
-   let playback_enabled = prefs.is_none_or(|pref| pref.mp4_playback);
+   let playback_enabled = prefs.mp4_playback;
 
-   let mute_videos = prefs.is_some_and(|pref| pref.mute_videos);
+   let mute_videos = prefs.mute_videos;
 
    html! {
        div class="attachments card" {
@@ -960,7 +950,7 @@ pub fn render_reply_chains(
                    @for (idx, tweet) in chain.content.iter().enumerate() {
                        @let is_last = idx == chain_len - 1 && !chain_has_more;
                        @let ctx = thread_context(idx, chain_len, is_last);
-                       (TweetRenderer::new(tweet, config, false).prefs(prefs).thread_ctx(ctx).render())
+                       (TweetRenderer::new(tweet, config, prefs, false).thread_ctx(ctx).render())
                    }
                    @if chain_has_more {
                        @if let Some(last_in_chain) = chain.content.last() {

@@ -22,53 +22,6 @@ use crate::{
    },
 };
 
-/// Render a timeline of tweets with optional "Load more" link.
-#[expect(
-   clippy::module_name_repetitions,
-   reason = "render_timeline is the canonical name"
-)]
-pub fn render_timeline(
-   groups: &[Tweets],
-   config: &Config,
-   cursor: Option<&str>,
-   base_url: Option<&str>,
-) -> Markup {
-   render_timeline_full(groups, config, cursor, base_url, None, None, None)
-}
-
-/// Render a timeline with prefs support (for bidi).
-pub fn render_timeline_with_prefs(
-   groups: &[Tweets],
-   config: &Config,
-   cursor: Option<&str>,
-   base_url: Option<&str>,
-   prefs: &Prefs,
-   newer_url: Option<&str>,
-) -> Markup {
-   render_timeline_full(
-      groups,
-      config,
-      cursor,
-      base_url,
-      None,
-      Some(prefs),
-      newer_url,
-   )
-}
-
-/// Render a timeline with pinned tweet and optional prefs support.
-pub fn render_timeline_with_pinned_and_prefs(
-   groups: &[Tweets],
-   config: &Config,
-   cursor: Option<&str>,
-   base_url: Option<&str>,
-   pinned: Option<&Tweet>,
-   prefs: Option<&Prefs>,
-   newer_url: Option<&str>,
-) -> Markup {
-   render_timeline_full(groups, config, cursor, base_url, pinned, prefs, newer_url)
-}
-
 /// Render "scroll to top" button.
 pub fn render_to_top_with_focus(focus: &str) -> Markup {
    html! {
@@ -103,7 +56,7 @@ fn render_none_found() -> Markup {
 use super::renderutils::tweet_link;
 
 /// Render a thread group wrapped in thread-line.
-fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> Markup {
+fn render_thread(thread: &[&Tweet], config: &Config, prefs: &Prefs) -> Markup {
    let mut sorted = thread.to_vec();
    sorted.sort_by_key(|tweet| tweet.id);
 
@@ -131,7 +84,7 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
                    (false, false) if idx == 0 => "thread thread-first",
                    (false, false) => "thread thread-middle",
                };
-               (TweetRenderer::new(tweet, config, false).maybe_prefs(prefs).extra_class(thread_class).index(idx).render())
+               (TweetRenderer::new(tweet, config, prefs, false).extra_class(thread_class).index(idx).render())
                @if show_thread && tweet.has_thread {
                    div class="show-thread" {
                        a href=(tweet_link(tweet)) { "Show this thread" }
@@ -142,16 +95,19 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
    }
 }
 
-/// Full timeline rendering with all options.
 /// `groups` preserves conversation structure from the API. Each inner
 /// Vec<Tweet> is a conversation thread (parent -> reply chain).
-fn render_timeline_full(
+#[expect(
+   clippy::module_name_repetitions,
+   reason = "render_timeline is the canonical name"
+)]
+pub fn render_timeline(
    groups: &[Tweets],
    config: &Config,
    cursor: Option<&str>,
    base_url: Option<&str>,
    pinned: Option<&Tweet>,
-   prefs: Option<&Prefs>,
+   prefs: &Prefs,
    newer_url: Option<&str>,
 ) -> Markup {
    let load_more_url = match (cursor, base_url) {
@@ -176,8 +132,8 @@ fn render_timeline_full(
                (render_none_found())
            } @else {
                @if let Some(pinned_tweet) = pinned {
-                   @if !prefs.is_some_and(|pref| pref.hide_pins) {
-                       (TweetRenderer::new(pinned_tweet, config, false).pinned(true).maybe_prefs(prefs).render())
+                   @if !prefs.hide_pins {
+                       (TweetRenderer::new(pinned_tweet, config, prefs, false).pinned(true).render())
                    }
                }
 
@@ -186,7 +142,7 @@ fn render_timeline_full(
                    @if filtered.len() > 1 {
                        (render_thread(&filtered, config, prefs))
                    } @else if let Some(tweet) = filtered.first() {
-                       (TweetRenderer::new(tweet, config, false).maybe_prefs(prefs).render())
+                       (TweetRenderer::new(tweet, config, prefs, false).render())
                        @if tweet.has_thread {
                            div class="show-thread" {
                                a href=(tweet_link(tweet)) { "Show this thread" }

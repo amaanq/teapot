@@ -217,26 +217,20 @@ async fn search(
    if raw_q.is_empty() && params.from.is_none() {
       let filters = params.to_filters();
       if is_user_search {
-         let content = search_view::render_user_search_results(
-            &raw_q,
-            &[],
-            &state.config,
-            None,
-            None,
-            Some(&prefs),
-         );
+         let content =
+            search_view::render_user_search_results(&raw_q, &[], &state.config, None, None, &prefs);
          let markup = layout::PageLayout::new(&state.config, "Search", content)
             .prefs(&prefs)
             .render();
          return Ok(Html(markup.into_string()).into_response());
       }
       let empty_tweets = Vec::new();
-      let content = search_view::render_search_results_with_prefs(
+      let content = search_view::render_search_results(
          &raw_q,
          &empty_tweets,
          &state.config,
          None,
-         Some(&prefs),
+         &prefs,
          Some(&filters),
          None,
          QueryKind::Posts,
@@ -298,7 +292,7 @@ async fn search(
                &state.config,
                cursor,
                newer_url.as_deref(),
-               Some(&prefs),
+               &prefs,
             );
             let title = format!("Search ({raw_q}) | Users");
             let canonical = format!(
@@ -383,12 +377,12 @@ async fn search(
                   percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
                )
             });
-            let content = search_view::render_search_results_with_prefs(
+            let content = search_view::render_search_results(
                display_query,
                &tweets,
                &state.config,
                cursor,
-               Some(&prefs),
+               &prefs,
                Some(&filters),
                newer_url.as_deref(),
                query.kind,

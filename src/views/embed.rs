@@ -491,7 +491,7 @@ pub fn render_tweet_embed(tweet: &Tweet, config: &Config, discord_activity: bool
            }
            body {
                div class="tweet-embed" {
-                   (TweetRenderer::new(tweet, config, true).render())
+                   (TweetRenderer::new(tweet, config, &Prefs::with_defaults(config), true).render())
                }
            }
        }

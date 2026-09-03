@@ -57,7 +57,7 @@ use crate::{
       embed,
       layout,
       timeline::{
-         render_timeline_with_prefs,
+         render_timeline,
          render_to_top_with_focus,
       },
       tweet as tweet_view,
@@ -331,7 +331,7 @@ fn render_conversation(
            @if has_cursor {
                div class="main-thread" {
                    div class="main-tweet" id="m" {
-                       (TweetRenderer::new(tweet, config, false).prefs(prefs).render())
+                       (TweetRenderer::new(tweet, config, prefs, false).render())
                    }
                }
                div class="timeline-item show-more" {
@@ -365,7 +365,7 @@ fn render_conversation(
                            @let before_len = conversation.before.content.len();
                            @for (idx, tw) in conversation.before.content.iter().enumerate() {
                                @let ctx = thread_context(idx, before_len, false);
-                               (TweetRenderer::new(tw, config, false).prefs(prefs).thread_ctx(ctx).render())
+                               (TweetRenderer::new(tw, config, prefs, false).thread_ctx(ctx).render())
                            }
                        }
                    }
@@ -373,8 +373,7 @@ fn render_conversation(
                    @let has_after = !conversation.after.content.is_empty();
                    @let after_class = if has_after { "thread thread-line" } else { "" };
                    div class="main-tweet" id="m" {
-                       (TweetRenderer::new(tweet, config, true)
-                           .prefs(prefs)
+                       (TweetRenderer::new(tweet, config, prefs, true)
                            .extra_class(after_class)
                            .sort_toggle(sort_toggle.as_ref())
                            .render())
@@ -388,7 +387,7 @@ fn render_conversation(
                            @for (idx, tw) in conversation.after.content.iter().enumerate() {
                                @let is_last = idx == after_len - 1 && !has_more;
                                @let ctx = thread_context(idx, after_len, is_last);
-                               (TweetRenderer::new(tw, config, false).prefs(prefs).thread_ctx(ctx).render())
+                               (TweetRenderer::new(tw, config, prefs, false).thread_ctx(ctx).render())
                            }
                            @if has_more {
                                @if let Some(last_after) = conversation.after.content.last() {
@@ -649,7 +648,7 @@ async fn retweets(
          &state.config,
          cursor,
          Some(&base_url),
-         Some(&prefs),
+         &prefs,
       );
       return Ok(Html(fragment.into_string()).into_response());
    }
@@ -657,7 +656,7 @@ async fn retweets(
    let content = html! {
        div class="timeline-container" {
            (engagement_tabs(&username, &id, "retweets"))
-           (user_list::render_user_list(&result.content, &state.config, cursor, Some(&base_url), Some(&prefs)))
+           (user_list::render_user_list(&result.content, &state.config, cursor, Some(&base_url), &prefs))
        }
    };
 
@@ -694,11 +693,12 @@ async fn quotes(
    let base_url = format!("/{username}/status/{id}/quotes");
 
    if is_scroll {
-      let fragment = render_timeline_with_prefs(
+      let fragment = render_timeline(
          &groups,
          &state.config,
          cursor,
          Some(&base_url),
+         None,
          &prefs,
          None,
       );
@@ -708,7 +708,7 @@ async fn quotes(
    let content = html! {
        div class="timeline-container" {
            (engagement_tabs(&username, &id, "quotes"))
-           (render_timeline_with_prefs(&groups, &state.config, cursor, Some(&base_url), &prefs, None))
+           (render_timeline(&groups, &state.config, cursor, Some(&base_url), None, &prefs, None))
        }
    };
 
@@ -747,8 +747,7 @@ async fn edit_history(
           div class="edit-history" {
               div class="latest-edit" {
                   div class="edit-history-header" { "Latest post" }
-                  (TweetRenderer::new(&edits.latest, &state.config, false)
-                     .prefs(&prefs)
+                  (TweetRenderer::new(&edits.latest, &state.config, &prefs, false)
                      .render())
               }
               @if !edits.history.is_empty() {
@@ -756,8 +755,7 @@ async fn edit_history(
                       div class="edit-history-header" { "Version history" }
                       @for tweet in &edits.history {
                           div class="tweet-edit" {
-                              (TweetRenderer::new(tweet, &state.config, false)
-                                 .prefs(&prefs)
+                              (TweetRenderer::new(tweet, &state.config, &prefs, false)
                                  .render())
                           }
                       }
