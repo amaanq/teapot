@@ -3,7 +3,10 @@ use std::time::Duration;
 use axum::http::header;
 use serde::{
    Deserialize,
-   de::DeserializeOwned,
+   de::{
+      DeserializeOwned,
+      IgnoredAny,
+   },
 };
 use tokio::time::timeout;
 
@@ -404,7 +407,7 @@ impl ApiClient {
          .await;
 
       match first {
-         Err(Error::SessionRejected(_)) => {},
+         Err(Error::SessionRejected(_) | Error::TransientUpstream) => {},
          Err(Error::RateLimited)
             if self
                .sessions
@@ -631,6 +634,15 @@ impl ApiClient {
                self.sessions.back_off_edge();
             }
             return Err(Error::RateLimited);
+         }
+
+         // X answers a stale search or a WAF hiccup with a bodyless 404 across
+         // every session, so only a JSON 404 names a resource that is gone.
+         if status.as_u16() == 404 {
+            if body.trim().is_empty() || serde_json::from_str::<IgnoredAny>(&body).is_err() {
+               return Err(Error::TransientUpstream);
+            }
+            return Err(Error::NotFound("Not found".into()));
          }
 
          // Only 401 means the credentials themselves were refused. A 403 is an

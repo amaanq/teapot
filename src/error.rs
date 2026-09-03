@@ -125,6 +125,9 @@ pub enum Error {
    #[error("Not found: {0}")]
    NotFound(String),
 
+   #[error("Upstream returned nothing")]
+   TransientUpstream,
+
    #[error("User suspended: {0}")]
    UserSuspended(String),
 
@@ -204,6 +207,13 @@ impl Error {
                StatusCode::TOO_MANY_REQUESTS,
                "Rate limited",
                rate_limited_message(),
+            )
+         },
+         Self::TransientUpstream => {
+            (
+               StatusCode::BAD_GATEWAY,
+               "No answer from X",
+               "X returned nothing for this request. Try again in a moment.",
             )
          },
          // Out of sessions is an operator problem, not an upstream quota one.
