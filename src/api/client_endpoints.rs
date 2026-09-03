@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use serde::Serialize;
+
 use super::{
    AboutAccountData,
    AccountContext,
@@ -785,24 +787,34 @@ impl ApiClient {
          label: Option<String>,
       }
 
+      #[derive(Serialize)]
+      struct KagiRequest<'a> {
+         text:            &'a str,
+         source_lang:     &'a str,
+         target_lang:     &'a str,
+         skip_definition: bool,
+         model:           &'a str,
+      }
+
       if tweet.text.is_empty() {
          return Err(Error::Internal("Tweet has no text to translate".into()));
       }
 
-      let payload = serde_json::json!({
-         "text": tweet.text,
-         "source_lang": tweet.lang,
-         "target_lang": "en",
-         "skip_definition": true,
-         "model": "standard"
-      });
+      let payload = KagiRequest {
+         text:            &tweet.text,
+         source_lang:     &tweet.lang,
+         target_lang:     "en",
+         skip_definition: true,
+         model:           "standard",
+      };
 
       let url = format!(
          "https://translate.kagi.com/api/translate?token={}",
          utf8_percent_encode(kagi_token, NON_ALPHANUMERIC)
       );
 
-      let request_body = payload.to_string();
+      let request_body = serde_json::to_string(&payload)
+         .map_err(|err| Error::Internal(format!("Kagi request: {err}")))?;
       let uri: hyper::Uri = url
          .parse()
          .map_err(|err| Error::Internal(format!("invalid Kagi URL: {err}")))?;

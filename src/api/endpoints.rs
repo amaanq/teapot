@@ -1,5 +1,5 @@
 /// Twitter/X API constants and endpoints.
-use serde_json::json;
+use serde::Serialize;
 
 pub const CONSUMER_KEY: &str = "3nVuSoBZnx6U4vzUxf5w";
 pub const CONSUMER_SECRET: &str = "Bcs59EFbbsdF6Sl9Ng71smgStWEGwXXKSjYvPVt7qys";
@@ -56,118 +56,306 @@ pub const TWEET_DETAIL_FIELD_TOGGLES: &str = r#"{"withArticleRichContentState":t
 
 // ── Helper ──────────────────────────────────────────────────────────────
 
-/// Serialize a JSON value to string, stripping null fields (for optional
-/// cursor).
-fn vars(mut value: serde_json::Value) -> String {
-   if let Some(obj) = value.as_object_mut() {
-      obj.retain(|_, val| !val.is_null());
-   }
-   value.to_string()
+const PAGE: u8 = 20;
+
+/// Plain strings, bools and integers cannot fail to serialize, so the only
+/// way to reach the fallback is a bug in one of the structs below.
+fn vars<T>(value: &T) -> String
+where
+   T: Serialize,
+{
+   serde_json::to_string(value).unwrap_or_default()
 }
 
-// ── Builder functions ───────────────────────────────────────────────────
+// ── Variables ───────────────────────────────────────────────────────────
+
+#[expect(clippy::struct_excessive_bools, reason = "mirrors X's request shape")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TweetDetailVars<'a> {
+   focal_tweet_id:                              &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:                                      Option<&'a str>,
+   referrer:                                    &'a str,
+   with_rux_injections:                         bool,
+   ranking_mode:                                &'a str,
+   include_promoted_content:                    bool,
+   with_community:                              bool,
+   with_quick_promote_eligibility_tweet_fields: bool,
+   with_birdwatch_notes:                        bool,
+   with_voice:                                  bool,
+}
 
 pub fn tweet_detail_vars(focal_tweet_id: &str, cursor: Option<&str>, ranking_mode: &str) -> String {
-   vars(json!({
-      "focalTweetId": focal_tweet_id, "cursor": cursor,
-      "referrer": "profile", "withRuxInjections": false, "rankingMode": ranking_mode,
-      "includePromotedContent": false, "withCommunity": true,
-      "withQuickPromoteEligibilityTweetFields": true,
-      "withBirdwatchNotes": true, "withVoice": true,
-   }))
+   vars(&TweetDetailVars {
+      focal_tweet_id,
+      cursor,
+      referrer: "profile",
+      with_rux_injections: false,
+      ranking_mode,
+      include_promoted_content: false,
+      with_community: true,
+      with_quick_promote_eligibility_tweet_fields: true,
+      with_birdwatch_notes: true,
+      with_voice: true,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UserTweetsVars<'a> {
+   user_id:                                     &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:                                      Option<&'a str>,
+   count:                                       u8,
+   include_promoted_content:                    bool,
+   with_quick_promote_eligibility_tweet_fields: bool,
+   with_voice:                                  bool,
 }
 
 pub fn user_tweets_vars(user_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({
-      "userId": user_id, "cursor": cursor, "count": 20,
-      "includePromotedContent": false,
-      "withQuickPromoteEligibilityTweetFields": true, "withVoice": true,
-   }))
+   vars(&UserTweetsVars {
+      user_id,
+      cursor,
+      count: PAGE,
+      include_promoted_content: false,
+      with_quick_promote_eligibility_tweet_fields: true,
+      with_voice: true,
+   })
+}
+
+#[expect(clippy::struct_excessive_bools, reason = "mirrors X's request shape")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UserMediaVars<'a> {
+   user_id:                  &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:                   Option<&'a str>,
+   count:                    u8,
+   include_promoted_content: bool,
+   with_client_event_token:  bool,
+   with_birdwatch_notes:     bool,
+   with_voice:               bool,
 }
 
 pub fn user_media_vars(user_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({
-      "userId": user_id, "cursor": cursor, "count": 20,
-      "includePromotedContent": false, "withClientEventToken": false,
-      "withBirdwatchNotes": false, "withVoice": true,
-   }))
+   vars(&UserMediaVars {
+      user_id,
+      cursor,
+      count: PAGE,
+      include_promoted_content: false,
+      with_client_event_token: false,
+      with_birdwatch_notes: false,
+      with_voice: true,
+   })
+}
+
+/// The v2 timelines and list timelines page on a bare `rest_id`.
+#[derive(Serialize)]
+struct RestIdPageVars<'a> {
+   rest_id: &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:  Option<&'a str>,
+   count:   u8,
+}
+
+fn rest_id_page_vars(rest_id: &str, cursor: Option<&str>) -> String {
+   vars(&RestIdPageVars {
+      rest_id,
+      cursor,
+      count: PAGE,
+   })
 }
 
 pub fn user_media_v2_vars(user_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({ "rest_id": user_id, "cursor": cursor, "count": 20 }))
+   rest_id_page_vars(user_id, cursor)
 }
 
 pub fn user_tweets_and_replies_v2_vars(user_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({ "rest_id": user_id, "cursor": cursor, "count": 20 }))
+   rest_id_page_vars(user_id, cursor)
+}
+
+pub fn list_timeline_vars(rest_id: &str, cursor: Option<&str>) -> String {
+   rest_id_page_vars(rest_id, cursor)
+}
+
+#[derive(Serialize)]
+struct UserByScreenNameVars<'a> {
+   screen_name:                  &'a str,
+   #[serde(rename = "withSafetyModeUserFields")]
+   with_safety_mode_user_fields: bool,
 }
 
 pub fn user_by_screen_name_vars(screen_name: &str) -> String {
-   vars(json!({ "screen_name": screen_name, "withSafetyModeUserFields": true }))
+   vars(&UserByScreenNameVars {
+      screen_name,
+      with_safety_mode_user_fields: true,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AboutAccountVars<'a> {
+   screen_name: &'a str,
 }
 
 pub fn about_account_vars(screen_name: &str) -> String {
-   vars(json!({ "screenName": screen_name }))
+   vars(&AboutAccountVars { screen_name })
+}
+
+#[derive(Serialize)]
+struct RestIdVars<'a> {
+   rest_id: &'a str,
 }
 
 pub fn user_by_id_vars(rest_id: &str) -> String {
-   json!({ "rest_id": rest_id }).to_string()
+   vars(&RestIdVars { rest_id })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListMembersVars<'a> {
+   list_id: &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:  Option<&'a str>,
+   count:   u8,
 }
 
 pub fn list_members_vars(list_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({ "listId": list_id, "cursor": cursor, "count": 20 }))
+   vars(&ListMembersVars {
+      list_id,
+      cursor,
+      count: PAGE,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UserTweetsAndRepliesVars<'a> {
+   user_id:                  &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:                   Option<&'a str>,
+   count:                    u8,
+   include_promoted_content: bool,
+   with_community:           bool,
+   with_voice:               bool,
 }
 
 pub fn user_tweets_and_replies_vars(user_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({
-      "userId": user_id, "cursor": cursor, "count": 20,
-      "includePromotedContent": false, "withCommunity": true, "withVoice": true,
-   }))
+   vars(&UserTweetsAndRepliesVars {
+      user_id,
+      cursor,
+      count: PAGE,
+      include_promoted_content: false,
+      with_community: true,
+      with_voice: true,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListBySlugVars<'a> {
+   screen_name: &'a str,
+   list_slug:   &'a str,
 }
 
 pub fn list_by_slug_vars(screen_name: &str, list_slug: &str) -> String {
-   json!({ "screenName": screen_name, "listSlug": list_slug }).to_string()
+   vars(&ListBySlugVars {
+      screen_name,
+      list_slug,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TweetEditHistoryVars<'a> {
+   tweet_id:                                    &'a str,
+   with_quick_promote_eligibility_tweet_fields: bool,
 }
 
 pub fn tweet_edit_history_vars(tweet_id: &str) -> String {
-   json!({ "tweetId": tweet_id, "withQuickPromoteEligibilityTweetFields": true }).to_string()
+   vars(&TweetEditHistoryVars {
+      tweet_id,
+      with_quick_promote_eligibility_tweet_fields: true,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RetweetersVars<'a> {
+   tweet_id:                 &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:                   Option<&'a str>,
+   count:                    u8,
+   include_promoted_content: bool,
 }
 
 pub fn retweeters_vars(tweet_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({
-      "tweetId": tweet_id, "cursor": cursor, "count": 20,
-      "includePromotedContent": false,
-   }))
+   vars(&RetweetersVars {
+      tweet_id,
+      cursor,
+      count: PAGE,
+      include_promoted_content: false,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioSpaceVars<'a> {
+   id:                &'a str,
+   is_metatags_query: bool,
+   with_replays:      bool,
+   with_listeners:    bool,
 }
 
 pub fn audio_space_vars(space_id: &str) -> String {
-   json!({
-      "id": space_id,
-      "isMetatagsQuery": false,
-      "withReplays": true,
-      "withListeners": true,
+   vars(&AudioSpaceVars {
+      id:                space_id,
+      is_metatags_query: false,
+      with_replays:      true,
+      with_listeners:    true,
    })
-   .to_string()
 }
 
 pub fn broadcast_show_url(broadcast_id: &str) -> String {
    format!("https://x.com{BROADCAST_SHOW_PATH}?ids={broadcast_id}&include_events=false")
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchVars<'a> {
+   raw_query:                  &'a str,
+   #[serde(skip_serializing_if = "Option::is_none")]
+   cursor:                     Option<&'a str>,
+   count:                      u8,
+   query_source:               &'a str,
+   product:                    &'a str,
+   with_downvote_perspective:  bool,
+   with_reactions_metadata:    bool,
+   with_reactions_perspective: bool,
+}
+
 pub fn search_vars(raw_query: &str, cursor: Option<&str>, product: &str) -> String {
-   vars(json!({
-      "rawQuery": raw_query, "cursor": cursor, "count": 20,
-      "querySource": "typedQuery", "product": product,
-      "withDownvotePerspective": false, "withReactionsMetadata": false,
-      "withReactionsPerspective": false,
-   }))
+   vars(&SearchVars {
+      raw_query,
+      cursor,
+      count: PAGE,
+      query_source: "typedQuery",
+      product,
+      with_downvote_perspective: false,
+      with_reactions_metadata: false,
+      with_reactions_perspective: false,
+   })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListIdVars<'a> {
+   list_id: &'a str,
 }
 
 pub fn list_by_id_vars(list_id: &str) -> String {
-   json!({ "listId": list_id }).to_string()
-}
-
-pub fn list_timeline_vars(rest_id: &str, cursor: Option<&str>) -> String {
-   vars(json!({ "rest_id": rest_id, "cursor": cursor, "count": 20 }))
+   vars(&ListIdVars { list_id })
 }
 
 /// Build the Strato translate tweet URL.

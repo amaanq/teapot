@@ -218,41 +218,40 @@ pub fn parse_gif(media: &MediaItem) -> Gif {
 
 #[cfg(test)]
 mod tests {
-   use serde_json::json;
-
    use super::*;
+
+   const TWO_VIDEOS: &str = r#"{
+      "extended_entities": {
+         "media": [
+            {
+               "type": "video",
+               "media_url_https": "https://pbs.twimg.com/first.jpg",
+               "video_info": {
+                  "variants": [{
+                     "content_type": "video/mp4",
+                     "bitrate": 832000,
+                     "url": "https://video.twimg.com/vid/640x360/first.mp4"
+                  }]
+               }
+            },
+            {
+               "type": "video",
+               "media_url_https": "https://pbs.twimg.com/second.jpg",
+               "video_info": {
+                  "variants": [{
+                     "content_type": "video/mp4",
+                     "bitrate": 832000,
+                     "url": "https://video.twimg.com/vid/1280x720/second.mp4"
+                  }]
+               }
+            }
+         ]
+      }
+   }"#;
 
    #[test]
    fn parse_media_preserves_multiple_videos() {
-      let legacy: TweetLegacy = serde_json::from_value(json!({
-         "extended_entities": {
-            "media": [
-               {
-                  "type": "video",
-                  "media_url_https": "https://pbs.twimg.com/first.jpg",
-                  "video_info": {
-                     "variants": [{
-                        "content_type": "video/mp4",
-                        "bitrate": 832_000,
-                        "url": "https://video.twimg.com/vid/640x360/first.mp4"
-                     }]
-                  }
-               },
-               {
-                  "type": "video",
-                  "media_url_https": "https://pbs.twimg.com/second.jpg",
-                  "video_info": {
-                     "variants": [{
-                        "content_type": "video/mp4",
-                        "bitrate": 832_000,
-                        "url": "https://video.twimg.com/vid/1280x720/second.mp4"
-                     }]
-                  }
-               }
-            ]
-         }
-      }))
-      .unwrap();
+      let legacy: TweetLegacy = serde_json::from_str(TWO_VIDEOS).unwrap();
 
       let parsed = parse_media(&legacy);
 
