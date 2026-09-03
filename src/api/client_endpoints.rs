@@ -47,6 +47,14 @@ use super::{
    timeout,
 };
 
+/// Refuse an id that cannot be a snowflake before it spends a session.
+fn snowflake(id: &str) -> Result<()> {
+   if id.is_empty() || id.len() > 19 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+      return Err(Error::InvalidUrl("Invalid id".into()));
+   }
+   Ok(())
+}
+
 fn search_page_is_stuck(timeline: &Timeline) -> bool {
    let mut ids = timeline.content.iter().flatten().map(|tweet| {
       tweet
@@ -185,9 +193,7 @@ impl ApiClient {
 
    /// Get user by REST ID (numeric user ID).
    pub async fn get_user_by_id(&self, user_id: &str) -> Result<User> {
-      if user_id.is_empty() || !user_id.chars().all(|ch| ch.is_ascii_digit()) {
-         return Err(Error::UserNotFound("Invalid user ID format".to_owned()));
-      }
+      snowflake(user_id)?;
       let data = self
          .graphql_request::<UserResultData>(
             endpoints::GRAPH_USER_BY_ID,
@@ -332,6 +338,7 @@ impl ApiClient {
       cursor: Option<&str>,
       ranking_mode: &str,
    ) -> Result<Conversation> {
+      snowflake(tweet_id)?;
       let data = self
          .graphql_request::<ConversationData>(
             endpoints::GRAPH_TWEET_DETAIL,

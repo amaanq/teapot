@@ -22,4 +22,5 @@ pub use app::router;
 pub use middleware::{
    client_middleware,
    prefs_middleware,
+   snowflake_guard,
 };

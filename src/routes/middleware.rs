@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use axum::{
    extract::{
       ConnectInfo,
+      Path,
       Request,
       State,
    },
@@ -31,8 +32,29 @@ use time::Duration;
 use crate::{
    AppState,
    api::budget,
+   error::Error,
    types::Prefs,
 };
+
+/// Refuse any route whose `{id}` cannot be a snowflake before a handler spends
+/// cookies, prefs or a session on it.
+pub async fn snowflake_guard(
+   params: Option<Path<Vec<(String, String)>>>,
+   request: Request,
+   next: Next,
+) -> Response {
+   let bad_id = params
+      .as_ref()
+      .and_then(|path| path.0.iter().find(|pair| pair.0 == "id"))
+      .is_some_and(|pair| {
+         let id = &pair.1;
+         !(1..=19).contains(&id.len()) || !id.bytes().all(|byte| byte.is_ascii_digit())
+      });
+   if bad_id {
+      return Error::InvalidUrl("Invalid id".into()).into_response();
+   }
+   next.run(request).await
+}
 
 /// Bind the caller to the request so the API client can bill upstream calls to
 /// it without every route having to thread it through.
