@@ -9,6 +9,7 @@ use std::{
    pin::Pin,
    result::Result as StdResult,
    str,
+   string::FromUtf8Error,
    sync::Arc,
    task::{
       Context,
@@ -18,10 +19,12 @@ use std::{
 };
 
 use axum::http::{
+   Error as BuildError,
    HeaderMap,
    Method,
    Uri,
    header,
+   uri::InvalidUri,
 };
 use bytes::Bytes;
 use flate2::read::GzDecoder;
@@ -44,6 +47,7 @@ use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::{
    client::legacy::{
       Client,
+      Error as ClientError,
       connect::HttpConnector,
    },
    rt::{
@@ -51,6 +55,7 @@ use hyper_util::{
       TokioIo,
    },
 };
+use rustls::pki_types::InvalidDnsNameError;
 use serde::de::DeserializeOwned;
 use tokio::{
    io::{
@@ -66,10 +71,7 @@ use tokio::{
    },
 };
 
-use crate::error::{
-   Error,
-   Result,
-};
+use crate::error::Result;
 
 type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
 
@@ -77,6 +79,56 @@ const DEFAULT_BODY_LIMIT: usize = 32 * 1024 * 1024; // 32 MiB
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const BODY_TIMEOUT: Duration = Duration::from_secs(60);
 const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Every way the transport can fail before X answers, so the operator log
+/// names the layer and the reader page stays a plain 500.
+#[expect(
+   clippy::module_name_repetitions,
+   reason = "HttpError is clearer than Error beside the crate Error"
+)]
+#[derive(Debug, thiserror::Error)]
+pub enum HttpError {
+   #[error("request timed out")]
+   Timeout,
+   #[error("invalid URI: {0}")]
+   InvalidUri(InvalidUri),
+   #[error("URI has no host")]
+   NoHost,
+   #[error("build request: {0}")]
+   BuildRequest(BuildError),
+   #[error("request failed: {0}")]
+   Request(ClientError),
+   #[error("proxy connect: {0}")]
+   ProxyConnect(IoError),
+   #[error("proxy CONNECT write: {0}")]
+   ProxyWrite(IoError),
+   #[error("proxy CONNECT read: {0}")]
+   ProxyRead(IoError),
+   #[error("proxy closed during CONNECT")]
+   ProxyClosed,
+   #[error("proxy CONNECT response too large")]
+   ProxyResponseTooLarge,
+   #[error("proxy CONNECT response is not UTF-8")]
+   ProxyResponseNotUtf8,
+   #[error("proxy CONNECT rejected: {0}")]
+   ProxyRejected(String),
+   #[error("invalid server name: {0}")]
+   InvalidServerName(InvalidDnsNameError),
+   #[error("TLS handshake: {0}")]
+   TlsHandshake(IoError),
+   #[error("HTTP/1 handshake: {0}")]
+   Handshake(hyper::Error),
+   #[error("proxied request failed: {0}")]
+   ProxiedRequest(hyper::Error),
+   #[error("read body: {0}")]
+   ReadBody(IoError),
+   #[error("response body exceeded {0} bytes")]
+   BodyTooLarge(usize),
+   #[error("gzip decode: {0}")]
+   GzipDecode(IoError),
+   #[error("response is not UTF-8: {0}")]
+   InvalidUtf8(FromUtf8Error),
+}
 
 /// Parsed proxy configuration.
 #[derive(Clone)]
@@ -239,7 +291,7 @@ impl HttpClient {
          }
       })
       .await
-      .map_err(|_| Error::Internal("HTTP request timed out".into()))?
+      .map_err(|_| HttpError::Timeout)?
    }
 
    /// Direct request through hyper's connection pool.
@@ -249,9 +301,7 @@ impl HttpClient {
       uri: &str,
       extra_headers: &HeaderMap,
    ) -> Result<Response> {
-      let parsed = uri
-         .parse::<Uri>()
-         .map_err(|err| Error::Internal(format!("invalid URI: {err}")))?;
+      let parsed = uri.parse::<Uri>().map_err(HttpError::InvalidUri)?;
 
       let mut builder = hyper::Request::builder().method(method).uri(parsed);
       for (key, value) in &self.default_headers {
@@ -263,13 +313,13 @@ impl HttpClient {
 
       let request = builder
          .body(Empty::<Bytes>::new())
-         .map_err(|err| Error::Internal(format!("build request: {err}")))?;
+         .map_err(HttpError::BuildRequest)?;
 
       let resp = self
          .inner
          .request(request)
          .await
-         .map_err(|err| Error::Internal(format!("HTTP request failed: {err}")))?;
+         .map_err(HttpError::Request)?;
 
       let (parts, body) = resp.into_parts();
       Ok(Response {
@@ -287,13 +337,9 @@ impl HttpClient {
       uri: &str,
       extra_headers: &HeaderMap,
    ) -> Result<Response> {
-      let parsed = uri
-         .parse::<Uri>()
-         .map_err(|err| Error::Internal(format!("invalid URI: {err}")))?;
+      let parsed = uri.parse::<Uri>().map_err(HttpError::InvalidUri)?;
 
-      let target_host = parsed
-         .host()
-         .ok_or_else(|| Error::Internal("no host in URI".into()))?;
+      let target_host = parsed.host().ok_or(HttpError::NoHost)?;
       let target_port = parsed.port_u16().unwrap_or_else(|| {
          if parsed.scheme_str() == Some("https") {
             443
@@ -305,7 +351,7 @@ impl HttpClient {
 
       let mut stream = TcpStream::connect((&*proxy.host, proxy.port))
          .await
-         .map_err(|err| Error::Internal(format!("proxy connect: {err}")))?;
+         .map_err(HttpError::ProxyConnect)?;
 
       if is_https {
          let mut connect_req = format!(
@@ -319,7 +365,7 @@ impl HttpClient {
          stream
             .write_all(connect_req.as_bytes())
             .await
-            .map_err(|err| Error::Internal(format!("proxy CONNECT write: {err}")))?;
+            .map_err(HttpError::ProxyWrite)?;
 
          let mut buf = vec![0_u8; 4096];
          let mut filled = 0;
@@ -327,43 +373,41 @@ impl HttpClient {
             let n = stream
                .read(&mut buf[filled..])
                .await
-               .map_err(|err| Error::Internal(format!("proxy CONNECT read: {err}")))?;
+               .map_err(HttpError::ProxyRead)?;
             if n == 0 {
-               return Err(Error::Internal("proxy closed during CONNECT".into()));
+               return Err(HttpError::ProxyClosed.into());
             }
             filled += n;
             if filled >= 4 && buf[..filled].windows(4).any(|w| w == b"\r\n\r\n") {
                break;
             }
             if filled >= buf.len() {
-               return Err(Error::Internal("proxy CONNECT response too large".into()));
+               return Err(HttpError::ProxyResponseTooLarge.into());
             }
          }
 
-         let response_line = str::from_utf8(&buf[..filled])
-            .map_err(|_| Error::Internal("proxy CONNECT: invalid UTF-8".into()))?;
+         let response_line =
+            str::from_utf8(&buf[..filled]).map_err(|_| HttpError::ProxyResponseNotUtf8)?;
          if !response_line.starts_with("HTTP/1.1 200") && !response_line.starts_with("HTTP/1.0 200")
          {
             let first_line = response_line.lines().next().unwrap_or("(empty)");
-            return Err(Error::Internal(format!(
-               "proxy CONNECT rejected: {first_line}"
-            )));
+            return Err(HttpError::ProxyRejected(first_line.to_owned()).into());
          }
 
          // TLS handshake over the tunnel
          let server_name = rustls::pki_types::ServerName::try_from(target_host.to_owned())
-            .map_err(|err| Error::Internal(format!("invalid server name: {err}")))?;
+            .map_err(HttpError::InvalidServerName)?;
 
          let tls_connector = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls));
          let tls_stream = tls_connector
             .connect(server_name, stream)
             .await
-            .map_err(|err| Error::Internal(format!("proxy TLS handshake: {err}")))?;
+            .map_err(HttpError::TlsHandshake)?;
 
          // HTTP/1.1 over the TLS tunnel
          let (mut sender, conn) = http1::handshake(TokioIo::new(tls_stream))
             .await
-            .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
+            .map_err(HttpError::Handshake)?;
 
          tokio::spawn(async move {
             if let Err(err) = conn.await {
@@ -386,12 +430,12 @@ impl HttpClient {
 
          let request = builder
             .body(Empty::<Bytes>::new())
-            .map_err(|err| Error::Internal(format!("build proxied request: {err}")))?;
+            .map_err(HttpError::BuildRequest)?;
 
          let resp = sender
             .send_request(request)
             .await
-            .map_err(|err| Error::Internal(format!("proxied request failed: {err}")))?;
+            .map_err(HttpError::ProxiedRequest)?;
 
          let (parts, body) = resp.into_parts();
          Ok(Response {
@@ -402,7 +446,7 @@ impl HttpClient {
       } else {
          let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
             .await
-            .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;
+            .map_err(HttpError::Handshake)?;
 
          tokio::spawn(async move {
             if let Err(err) = conn.await {
@@ -427,12 +471,12 @@ impl HttpClient {
 
          let request = builder
             .body(Empty::<Bytes>::new())
-            .map_err(|err| Error::Internal(format!("build proxied request: {err}")))?;
+            .map_err(HttpError::BuildRequest)?;
 
          let resp = sender
             .send_request(request)
             .await
-            .map_err(|err| Error::Internal(format!("proxied request failed: {err}")))?;
+            .map_err(HttpError::ProxiedRequest)?;
 
          let (parts, body) = resp.into_parts();
          Ok(Response {
@@ -507,14 +551,12 @@ impl Response {
       let mut body = TimedBody::new(self.body);
       let mut collected = Vec::new();
       while let Some(frame) = body.frame().await {
-         let frame = frame.map_err(|err| Error::Internal(format!("read body: {err}")))?;
+         let frame = frame.map_err(HttpError::ReadBody)?;
          let Ok(chunk) = frame.into_data() else {
             continue;
          };
          if collected.len().saturating_add(chunk.len()) > max_bytes {
-            return Err(Error::Internal(format!(
-               "response body exceeded {max_bytes} bytes"
-            )));
+            return Err(HttpError::BodyTooLarge(max_bytes).into());
          }
          collected.extend_from_slice(&chunk);
       }
@@ -525,11 +567,9 @@ impl Response {
          let mut limited = gz.take(max_bytes.saturating_add(1) as u64);
          limited
             .read_to_end(&mut decoded)
-            .map_err(|err| Error::Internal(format!("gzip decode: {err}")))?;
+            .map_err(HttpError::GzipDecode)?;
          if decoded.len() > max_bytes {
-            return Err(Error::Internal(format!(
-               "decoded response body exceeded {max_bytes} bytes"
-            )));
+            return Err(HttpError::BodyTooLarge(max_bytes).into());
          }
          Ok(Bytes::from(decoded))
       } else {
@@ -540,8 +580,7 @@ impl Response {
    /// Collect the response body as a UTF-8 string.
    pub async fn text(self) -> Result<String> {
       let data = self.bytes().await?;
-      String::from_utf8(data.to_vec())
-         .map_err(|err| Error::Internal(format!("invalid UTF-8: {err}")))
+      Ok(String::from_utf8(data.to_vec()).map_err(HttpError::InvalidUtf8)?)
    }
 
    /// Deserialize the response body as JSON.

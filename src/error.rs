@@ -22,6 +22,7 @@ use thiserror::Error;
 use toml::de::Error as TomlError;
 
 use crate::{
+   api::http::HttpError,
    utils::entity_expander::html_escape,
    views::layout::{
       FONTELLO_CSS,
@@ -104,8 +105,8 @@ pub enum Error {
    #[error("IO error: {0}")]
    Io(#[from] io::Error),
 
-   #[error("HTTP request error: {0}")]
-   Http(String),
+   #[error("HTTP: {0}")]
+   Http(#[from] HttpError),
 
    #[error("JSON parsing error: {0}")]
    Json(#[from] serde_json::Error),
