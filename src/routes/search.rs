@@ -305,10 +305,9 @@ async fn search(
       // Build the actual search query for Twitter API
       let api_query = query.build();
 
-      // Map query kind to Twitter API product.
-      // Media uses "Latest" + filter:media in query, same as the default.
       let product = match query.kind {
          QueryKind::Top => "Top",
+         QueryKind::Media => "Media",
          _ => "Latest",
       };
       let active_tab = match query.kind {

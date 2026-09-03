@@ -35,6 +35,7 @@ pub enum MediaType {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 pub enum InstructionType {
    TimelineAddEntries,
+   TimelineAddToModule,
    TimelinePinEntry,
    TimelineReplaceEntry,
    TimelineClearCache,

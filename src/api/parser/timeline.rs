@@ -144,6 +144,16 @@ pub fn parse_search_timeline(data: &SearchTimelineData) -> Timeline {
    let mut bottom_cursor = None;
 
    for instruction in raw_instructions {
+      // The Media product delivers its grid as module items rather than
+      // entries.
+      for item in instruction.module_items.as_deref().unwrap_or_default() {
+         if let Some(tweet_result) = item.tweet_result()
+            && let Ok(tweet) = parse_tweet_object(tweet_result)
+         {
+            tweets.push(vec![tweet]);
+         }
+      }
+
       match instruction.instruction_type.unwrap_or_default() {
          InstructionType::TimelineAddEntries => {
             for entry in instruction.entries.as_deref().unwrap_or_default() {
@@ -152,11 +162,10 @@ pub fn parse_search_timeline(data: &SearchTimelineData) -> Timeline {
                if entry_id.contains("promoted") {
                   continue;
                }
-               if entry_id.starts_with("tweet-") {
-                  if let Some(tweet_result) = entry.tweet_result()
-                     && let Ok(tweet) = parse_tweet_object(tweet_result)
-                  {
-                     tweets.push(vec![tweet]);
+               if entry_id.starts_with("tweet-") || entry_id.starts_with("search-grid-") {
+                  let entry_tweets = parse_timeline_entry(entry);
+                  if !entry_tweets.is_empty() {
+                     tweets.push(entry_tweets);
                   }
                } else if entry_id.starts_with("cursor-bottom-") {
                   bottom_cursor = entry.cursor_value().map(str::to_owned);
