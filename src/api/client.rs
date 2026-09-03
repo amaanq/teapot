@@ -342,20 +342,17 @@ impl ApiClient {
                Err(Error::UserNotFound(error.message.clone()))
             },
             TwitterError::ProtectedUser => Err(Error::ProtectedUser(error.message.clone())),
-            TwitterError::UserSuspended | TwitterError::Locked => {
-               Err(Error::UserSuspended(error.message.clone()))
-            },
+            TwitterError::UserSuspended => Err(Error::UserSuspended(error.message.clone())),
             TwitterError::RateLimited => Err(Error::RateLimited),
             TwitterError::TweetNotFound
             | TwitterError::TweetUnavailable
             | TwitterError::NoStatusFound
             | TwitterError::TweetUnavailable421
             | TwitterError::TweetCensored => Err(Error::TweetNotFound(error.message.clone())),
-            TwitterError::InvalidToken | TwitterError::BadToken => {
-               Err(Error::TwitterApi(format!(
-                  "Invalid token: {}",
-                  error.message
-               )))
+            // 326 locks *our* cookie session, not the profile the reader
+            // opened, so it rotates the session like a dead token does.
+            TwitterError::Locked | TwitterError::InvalidToken | TwitterError::BadToken => {
+               Err(Error::SessionRejected(error.message.clone()))
             },
          };
       }
@@ -555,9 +552,7 @@ impl ApiClient {
       // Mark the session as limited on token errors so the retry picks
       // a different one.
       let api_check = Self::check_api_errors(&bytes);
-      if let Err(Error::TwitterApi(ref msg)) = api_check
-         && msg.starts_with("Invalid token")
-      {
+      if let Err(Error::SessionRejected(ref msg)) = api_check {
          self.sessions.mark_rejected(session.id).await;
          return Err(Error::SessionRejected(msg.clone()));
       }
@@ -646,8 +641,13 @@ impl ApiClient {
          }
 
          // Only 401 means the credentials themselves were refused. A 403 is an
-         // authenticated request denied a particular resource.
-         if status.as_u16() == 401 {
+         // authenticated request denied a particular resource, unless it
+         // carries code 326, which is the session itself being locked.
+         if status.as_u16() == 401
+            || (status.as_u16() == 403
+               && Self::check_api_errors(body.as_bytes())
+                  .is_err_and(|err| matches!(err, Error::SessionRejected(_))))
+         {
             self.sessions.mark_rejected(session.id).await;
             return Err(Error::SessionRejected(format!("Status {status}: {body}")));
          }
