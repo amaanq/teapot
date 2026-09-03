@@ -1,8 +1,5 @@
 use std::{
-   collections::{
-      BTreeMap,
-      HashMap,
-   },
+   collections::BTreeMap,
    env,
    fmt::Write as _,
    ops::Deref,
@@ -70,7 +67,7 @@ pub struct SessionStats {
 #[derive(Serialize)]
 pub struct RequestStats {
    pub total:  i32,
-   pub by_api: HashMap<String, i32>,
+   pub by_api: BTreeMap<String, i32>,
 }
 
 #[derive(Serialize)]
@@ -89,14 +86,14 @@ pub struct SessionDetail {
    pub rejected:   bool,
    pub limited_at: i64,
    pub pending:    i32,
-   pub apis:       HashMap<String, RateLimit>,
+   pub apis:       BTreeMap<String, RateLimit>,
 }
 
 /// Pool of authentication sessions for Twitter API.
 #[derive(Clone)]
 pub struct SessionPool {
    sessions:     Vec<Arc<SessionSlot>>,
-   limits:       Arc<RwLock<HashMap<i64, SessionLimits>>>,
+   limits:       Arc<RwLock<BTreeMap<i64, SessionLimits>>>,
    cursor:       Arc<AtomicUsize>,
    state:        Option<Arc<LimitState>>,
    edge_backoff: Arc<AtomicI64>,
@@ -166,7 +163,7 @@ impl SessionPool {
 
       let max_concurrency = usize::try_from(max_concurrent_requests.max(1)).unwrap_or(usize::MAX);
       let mut sessions = Vec::with_capacity(parsed.len());
-      let mut limits = HashMap::with_capacity(parsed.len());
+      let mut limits = BTreeMap::new();
 
       for session in parsed {
          let (creds, lims) = session.into_credentials_and_limits();
@@ -207,7 +204,7 @@ impl SessionPool {
       Ok(pool)
    }
 
-   async fn restore(path: &str, limits: &mut HashMap<i64, SessionLimits>) {
+   async fn restore(path: &str, limits: &mut BTreeMap<i64, SessionLimits>) {
       let Ok(content) = fs::read_to_string(path).await else {
          return;
       };
@@ -245,7 +242,7 @@ impl SessionPool {
       });
    }
 
-   async fn store(state: &LimitState, limits: &RwLock<HashMap<i64, SessionLimits>>) -> Result<()> {
+   async fn store(state: &LimitState, limits: &RwLock<BTreeMap<i64, SessionLimits>>) -> Result<()> {
       let _writing = state.writing.lock().await;
       let snapshot = serde_json::to_string(&*limits.read().await)?;
       let temporary = format!("{}.tmp", state.path);
@@ -522,17 +519,13 @@ impl SessionPool {
    }
 
    /// Get health statistics about the session pool.
-   #[expect(
-      clippy::iter_over_hash_type,
-      reason = "iteration order irrelevant for aggregation"
-   )]
    pub async fn get_health(&self) -> HealthResponse {
       let limits = self.limits.read().await;
 
       let mut limited_count = 0;
       let mut rejected_count = 0;
       let mut total_requests = 0;
-      let mut by_api = HashMap::<String, i32>::new();
+      let mut by_api = BTreeMap::<String, i32>::new();
 
       for lim in limits.values() {
          // Counted once by effective state, since a session can carry both

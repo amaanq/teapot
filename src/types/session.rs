@@ -2,7 +2,7 @@
    clippy::module_name_repetitions,
    reason = "the module is the namespace and the prefix names the domain"
 )]
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use serde::{
    Deserialize,
@@ -47,7 +47,7 @@ pub struct SessionLimits {
    /// fixes, so this is kept apart from the rate-limit state that expires.
    #[serde(skip)]
    pub rejected:   bool,
-   pub apis:       HashMap<String, RateLimit>,
+   pub apis:       BTreeMap<String, RateLimit>,
 }
 
 /// How long a globally-limited session stays limited before auto-recovery (15
@@ -106,7 +106,7 @@ pub struct Session {
    pub pending:    i32,
    pub limited:    bool,
    pub limited_at: i64,
-   pub apis:       HashMap<String, RateLimit>,
+   pub apis:       BTreeMap<String, RateLimit>,
    pub kind:       SessionKind,
 
    pub oauth_token:  String,
