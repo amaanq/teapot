@@ -24,7 +24,14 @@ use crate::{
       Error,
       Result,
    },
-   types::tweet::Tweet,
+   types::{
+      query::SearchProduct,
+      timeline::{
+         RankingMode,
+         TimelineKind,
+      },
+      tweet::Tweet,
+   },
    views::rss as rss_view,
 };
 
@@ -53,24 +60,17 @@ fn check_rss_enabled(state: &AppState) -> Result<()> {
    Ok(())
 }
 
-/// Which user timeline variant to fetch for RSS.
-enum UserRssKind {
-   Tweets,
-   Replies,
-   Media,
-}
-
 /// Unified user RSS handler -- handles tweets, replies, and media variants.
 async fn user_rss_handler(
    state: &AppState,
    username: &str,
    cursor: Option<&str>,
-   kind: UserRssKind,
+   kind: TimelineKind,
 ) -> Result<Response> {
-   let (feed_kind, cache_key_fn) = match kind {
-      UserRssKind::Tweets => ("tweets", cache_keys::rss_user as fn(&str) -> String),
-      UserRssKind::Replies => ("replies", cache_keys::rss_replies as fn(&str) -> String),
-      UserRssKind::Media => ("media", cache_keys::rss_media as fn(&str) -> String),
+   let cache_key_fn = match kind {
+      TimelineKind::Replies => cache_keys::rss_replies as fn(&str) -> String,
+      TimelineKind::Media => cache_keys::rss_media as fn(&str) -> String,
+      _ => cache_keys::rss_user as fn(&str) -> String,
    };
 
    // Check RSS cache (first page only)
@@ -87,17 +87,17 @@ async fn user_rss_handler(
    let user = get_cached_user(state, username).await?;
 
    let timeline = match kind {
-      UserRssKind::Tweets => state.api.get_user_tweets(&user.id, cursor).await?,
-      UserRssKind::Replies => {
+      TimelineKind::Replies => {
          state
             .api
             .get_user_tweets_and_replies(&user.id, cursor)
             .await?
       },
-      UserRssKind::Media => state.api.get_user_media(&user.id, cursor).await?,
+      TimelineKind::Media => state.api.get_user_media(&user.id, cursor).await?,
+      _ => state.api.get_user_tweets(&user.id, cursor).await?,
    };
    let tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
-   let rss = rss_view::render_user_rss(&user, &tweets, &state.config, feed_kind);
+   let rss = rss_view::render_user_rss(&user, &tweets, &state.config, kind);
 
    if let Some(ref key) = rss_cache_key {
       cache_rss(state, key, &rss, tweets.iter().map(|tweet| tweet.id).min());
@@ -116,7 +116,7 @@ async fn user_rss(
       &state,
       &username,
       query.cursor.as_deref(),
-      UserRssKind::Tweets,
+      TimelineKind::Tweets,
    )
    .await
 }
@@ -131,7 +131,7 @@ async fn user_replies_rss(
       &state,
       &username,
       query.cursor.as_deref(),
-      UserRssKind::Replies,
+      TimelineKind::Replies,
    )
    .await
 }
@@ -146,7 +146,7 @@ async fn user_media_rss(
       &state,
       &username,
       query.cursor.as_deref(),
-      UserRssKind::Media,
+      TimelineKind::Media,
    )
    .await
 }
@@ -166,7 +166,10 @@ async fn search_rss(
       return Ok(cached);
    }
 
-   let timeline = state.api.search(search_query, None, "Latest").await?;
+   let timeline = state
+      .api
+      .search(search_query, None, SearchProduct::Latest)
+      .await?;
    let tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
    let rss = rss_view::render_search_rss(search_query, &tweets, &state.config);
 
@@ -203,7 +206,10 @@ async fn user_search_rss(
       return Ok(cached);
    }
 
-   let timeline = state.api.search(&api_query, None, "Latest").await?;
+   let timeline = state
+      .api
+      .search(&api_query, None, SearchProduct::Latest)
+      .await?;
    let tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
    let rss = rss_view::render_search_rss(
       &format!("from:{username} {search_query}"),
@@ -232,7 +238,10 @@ async fn thread_rss(
       return Ok(cached);
    }
 
-   let conversation = state.api.get_conversation(&id, None, "Relevance").await?;
+   let conversation = state
+      .api
+      .get_conversation(&id, None, RankingMode::Relevance)
+      .await?;
 
    // Collect thread tweet references: before → main → after
    let mut tweets = Vec::<&Tweet>::new();

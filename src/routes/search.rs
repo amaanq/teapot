@@ -250,7 +250,7 @@ async fn search(
          Some(&prefs),
          Some(&filters),
          None,
-         "tweets",
+         QueryKind::Posts,
       );
       let markup = layout::PageLayout::new(&state.config, "Search", content)
          .prefs(&prefs)
@@ -343,16 +343,7 @@ async fn search(
       // Build the actual search query for Twitter API
       let api_query = query.build();
 
-      let product = match query.kind {
-         QueryKind::Top => "Top",
-         QueryKind::Media => "Media",
-         _ => "Latest",
-      };
-      let active_tab = match query.kind {
-         QueryKind::Top => "top",
-         QueryKind::Media => "media",
-         _ => "tweets",
-      };
+      let product = query.kind.product();
 
       let search_result = if params.cursor.is_none() {
          let cache_key = cache_keys::search_timeline(&api_query, product);
@@ -414,7 +405,7 @@ async fn search(
                Some(&prefs),
                Some(&filters),
                newer_url.as_deref(),
-               active_tab,
+               query.kind,
             );
             let title = format!("Search ({raw_q})");
             let canonical = format!(

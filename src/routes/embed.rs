@@ -32,7 +32,10 @@ use crate::{
       Error,
       Result,
    },
-   types::timeline::Conversation,
+   types::timeline::{
+      Conversation,
+      RankingMode,
+   },
    utils::formatters::format_relative_time,
    views::{
       embed as embed_view,
@@ -205,7 +208,10 @@ async fn cached_conversation(state: &AppState, id: &str) -> Result<Conversation>
       return Ok(cached);
    }
 
-   let mut conversation = state.api.get_conversation(id, None, "Relevance").await?;
+   let mut conversation = state
+      .api
+      .get_conversation(id, None, RankingMode::Relevance)
+      .await?;
    state
       .api
       .resolve_unavailable_quote(&mut conversation.tweet)

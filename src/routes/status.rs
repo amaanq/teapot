@@ -47,7 +47,11 @@ use crate::{
    },
    types::{
       prefs::Prefs,
-      timeline::Conversation,
+      query::SearchProduct,
+      timeline::{
+         Conversation,
+         RankingMode,
+      },
    },
    views::{
       embed,
@@ -66,15 +70,6 @@ pub struct StatusQuery {
    pub cursor: Option<String>,
    pub scroll: Option<String>,
    pub sort:   Option<String>,
-}
-
-/// Map the `?sort=` query parameter to a Twitter API `rankingMode` value.
-fn ranking_mode(sort: Option<&str>) -> &str {
-   match sort {
-      Some("recency") => "Recency",
-      Some("likes") => "Likes",
-      _ => "Relevance",
-   }
 }
 
 pub fn router() -> Router<AppState> {
@@ -149,8 +144,8 @@ async fn status(
       .and_then(|value| value.to_str().ok())
       .is_some_and(|user_agent| user_agent.contains("Discordbot"));
 
-   let sort = ranking_mode(query.sort.as_deref());
-   let is_sorted = sort != "Relevance";
+   let sort = RankingMode::from_sort(query.sort.as_deref());
+   let is_sorted = sort != RankingMode::Relevance;
 
    // Fetch conversation (with cache for first page, default sort only)
    let conv_result = if query.cursor.is_none() && !is_sorted {
@@ -240,7 +235,7 @@ async fn status(
                &id,
                &prefs,
                &state.config,
-               query.sort.as_deref(),
+               sort,
                discord_activity,
             ));
          }
@@ -272,7 +267,7 @@ async fn status(
             &id,
             &prefs,
             &state.config,
-            query.sort.as_deref(),
+            sort,
             discord_activity,
          ))
       },
@@ -296,7 +291,7 @@ fn render_conversation(
    id: &str,
    prefs: &Prefs,
    config: &Config,
-   sort: Option<&str>,
+   sort: RankingMode,
    discord_activity: bool,
 ) -> Response {
    let tweet = &conversation.tweet;
@@ -316,25 +311,19 @@ fn render_conversation(
    let has_replies = !prefs.hide_replies && !conversation.replies.content.is_empty();
    let sort_toggle = (has_replies && !has_cursor).then(|| {
       let base = format!("/{username}/status/{id}");
-      let sort_label = match sort {
-         Some("recency") => "Recent",
-         Some("likes") => "Likes",
-         _ => "Relevant",
-      };
       html! {
           div class="reply-sort" {
               button class="reply-sort-btn" type="button" {
-                  (sort_label) " \u{25BE}"
+                  (sort.label()) " \u{25BE}"
               }
               div class="reply-sort-menu" {
-                  @for (label, value) in [("Relevant", None), ("Recent", Some("recency")), ("Likes", Some("likes"))] {
-                      @let active = sort == value;
-                      @if active {
-                          span class="reply-sort-active" { (label) }
-                      } @else if let Some(val) = value {
-                          a href=(format!("{base}?sort={val}")) { (label) }
+                  @for mode in [RankingMode::Relevance, RankingMode::Recency, RankingMode::Likes] {
+                      @if mode == sort {
+                          span class="reply-sort-active" { (mode.label()) }
+                      } @else if let Some(val) = mode.sort_param() {
+                          a href=(format!("{base}?sort={val}")) { (mode.label()) }
                       } @else {
-                          a href=(base) { (label) }
+                          a href=(base) { (mode.label()) }
                       }
                   }
               }
@@ -480,12 +469,12 @@ async fn status_by_id(
       .get(header::USER_AGENT)
       .and_then(|value| value.to_str().ok())
       .is_some_and(|user_agent| user_agent.contains("Discordbot"));
-   let sort = ranking_mode(query.sort.as_deref());
+   let sort = RankingMode::from_sort(query.sort.as_deref());
 
    // Fetch the conversation directly and render the tweet page inline instead of
    // redirecting, matching X.com behaviour.
    let cache_key = cache_keys::conversation(&id);
-   let conv_result = if query.cursor.is_none() && sort == "Relevance" {
+   let conv_result = if query.cursor.is_none() && sort == RankingMode::Relevance {
       if let Some(cached) = state.cache.get(&cache_key) {
          Ok(cached)
       } else {
@@ -532,7 +521,7 @@ async fn status_by_id(
             &id,
             &prefs,
             &state.config,
-            query.sort.as_deref(),
+            sort,
             discord_activity,
          ))
       },
@@ -706,7 +695,11 @@ async fn quotes(
 
    let timeline = state
       .api
-      .search(&search_query, query.cursor.as_deref(), "Latest")
+      .search(
+         &search_query,
+         query.cursor.as_deref(),
+         SearchProduct::Latest,
+      )
       .await?;
 
    let mut groups = timeline.content;

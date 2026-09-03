@@ -8,6 +8,7 @@ use crate::{
    types::{
       timeline::{
          List,
+         TimelineKind,
          Tweets,
       },
       tweet::Tweet,
@@ -60,7 +61,12 @@ fn rss_channel(
    clippy::module_name_repetitions,
    reason = "public API name is clear and conventional"
 )]
-pub fn render_user_rss(user: &User, tweets: &Tweets, config: &Config, feed_kind: &str) -> String {
+pub fn render_user_rss(
+   user: &User,
+   tweets: &Tweets,
+   config: &Config,
+   feed_kind: TimelineKind,
+) -> String {
    render_user_rss_with_pinned(user, tweets, config, feed_kind, None)
 }
 
@@ -69,13 +75,13 @@ pub fn render_user_rss_with_pinned(
    user: &User,
    tweets: &Tweets,
    config: &Config,
-   feed_kind: &str,
+   feed_kind: TimelineKind,
    pinned: Option<&Tweet>,
 ) -> String {
    let url_prefix = config.url_prefix();
    let feed_path = match feed_kind {
-      "replies" => format!("/{}/with_replies/rss", user.username),
-      "media" => format!("/{}/media/rss", user.username),
+      TimelineKind::Replies => format!("/{}/with_replies/rss", user.username),
+      TimelineKind::Media => format!("/{}/media/rss", user.username),
       _ => format!("/{}/rss", user.username),
    };
 

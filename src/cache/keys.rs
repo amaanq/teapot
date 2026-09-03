@@ -1,3 +1,8 @@
+use crate::types::{
+   query::SearchProduct,
+   timeline::TimelineKind,
+};
+
 pub fn user(username: &str) -> String {
    format!("u:{}", username.to_lowercase())
 }
@@ -10,8 +15,8 @@ pub fn account_context(username: &str) -> String {
    format!("ac:{}", username.to_lowercase())
 }
 
-pub fn timeline(username: &str, kind: &str) -> String {
-   format!("tl:{}:{kind}", username.to_lowercase())
+pub fn timeline(username: &str, kind: TimelineKind) -> String {
+   format!("tl:{}:{}", username.to_lowercase(), kind.as_str())
 }
 
 pub fn list(id: &str) -> String {
@@ -79,8 +84,8 @@ pub fn rss_thread(tweet_id: &str) -> String {
    rss(&format!("thread:{tweet_id}"))
 }
 
-pub fn search_timeline(query: &str, product: &str) -> String {
-   format!("search:{}:{product}", query.to_lowercase())
+pub fn search_timeline(query: &str, product: SearchProduct) -> String {
+   format!("search:{}:{}", query.to_lowercase(), product.as_str())
 }
 
 pub fn search_users(query: &str) -> String {

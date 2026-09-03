@@ -51,6 +51,7 @@ use crate::{
    },
    types::{
       article::Article,
+      query::SearchProduct,
       session::SessionKind,
       timeline::{
          Conversation,
@@ -58,6 +59,7 @@ use crate::{
          List,
          PaginatedResult,
          Profile,
+         RankingMode,
          Timeline,
       },
       tweet::{
@@ -249,7 +251,9 @@ impl ApiClient {
    /// Uses the `TweetDetail` endpoint (same as conversation) because
    /// `TweetResultByIdQuery` returns 404 for many tweets.
    pub async fn get_tweet(&self, tweet_id: &str) -> Result<Tweet> {
-      let convo = self.get_conversation(tweet_id, None, "Relevance").await?;
+      let convo = self
+         .get_conversation(tweet_id, None, RankingMode::Relevance)
+         .await?;
       Ok(convo.tweet)
    }
 
@@ -362,7 +366,7 @@ impl ApiClient {
       &self,
       tweet_id: &str,
       cursor: Option<&str>,
-      ranking_mode: &str,
+      ranking_mode: RankingMode,
    ) -> Result<Conversation> {
       snowflake(tweet_id)?;
       let data = self
@@ -499,7 +503,7 @@ impl ApiClient {
       &self,
       query: &str,
       cursor: Option<&str>,
-      product: &str,
+      product: SearchProduct,
    ) -> Result<Timeline> {
       let data = self
          .graphql_request::<SearchTimelineData>(
@@ -533,7 +537,7 @@ impl ApiClient {
       let data = self
          .graphql_request::<SearchTimelineData>(
             endpoints::GRAPH_SEARCH_TIMELINE,
-            &endpoints::search_vars(query, cursor, "People"),
+            &endpoints::search_vars(query, cursor, SearchProduct::People),
             endpoints::GQL_FEATURES,
             None,
          )
@@ -677,7 +681,7 @@ impl ApiClient {
       let data = self
          .graphql_request::<ConversationData>(
             endpoints::GRAPH_TWEET_DETAIL,
-            &endpoints::tweet_detail_vars(tweet_id, None, "Relevance"),
+            &endpoints::tweet_detail_vars(tweet_id, None, RankingMode::Relevance),
             endpoints::GQL_FEATURES,
             Some(endpoints::TWEET_DETAIL_FIELD_TOGGLES),
          )

@@ -38,6 +38,7 @@ use crate::{
    },
    types::{
       prefs::Prefs,
+      query::SearchProduct,
       timeline::{
          Profile,
          Timeline,
@@ -240,7 +241,7 @@ async fn user_timeline(
          let content = profile::render_profile_with_prefs(
             &profile_data,
             &state.config,
-            tab,
+            timeline::tab_to_kind(tab),
             Some(&prefs),
             newer.as_deref(),
          );
@@ -271,15 +272,15 @@ async fn user_tab_handler(
 ) -> Result<Response> {
    let user = get_cached_user(state, username).await?;
 
-   let (cache_kind, tab_str, title_prefix) = match tab {
-      TimelineKind::Replies => ("replies", "with_replies", "Tweets & replies from"),
-      TimelineKind::Media => ("media", "media", "Media from"),
+   let (tab_str, title_prefix) = match tab {
+      TimelineKind::Replies => ("with_replies", "Tweets & replies from"),
+      TimelineKind::Media => ("media", "Media from"),
       _ => unreachable!(),
    };
 
    // Fetch timeline (with cache for first page)
    let fetch_timeline = async {
-      let cache_key = cache_keys::timeline(username, cache_kind);
+      let cache_key = cache_keys::timeline(username, tab);
       if cursor.is_none() {
          if let Some(cached) = state.cache.get::<Timeline>(&cache_key) {
             return Ok(cached);
@@ -421,7 +422,7 @@ async fn user_search(
       fetch_photo_rail(&state, &user.id),
       state
          .api
-         .search(&api_query, query.cursor.as_deref(), "Latest"),
+         .search(&api_query, query.cursor.as_deref(), SearchProduct::Latest),
    );
 
    match search_result {

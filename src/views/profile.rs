@@ -7,7 +7,6 @@ use maud::{
 use super::timeline::{
    render_timeline_tabs,
    render_timeline_with_pinned_and_prefs,
-   tab_to_kind,
 };
 use crate::{
    config::Config,
@@ -37,17 +36,16 @@ use crate::{
 pub fn render_profile_with_prefs(
    profile: &Profile,
    config: &Config,
-   tab: &str,
+   timeline_kind: TimelineKind,
    prefs: Option<&Prefs>,
    newer_url: Option<&str>,
 ) -> Markup {
    let groups = &profile.tweets.content;
    let cursor = profile.tweets.bottom.as_deref();
    let base_url = format!("/{}", profile.user.username);
-   let timeline_kind = tab_to_kind(tab);
 
    // Only show pinned tweet on the main Tweets tab
-   let pinned = if tab.is_empty() || tab == "tweets" {
+   let pinned = if timeline_kind == TimelineKind::Tweets {
       profile.pinned.as_ref()
    } else {
       None

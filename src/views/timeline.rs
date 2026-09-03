@@ -250,16 +250,22 @@ pub fn tab_to_kind(tab: &str) -> TimelineKind {
    }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListTab {
+   Tweets,
+   Members,
+}
+
 /// Render list header (banner + name + tabs).
 /// Moved here from routes/list.rs since it's presentation logic.
-pub fn render_list_header(list: &List, active_tab: &str, config: &Config) -> Markup {
+pub fn render_list_header(list: &List, active_tab: ListTab, config: &Config) -> Markup {
    let path = format!("/i/lists/{}", list.id);
-   let tweets_class = if active_tab == "tweets" {
+   let tweets_class = if active_tab == ListTab::Tweets {
       "tab-item active"
    } else {
       "tab-item"
    };
-   let members_class = if active_tab == "members" {
+   let members_class = if active_tab == ListTab::Members {
       "tab-item active"
    } else {
       "tab-item"

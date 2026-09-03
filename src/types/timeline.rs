@@ -22,6 +22,60 @@ pub enum TimelineKind {
    Search,
 }
 
+impl TimelineKind {
+   pub const fn as_str(self) -> &'static str {
+      match self {
+         Self::Tweets => "tweets",
+         Self::Replies => "replies",
+         Self::Media => "media",
+         Self::Search => "search",
+      }
+   }
+}
+
+/// How X orders the replies under a post.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RankingMode {
+   #[default]
+   Relevance,
+   Recency,
+   Likes,
+}
+
+impl RankingMode {
+   pub fn from_sort(sort: Option<&str>) -> Self {
+      match sort {
+         Some("recency") => Self::Recency,
+         Some("likes") => Self::Likes,
+         _ => Self::Relevance,
+      }
+   }
+
+   pub const fn as_str(self) -> &'static str {
+      match self {
+         Self::Relevance => "Relevance",
+         Self::Recency => "Recency",
+         Self::Likes => "Likes",
+      }
+   }
+
+   pub const fn sort_param(self) -> Option<&'static str> {
+      match self {
+         Self::Relevance => None,
+         Self::Recency => Some("recency"),
+         Self::Likes => Some("likes"),
+      }
+   }
+
+   pub const fn label(self) -> &'static str {
+      match self {
+         Self::Relevance => "Relevant",
+         Self::Recency => "Recent",
+         Self::Likes => "Likes",
+      }
+   }
+}
+
 /// Generic paginated result.
 #[derive(Debug, Clone, Default)]
 pub struct PaginatedResult<T> {

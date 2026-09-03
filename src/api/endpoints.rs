@@ -1,6 +1,11 @@
 /// Twitter/X API constants and endpoints.
 use serde::Serialize;
 
+use crate::types::{
+   query::SearchProduct,
+   timeline::RankingMode,
+};
+
 pub const CONSUMER_KEY: &str = "3nVuSoBZnx6U4vzUxf5w";
 pub const CONSUMER_SECRET: &str = "Bcs59EFbbsdF6Sl9Ng71smgStWEGwXXKSjYvPVt7qys";
 /// Bearer token that requires x-client-transaction-id (used for cookie sessions
@@ -86,13 +91,17 @@ struct TweetDetailVars<'a> {
    with_voice:                                  bool,
 }
 
-pub fn tweet_detail_vars(focal_tweet_id: &str, cursor: Option<&str>, ranking_mode: &str) -> String {
+pub fn tweet_detail_vars(
+   focal_tweet_id: &str,
+   cursor: Option<&str>,
+   ranking_mode: RankingMode,
+) -> String {
    vars(&TweetDetailVars {
       focal_tweet_id,
       cursor,
       referrer: "profile",
       with_rux_injections: false,
-      ranking_mode,
+      ranking_mode: ranking_mode.as_str(),
       include_promoted_content: false,
       with_community: true,
       with_quick_promote_eligibility_tweet_fields: true,
@@ -335,13 +344,13 @@ struct SearchVars<'a> {
    with_reactions_perspective: bool,
 }
 
-pub fn search_vars(raw_query: &str, cursor: Option<&str>, product: &str) -> String {
+pub fn search_vars(raw_query: &str, cursor: Option<&str>, product: SearchProduct) -> String {
    vars(&SearchVars {
       raw_query,
       cursor,
       count: PAGE,
       query_source: "typedQuery",
-      product,
+      product: product.as_str(),
       with_downvote_perspective: false,
       with_reactions_metadata: false,
       with_reactions_perspective: false,

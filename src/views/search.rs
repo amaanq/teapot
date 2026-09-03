@@ -8,6 +8,7 @@ use crate::{
    config::Config,
    types::{
       prefs::Prefs,
+      query::QueryKind,
       timeline::Tweets,
       user::User,
    },
@@ -53,7 +54,7 @@ pub fn render_search_results_with_prefs(
    prefs: Option<&Prefs>,
    filters: Option<&SearchFilters>,
    newer_url: Option<&str>,
-   active_tab: &str,
+   active_tab: QueryKind,
 ) -> Markup {
    html! {
        div class="timeline-container search-results" {
@@ -116,7 +117,7 @@ pub fn render_user_search_results(
                }
            }
 
-           (render_search_tabs(query, "users"))
+           (render_search_tabs(query, QueryKind::Users))
 
            div class="timeline" {
                // "Load newest" link when viewing paginated results
@@ -151,26 +152,34 @@ pub fn render_user_search_results(
 }
 
 /// Render search tabs (Top / Latest / Media / Users).
-fn render_search_tabs(query: &str, active: &str) -> Markup {
+fn render_search_tabs(query: &str, active: QueryKind) -> Markup {
    let encoded_query = formatters::url_encode(query);
    let tabs = &[
-      ("top", "Top", &format!("/search?q={encoded_query}&f=top")),
-      ("tweets", "Latest", &format!("/search?q={encoded_query}")),
       (
-         "media",
+         QueryKind::Top,
+         "Top",
+         &format!("/search?q={encoded_query}&f=top"),
+      ),
+      (
+         QueryKind::Posts,
+         "Latest",
+         &format!("/search?q={encoded_query}"),
+      ),
+      (
+         QueryKind::Media,
          "Media",
          &format!("/search?q={encoded_query}&f=media"),
       ),
       (
-         "users",
+         QueryKind::Users,
          "Users",
          &format!("/search?q={encoded_query}&f=users"),
       ),
    ];
    html! {
        ul class="tab" {
-           @for &(id, label, href) in tabs {
-               li class=(if active == id { "tab-item active" } else { "tab-item" }) {
+           @for &(kind, label, href) in tabs {
+               li class=(if active.tab() == kind { "tab-item active" } else { "tab-item" }) {
                    a href=(href) { (label) }
                }
            }

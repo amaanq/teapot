@@ -44,6 +44,45 @@ pub enum QueryKind {
    Top,
 }
 
+/// The `product` X's search endpoint takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchProduct {
+   Top,
+   Latest,
+   Media,
+   People,
+}
+
+impl SearchProduct {
+   pub const fn as_str(self) -> &'static str {
+      match self {
+         Self::Top => "Top",
+         Self::Latest => "Latest",
+         Self::Media => "Media",
+         Self::People => "People",
+      }
+   }
+}
+
+impl QueryKind {
+   pub const fn product(self) -> SearchProduct {
+      match self {
+         Self::Top => SearchProduct::Top,
+         Self::Media => SearchProduct::Media,
+         Self::Users => SearchProduct::People,
+         _ => SearchProduct::Latest,
+      }
+   }
+
+   /// The search tab a kind renders under.
+   pub const fn tab(self) -> Self {
+      match self {
+         Self::Top | Self::Media | Self::Users => self,
+         _ => Self::Posts,
+      }
+   }
+}
+
 /// Search query with filters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Query {
