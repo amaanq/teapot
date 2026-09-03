@@ -165,13 +165,27 @@ async fn user_timeline(
    // Check cache first (only for initial page load without cursor)
    let cache_key = cache_keys::profile(&username);
    let profile_result = if query.cursor.is_none() {
-      if let Some(cached) = state.cache.get::<Profile>(&cache_key) {
+      let refresh = {
+         let username = username.clone();
+         let cache_key = cache_key.clone();
+         move |app: AppState| {
+            async move {
+               if let Ok(profile) = app.api.get_profile(&username, None).await {
+                  app.cache
+                     .set_swr(&cache_key, &profile, ttl::DEFAULT, ttl::DEFAULT_STALE);
+               }
+            }
+         }
+      };
+      if let Some(cached) = helpers::swr_take::<Profile, _, _>(&state, &cache_key, refresh) {
          tracing::debug!("Cache hit for profile: {username}");
          Ok(cached)
       } else {
          let result = state.api.get_profile(&username, None).await;
          if let Ok(ref profile_data) = result {
-            state.cache.set(&cache_key, profile_data, ttl::DEFAULT);
+            state
+               .cache
+               .set_swr(&cache_key, profile_data, ttl::DEFAULT, ttl::DEFAULT_STALE);
          }
          result
       }

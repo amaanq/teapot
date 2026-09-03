@@ -23,11 +23,18 @@ use serde::Deserialize;
 use super::helpers;
 use crate::{
    AppState,
+   cache::{
+      keys as cache_keys,
+      ttl,
+   },
    error::Result,
    types::{
+      PaginatedResult,
       Prefs,
       Query,
       QueryKind,
+      Timeline,
+      User,
    },
    views::{
       layout,
@@ -249,11 +256,39 @@ async fn search(
    }
 
    if is_user_search {
-      // User search
-      let search_result = state
-         .api
-         .search_users(&raw_q, params.cursor.as_deref())
-         .await;
+      let search_result = if params.cursor.is_none() {
+         let cache_key = cache_keys::search_users(&raw_q);
+         let refresh = {
+            let raw_q = raw_q.clone();
+            let cache_key = cache_key.clone();
+            move |app: AppState| {
+               async move {
+                  if let Ok(data) = app.api.search_users(&raw_q, None).await {
+                     app.cache
+                        .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
+                  }
+               }
+            }
+         };
+         if let Some(cached) =
+            helpers::swr_take::<PaginatedResult<User>, _, _>(&state, &cache_key, refresh)
+         {
+            Ok(cached)
+         } else {
+            let result = state.api.search_users(&raw_q, None).await;
+            if let Ok(ref data) = result {
+               state
+                  .cache
+                  .set_swr(&cache_key, data, ttl::SEARCH, ttl::SEARCH_STALE);
+            }
+            result
+         }
+      } else {
+         state
+            .api
+            .search_users(&raw_q, params.cursor.as_deref())
+            .await
+      };
 
       match search_result {
          Ok(result) => {
@@ -316,11 +351,37 @@ async fn search(
          _ => "tweets",
       };
 
-      // Execute search
-      let search_result = state
-         .api
-         .search(&api_query, params.cursor.as_deref(), product)
-         .await;
+      let search_result = if params.cursor.is_none() {
+         let cache_key = cache_keys::search_timeline(&api_query, product);
+         let refresh = {
+            let api_query = api_query.clone();
+            let cache_key = cache_key.clone();
+            move |app: AppState| {
+               async move {
+                  if let Ok(data) = app.api.search(&api_query, None, product).await {
+                     app.cache
+                        .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
+                  }
+               }
+            }
+         };
+         if let Some(cached) = helpers::swr_take::<Timeline, _, _>(&state, &cache_key, refresh) {
+            Ok(cached)
+         } else {
+            let result = state.api.search(&api_query, None, product).await;
+            if let Ok(ref data) = result {
+               state
+                  .cache
+                  .set_swr(&cache_key, data, ttl::SEARCH, ttl::SEARCH_STALE);
+            }
+            result
+         }
+      } else {
+         state
+            .api
+            .search(&api_query, params.cursor.as_deref(), product)
+            .await
+      };
 
       match search_result {
          Ok(timeline) => {

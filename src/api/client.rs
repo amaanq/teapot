@@ -67,7 +67,8 @@ use crate::{
    utils::formatters,
 };
 
-/// A search spends a `SearchTimeline` call and is never served from cache.
+/// A search spends a `SearchTimeline` call unless its first page is still
+/// cached.
 const SEARCH_COST: f64 = 2.0;
 
 /// Community-cache strings are written by third parties, so cap them before

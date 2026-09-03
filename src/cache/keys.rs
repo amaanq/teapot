@@ -78,3 +78,11 @@ pub fn rss_list_slug(username: &str, slug: &str) -> String {
 pub fn rss_thread(tweet_id: &str) -> String {
    rss(&format!("thread:{tweet_id}"))
 }
+
+pub fn search_timeline(query: &str, product: &str) -> String {
+   format!("search:{}:{product}", query.to_lowercase())
+}
+
+pub fn search_users(query: &str) -> String {
+   format!("search-users:{}", query.to_lowercase())
+}

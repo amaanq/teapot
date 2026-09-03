@@ -1,5 +1,7 @@
 use std::{
+   any::Any,
    collections::BTreeMap,
+   future::Future,
    iter,
    slice,
 };
@@ -19,6 +21,7 @@ use axum::{
 use crate::{
    AppState,
    cache::{
+      Hit,
       keys as cache_keys,
       ttl,
    },
@@ -43,6 +46,28 @@ use crate::{
 struct CachedRss {
    body:   String,
    min_id: Option<i64>,
+}
+
+/// A fresh hit, or a stale one with a single background refresh started.
+pub fn swr_take<T, F, Fut>(state: &AppState, key: &str, refresh: F) -> Option<T>
+where
+   T: Any + Clone + Send + Sync,
+   F: FnOnce(AppState) -> Fut + Send + 'static,
+   Fut: Future<Output = ()> + Send + 'static,
+{
+   match state.cache.lookup(key)? {
+      Hit::Fresh(value) => Some(value),
+      Hit::Stale(value) => {
+         if let Some(guard) = state.cache.start_refresh(key) {
+            let state = state.clone();
+            tokio::spawn(async move {
+               let _guard = guard;
+               refresh(state).await;
+            });
+         }
+         Some(value)
+      },
+   }
 }
 
 /// Fetch a user, using cache when available.
