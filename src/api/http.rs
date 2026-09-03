@@ -303,13 +303,11 @@ impl HttpClient {
       });
       let is_https = parsed.scheme_str() == Some("https");
 
-      // TCP connect to proxy
       let mut stream = TcpStream::connect((&*proxy.host, proxy.port))
          .await
          .map_err(|err| Error::Internal(format!("proxy connect: {err}")))?;
 
       if is_https {
-         // CONNECT handshake
          let mut connect_req = format!(
             "CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}:{target_port}\r\n"
          );
@@ -323,7 +321,6 @@ impl HttpClient {
             .await
             .map_err(|err| Error::Internal(format!("proxy CONNECT write: {err}")))?;
 
-         // Read the CONNECT response and look for the end of its HTTP headers
          let mut buf = vec![0_u8; 4096];
          let mut filled = 0;
          loop {
@@ -403,7 +400,6 @@ impl HttpClient {
             body,
          })
       } else {
-         // Send plain HTTP proxy requests with an absolute URI
          let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
             .await
             .map_err(|err| Error::Internal(format!("proxy HTTP handshake: {err}")))?;

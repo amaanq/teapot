@@ -158,7 +158,6 @@ impl<'a> TweetRenderer<'a> {
       let extra_class = self.extra_class;
       let index = self.index;
 
-      // Use <a> to make unavailable tombstoned tweets clickable
       if !tweet.available {
          let link = get_link(tweet);
          let text = if !tweet.tombstone.is_empty() {
@@ -178,13 +177,11 @@ impl<'a> TweetRenderer<'a> {
          };
       }
 
-      // Extract the inner tweet and show its retweet header
       let (display_tweet, retweet_by) = tweet
          .retweet
          .as_ref()
          .map_or((tweet, None), |rt| (rt.as_ref(), Some(&tweet.user)));
 
-      // Build CSS class based on context.
       // Includes .author-{user} and .retweet-{user} for adblock filtering.
       let author_class = format!("author-{}", display_tweet.user.username);
       let retweet_class = retweet_by.map(|rt_user| format!("retweet-{}", rt_user.username));
@@ -224,7 +221,6 @@ impl<'a> TweetRenderer<'a> {
 
       html! {
           div class=(class) data-username=(display_tweet.user.username) {
-              // Tweet link overlay (for clicking anywhere on tweet)
               @if !is_main {
                   a class="tweet-link" href=(&tweet_link) {}
               }
@@ -232,21 +228,18 @@ impl<'a> TweetRenderer<'a> {
               div class="tweet-body" {
                   // Wrapper div around pinned/retweet + header
                   div {
-                      // Pinned badge
                       @if pinned {
                           div class="pinned" {
                               span { (icon("pin", "Pinned Tweet", "", "", "")) }
                           }
                       }
 
-                      // Retweet header
                       @if let Some(rt_user) = retweet_by {
                           div class="retweet-header" {
                               span { (icon("retweet", &format!("{} retweeted", rt_user.fullname), "", "", "")) }
                           }
                       }
 
-                      // Tweet header with avatar, name row, and date
                       div class="tweet-header" {
                           a class="tweet-avatar" href=(format!("/{}", display_tweet.user.username)) {
                               (render_user_avatar(&display_tweet.user, config, prefs))
@@ -271,19 +264,14 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Show the reply indicator only for the first tweet in a
-                  // thread group, not for main tweets, not in thread context (conversation
-                  // page), and not for self-replies.
                   @if !is_main && index == 0 && thread_ctx == ThreadContext::None && !display_tweet.reply.is_empty() && !is_reply_to_self(display_tweet, pinned) {
                       (render_reply(display_tweet))
                   }
 
-                  // Tweet content (verbatim text + location, no <p> wrapper)
                   div class=(content_class) dir="auto" {
                       (PreEscaped(&text_html))
                   }
 
-                  // "Translate post" button for translatable tweets
                   @if display_tweet.is_translatable {
                       button class="translate-btn"
                           hx-get=(format!("/translate/{}", display_tweet.id))
@@ -293,7 +281,6 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Content disclosure labels
                   @if display_tweet.paid_promotion || display_tweet.ai_generated {
                       @let paid_label = format!("{} Paid partnership", config.config.paid_emoji);
                       @let ai_label = format!("{} Made with AI", config.config.ai_emoji);
@@ -313,7 +300,6 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Show attribution after tweet-content when another user owns it
                   @if let Some(ref attr_user) = display_tweet.attribution {
                       a class="attribution" href=(format!("/{}", attr_user.username)) {
                           (render_mini_avatar(attr_user, config, prefs))
@@ -322,17 +308,14 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Card preview (before media)
                   @if let Some(ref card) = display_tweet.card {
                       (render_card(card, config, prefs))
                   }
 
-                  // Media (photos)
                   @if !display_tweet.photos.is_empty() {
                       (render_photos(&display_tweet.photos, config))
                   }
 
-                  // Video
                   @if let Some(ref video) = display_tweet.video {
                       (render_video(video, config, prefs))
                   }
@@ -340,7 +323,6 @@ impl<'a> TweetRenderer<'a> {
                       (render_video(video, config, prefs))
                   }
 
-                  // GIF
                   @if let Some(ref gif) = display_tweet.gif {
                       @let autoplay_gifs = prefs.is_none_or(|pref| pref.autoplay_gifs);
                       @let poster = get_small_pic(&gif.thumb, config);
@@ -356,17 +338,14 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Poll
                   @if let Some(ref poll) = display_tweet.poll {
                       (render_poll(poll, config))
                   }
 
-                  // Quote tweet
                   @if let Some(ref quote) = display_tweet.quote {
                       (render_quote(quote, config, prefs))
                   }
 
-                  // Community note
                   (render_community_note(display_tweet.note.as_ref(), prefs.is_some_and(|pref| pref.hide_community_notes)))
 
                   // Published time for main tweet
@@ -395,7 +374,6 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Media tags
                   @if !display_tweet.media_tags.is_empty() {
                       div class="media-tag-block" {
                           (icon("user", "", "", "", ""))
@@ -410,7 +388,6 @@ impl<'a> TweetRenderer<'a> {
                       }
                   }
 
-                  // Stats
                   @if !prefs.is_some_and(|pref| pref.hide_tweet_stats) {
                       (render_stats(&display_tweet.stats, &display_tweet.user.username, display_tweet.id, self.sort_toggle))
                   } @else if let Some(toggle) = self.sort_toggle {
@@ -576,12 +553,10 @@ fn render_quote(quote: &Tweet, config: &Config, prefs: Option<&Prefs>) -> Markup
                }
            }
 
-           // Card preview in quote
            @if let Some(ref card) = quote.card {
                (render_card(card, config, prefs))
            }
 
-           // Media
            @if !quote.photos.is_empty() {
                (render_photos(&quote.photos, config))
            }
@@ -604,7 +579,6 @@ fn render_quote(quote: &Tweet, config: &Config, prefs: Option<&Prefs>) -> Markup
                }
            }
 
-           // Poll
            @if let Some(ref poll) = quote.poll {
                (render_poll(poll, config))
            }
@@ -709,7 +683,6 @@ fn render_card_content(card: &Card) -> Markup {
            @if !card.text.is_empty() {
                p class="card-description" { (card.text) }
            }
-           // Format list and community destinations as "List · 42 Members"
            @if card.member_count > 0 && !card.dest.is_empty() {
                span class="card-destination" {
                    (format!("{} · {} Members", card.dest, card.member_count))
@@ -727,7 +700,6 @@ fn render_card_content(card: &Card) -> Markup {
 /// All other variants, including `SummaryLarge` and `PromoWebsite`, use large
 /// cards.
 fn render_card(card: &Card, config: &Config, prefs: Option<&Prefs>) -> Markup {
-   // Skip hidden or unknown cards
    if matches!(card.kind, CardKind::Hidden | CardKind::Unknown) {
       return html! {};
    }
@@ -840,17 +812,14 @@ fn render_tweet_text_html(
    location: &str,
    config: &Config,
 ) -> String {
-   // Use entity expansion if entities are available
    let processed = if entities.is_empty() {
       expand_with_regex(text)
    } else {
       expand_entities(text, entities)
    };
 
-   // Apply URL domain replacements
    let mut result = formatters::replace_urls(&processed, config);
 
-   // Append location if present
    if !location.is_empty() {
       result.push_str(&render_location_html(location));
    }
@@ -902,7 +871,6 @@ fn render_video(video: &Video, config: &Config, prefs: Option<&Prefs>) -> Markup
                            (button_referer("/enablemp4", "Enable mp4 playback", "", "", ""))
                        }
                    } @else if let Some(mp4_url) = video.best_mp4_url() {
-                       // Render MP4 playback with a native video element and controls
                        @let video_src = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
                        video poster=(thumb) controls="" muted=[mute_videos.then_some("")] {
                            source src=(video_src) type="video/mp4";

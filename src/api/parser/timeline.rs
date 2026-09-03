@@ -57,7 +57,6 @@ fn parse_timeline_instructions(raw_instructions: &[Instruction]) -> Result<Timel
    let mut bottom_cursor = None;
 
    for instruction in raw_instructions {
-      // Handle moduleItems (grid modules used in media timelines)
       if let Some(ref module_items) = instruction.module_items {
          let mut module_tweets = Vec::new();
          for item in module_items {
@@ -126,7 +125,6 @@ fn parse_timeline_instructions(raw_instructions: &[Instruction]) -> Result<Timel
 fn parse_timeline_entry(entry: &Entry) -> Tweets {
    let mut tweets = Vec::new();
 
-   // Single tweet entry
    if let Some(tweet_result) = entry.tweet_result() {
       if let Ok(tweet) = parse_tweet_object(tweet_result) {
          tweets.push(tweet);
@@ -134,7 +132,6 @@ fn parse_timeline_entry(entry: &Entry) -> Tweets {
       return tweets;
    }
 
-   // Conversation module (thread)
    for item in entry.items() {
       if let Some(tweet_result) = item.tweet_result()
          && let Ok(tweet) = parse_tweet_object(tweet_result)

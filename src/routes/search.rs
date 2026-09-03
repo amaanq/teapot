@@ -53,12 +53,10 @@ pub struct SearchQuery {
    #[serde(rename = "f")]
    pub filter:     Option<String>,
    pub cursor:     Option<String>,
-   // Filter parameters
    pub from:       Option<String>,
    pub since:      Option<String>,
    pub until:      Option<String>,
    pub min_faves:  Option<String>,
-   // Filter toggles (f-media=on, e-replies=on, etc.)
    #[serde(rename = "f-media")]
    pub f_media:    Option<String>,
    #[serde(rename = "f-images")]
@@ -102,7 +100,6 @@ impl SearchQuery {
    fn to_query(&self) -> Query {
       let raw_query = self.query.as_deref().unwrap_or("");
 
-      // Determine query kind from 'f' parameter
       let kind = match self.filter.as_deref() {
          Some("replies") => QueryKind::Replies,
          Some("media") => QueryKind::Media,
@@ -111,7 +108,6 @@ impl SearchQuery {
          _ => QueryKind::Posts,
       };
 
-      // Parse the raw query text for inline filters
       let mut query = Query::parse(raw_query, kind);
 
       // Add from user if specified as parameter
@@ -124,7 +120,6 @@ impl SearchQuery {
          }
       }
 
-      // Add date filters from parameters
       if let Some(ref since) = self.since
          && query.since.is_empty()
       {
@@ -157,7 +152,6 @@ impl SearchQuery {
          }
       }
 
-      // Add exclude toggles
       let exclude_toggles = &[(&self.e_replies, "replies"), (&self.e_retweets, "retweets")];
       for &(param, name) in exclude_toggles {
          if param.as_deref() == Some("on") && !query.excludes.iter().any(|excl| excl == name) {
@@ -182,7 +176,6 @@ async fn search(
    RawQuery(raw_qs): RawQuery,
    AxumQuery(params): AxumQuery<SearchQuery>,
 ) -> Result<Response> {
-   // Strip empty query parameters (e.g. since=&until=&min_faves=) for clean URLs
    if let Some(ref qs) = raw_qs {
       let clean = qs
          .split('&')
@@ -198,12 +191,10 @@ async fn search(
       }
    }
 
-   // Extract prefs from cookies
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
    let raw_q = params.query.clone().unwrap_or_default();
 
-   // Redirect comma-separated usernames to multi-user timeline
    if raw_q.contains(',')
       && raw_q.split(',').all(|segment| {
          let trimmed = segment.trim();
@@ -221,10 +212,8 @@ async fn search(
       return Ok(Redirect::to(&format!("/{cleaned}")).into_response());
    }
 
-   // Check if this is a user search
    let is_user_search = params.filter.as_deref() == Some("users");
 
-   // Handle empty query - show search UI without calling API
    if raw_q.is_empty() && params.from.is_none() {
       let filters = params.to_filters();
       if is_user_search {
@@ -336,11 +325,8 @@ async fn search(
          },
       }
    } else {
-      // Tweet search
-      // Parse query with filters
       let query = params.to_query();
 
-      // Build the actual search query for Twitter API
       let api_query = query.build();
 
       let product = query.kind.product();
@@ -445,7 +431,6 @@ async fn hashtag(
    Path(tag): Path<String>,
    AxumQuery(query): AxumQuery<SearchQuery>,
 ) -> Result<Response> {
-   // Search for the hashtag
    let hashtag_query = format!("#{tag}");
 
    search(

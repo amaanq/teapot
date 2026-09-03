@@ -68,7 +68,6 @@ impl GifTranscoder {
    pub async fn get_or_transcode(&self, mp4_url: &str) -> eyre::Result<PathBuf> {
       let hash = Self::hash_url(mp4_url);
 
-      // Check cache
       if let Some(path) = self.cache.get(&hash).await {
          return Ok(path);
       }
@@ -85,7 +84,6 @@ impl GifTranscoder {
       };
       let operation_guard = operation.lock().await;
 
-      // Acquire semaphore
       let _permit = self.semaphore.acquire().await?;
 
       // Double-check cache after acquiring permit
@@ -120,7 +118,6 @@ impl GifTranscoder {
       let output = cache_dir.join(format!("{hash}.gif.tmp"));
       let _temp_files = TempFiles(vec![input.clone(), palette.clone(), output.clone()]);
 
-      // Fetch MP4
       let response = self
          .http_client
          .get(mp4_url)
@@ -191,7 +188,6 @@ impl GifTranscoder {
          return Err(eyre::eyre!("ffmpeg paletteuse failed: {stderr}"));
       }
 
-      // Read the output GIF and insert into cache
       let gif_data = fs::read(&output).await?;
       self.cache.put(hash, &gif_data).await
    }

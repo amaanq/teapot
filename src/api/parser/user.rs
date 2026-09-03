@@ -43,7 +43,6 @@ impl TryFrom<&UserData> for User {
    type Error = Error;
 
    fn try_from(raw: &UserData) -> Result<Self> {
-      // Handle UserUnavailable
       if raw.__typename.as_deref() == Some("UserUnavailable") {
          let reason = raw.reason.as_deref().unwrap_or("unavailable");
          return if reason == "Suspended" {
@@ -113,8 +112,6 @@ impl TryFrom<&UserData> for User {
       let suspended = raw.unavailable_message;
 
       let is_blue = raw.is_blue_verified.unwrap_or(false);
-      // Check verified_type first -- Business/Government accounts also have
-      // is_blue_verified=true
       let verified_type = match legacy.verified_type.as_deref() {
          Some("Business") => VerifiedType::Business,
          Some("Government") => VerifiedType::Government,
@@ -138,7 +135,6 @@ impl TryFrom<&UserData> for User {
          .and_then(|id_str| id_str.parse().ok())
          .unwrap_or(0);
 
-      // Fallback to support newer GraphQL updates where fields moved out of legacy
       let (username, fullname, user_pic, bio, location, verified_type) =
          if username.is_empty() || user_pic.is_empty() {
             let fb_username = raw
@@ -172,7 +168,6 @@ impl TryFrom<&UserData> for User {
                .unwrap_or_default()
                .to_owned();
 
-            // Check verified_type first -- Business/Government override blue
             let fb_verified_type = match raw
                .verification
                .as_ref()

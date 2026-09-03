@@ -73,7 +73,6 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-   // Initialize logging
    tracing_subscriber::registry()
       .with(
          tracing_subscriber::EnvFilter::try_from_default_env()
@@ -82,7 +81,6 @@ async fn main() -> eyre::Result<()> {
       .with(fmt::layer())
       .init();
 
-   // Load configuration
    let config_path =
       env::var("TEAPOT_CONF_FILE").unwrap_or_else(|_| "config/teapot.toml".to_owned());
    let config = Config::load(&config_path)?;
@@ -101,18 +99,14 @@ async fn main() -> eyre::Result<()> {
       internal_error: config.config.internal_error_message.clone(),
    });
 
-   // Initialize cache
    let cache = Cache::new(config.cache.max_entries);
 
-   // Initialize session pool
    let sessions_path =
       env::var("TEAPOT_SESSIONS_FILE").unwrap_or_else(|_| "sessions.jsonl".to_owned());
    let sessions = SessionPool::load(&sessions_path, config.config.max_concurrent_reqs).await?;
 
-   // Initialize API client
    let api = ApiClient::new(&config, sessions);
 
-   // Initialize GIF transcoder if local mode
    let http_client = HttpClient::new(&config.config.proxy, &config.config.proxy_auth);
    let gif_transcoder = if config.gif_transcoding.mode == GifTranscodingMode::Local {
       match GifTranscoder::new(http_client.clone(), config.gif_transcoding.clone()).await {
@@ -146,7 +140,6 @@ async fn main() -> eyre::Result<()> {
       tracing::info!("No trustedProxies configured, billing clients by socket address");
    }
 
-   // Create application state
    let state = AppState {
       config: Arc::clone(&config),
       cache,
@@ -160,66 +153,83 @@ async fn main() -> eyre::Result<()> {
    // Build the router with specific routes before static files
    let static_dir = config.server.static_dir.clone();
    let app = Router::new()
-        .merge(routes::app::router())
-        // Serve static files at various paths
-        .nest_service("/public", ServeDir::new(&static_dir))
-        .nest_service("/css", ServeDir::new(format!("{static_dir}/css")))
-        .nest_service("/js", ServeDir::new(format!("{static_dir}/js")))
-        .nest_service("/fonts", ServeDir::new(format!("{static_dir}/fonts")))
-        .nest_service("/md", ServeDir::new(format!("{static_dir}/md")))
-        // Root-level static files
-        .route_service("/logo.svg", ServeFile::new(format!("{static_dir}/logo.svg")))
-        .route_service("/logo.png", ServeFile::new(format!("{static_dir}/logo.png")))
-        .route_service("/favicon.ico", ServeFile::new(format!("{static_dir}/favicon.ico")))
-        .route_service("/favicon-16x16.png", ServeFile::new(format!("{static_dir}/favicon-16x16.png")))
-        .route_service("/favicon-32x32.png", ServeFile::new(format!("{static_dir}/favicon-32x32.png")))
-        .route_service("/apple-touch-icon.png", ServeFile::new(format!("{static_dir}/apple-touch-icon.png")))
-        .route_service("/site.webmanifest", ServeFile::new(format!("{static_dir}/site.webmanifest")))
-        .route_service("/robots.txt", ServeFile::new(format!("{static_dir}/robots.txt")))
-        .route_service("/opensearch.xml", ServeFile::new(format!("{static_dir}/opensearch.xml")))
-        .layer(middleware::from_fn(routes::middleware::prefs_middleware))
-        .layer(middleware::from_fn(routes::middleware::snowflake_guard))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            routes::middleware::client_middleware,
-        ))
-        .layer(SetResponseHeaderLayer::overriding(
-            header::REFERRER_POLICY,
-            HeaderValue::from_static("no-referrer"),
-        ))
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(
-                "default-src 'none'; \
-                 script-src 'self'; \
-                 style-src 'self' 'unsafe-inline'; \
-                 img-src 'self' data:; \
-                 media-src 'self' blob:; \
-                 font-src 'self'; \
-                 connect-src 'self'; \
-                 form-action 'self'; \
-                 base-uri 'self'; \
-                 frame-ancestors 'none'"
-            ),
-        ))
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::X_CONTENT_TYPE_OPTIONS,
-            HeaderValue::from_static("nosniff"),
-        ))
-        .layer(SetResponseHeaderLayer::if_not_present(
-            header::STRICT_TRANSPORT_SECURITY,
-            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
-        ))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(45),
-        ))
-        .layer(ConcurrencyLimitLayer::new(
-            usize::try_from(config.server.http_max_connections).unwrap_or(usize::MAX),
-        ))
-        .with_state(state);
+      .merge(routes::app::router())
+      .nest_service("/public", ServeDir::new(&static_dir))
+      .nest_service("/css", ServeDir::new(format!("{static_dir}/css")))
+      .nest_service("/js", ServeDir::new(format!("{static_dir}/js")))
+      .nest_service("/fonts", ServeDir::new(format!("{static_dir}/fonts")))
+      .nest_service("/md", ServeDir::new(format!("{static_dir}/md")))
+      .route_service(
+         "/logo.svg",
+         ServeFile::new(format!("{static_dir}/logo.svg")),
+      )
+      .route_service(
+         "/logo.png",
+         ServeFile::new(format!("{static_dir}/logo.png")),
+      )
+      .route_service(
+         "/favicon.ico",
+         ServeFile::new(format!("{static_dir}/favicon.ico")),
+      )
+      .route_service(
+         "/favicon-16x16.png",
+         ServeFile::new(format!("{static_dir}/favicon-16x16.png")),
+      )
+      .route_service(
+         "/favicon-32x32.png",
+         ServeFile::new(format!("{static_dir}/favicon-32x32.png")),
+      )
+      .route_service(
+         "/apple-touch-icon.png",
+         ServeFile::new(format!("{static_dir}/apple-touch-icon.png")),
+      )
+      .route_service(
+         "/site.webmanifest",
+         ServeFile::new(format!("{static_dir}/site.webmanifest")),
+      )
+      .route_service(
+         "/robots.txt",
+         ServeFile::new(format!("{static_dir}/robots.txt")),
+      )
+      .route_service(
+         "/opensearch.xml",
+         ServeFile::new(format!("{static_dir}/opensearch.xml")),
+      )
+      .layer(middleware::from_fn(routes::middleware::prefs_middleware))
+      .layer(middleware::from_fn(routes::middleware::snowflake_guard))
+      .layer(middleware::from_fn_with_state(
+         state.clone(),
+         routes::middleware::client_middleware,
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+         header::REFERRER_POLICY,
+         HeaderValue::from_static("no-referrer"),
+      ))
+      .layer(SetResponseHeaderLayer::if_not_present(
+         header::CONTENT_SECURITY_POLICY,
+         HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src \
+             'self' data:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; \
+             form-action 'self'; base-uri 'self'; frame-ancestors 'none'",
+         ),
+      ))
+      .layer(SetResponseHeaderLayer::if_not_present(
+         header::X_CONTENT_TYPE_OPTIONS,
+         HeaderValue::from_static("nosniff"),
+      ))
+      .layer(SetResponseHeaderLayer::if_not_present(
+         header::STRICT_TRANSPORT_SECURITY,
+         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+      ))
+      .layer(TimeoutLayer::with_status_code(
+         StatusCode::REQUEST_TIMEOUT,
+         Duration::from_secs(45),
+      ))
+      .layer(ConcurrencyLimitLayer::new(
+         usize::try_from(config.server.http_max_connections).unwrap_or(usize::MAX),
+      ))
+      .with_state(state);
 
-   // Start server
    let addr = SocketAddr::new(config.server.address.parse()?, config.server.port);
    let listener = TcpListener::bind(addr).await?;
 

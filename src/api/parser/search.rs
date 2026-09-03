@@ -73,7 +73,6 @@ pub fn parse_list(raw: &ListData) -> List {
    let description = raw.description.clone().unwrap_or_default();
    let members = raw.member_count;
 
-   // Extract user info from nested user_results
    let (user_id, username) = raw
       .user_results
       .as_ref()

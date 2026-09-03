@@ -208,7 +208,6 @@ pub fn render_community_note(note: Option<&CommunityNote>, hide_notes: bool) -> 
       return html! {};
    }
 
-   // Render text with structured links into HTML
    let note_html = community_note_to_html(note);
 
    html! {

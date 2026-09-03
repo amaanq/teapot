@@ -132,7 +132,6 @@ fn parse_inline_article(raw: &InlineArticle, user: User) -> Article {
       .as_ref()
       .map_or_else(|| (Vec::new(), Vec::new()), parse_content_state);
 
-   // Parse media
    let mut media = HashMap::new();
    if let Some(ref media_entries) = raw.media_entities {
       for entry in media_entries {

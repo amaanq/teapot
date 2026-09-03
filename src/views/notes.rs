@@ -263,7 +263,6 @@ fn render_atomic(
 fn strip_markdown_fences(md: &str) -> (&str, &str) {
    let trimmed = md.trim();
    let body = trimmed.strip_prefix("```").unwrap_or(trimmed);
-   // Extract language tag from first line (e.g. "xml\n...")
    let (lang, body) = body.find('\n').map_or(("", body), |nl| {
       let tag = body[..nl].trim();
       (tag, &body[nl + 1..])
@@ -329,7 +328,6 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
    let mut pos = start;
 
    while pos < end {
-      // Determine style at this position
       let mut is_bold = false;
       let mut is_italic = false;
       let mut is_strike = false;
@@ -345,7 +343,6 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
          }
       }
 
-      // Find how far this style extends
       let mut style_end = end;
       for sr in &para.inline_style_ranges {
          let sr_start = sr.offset;

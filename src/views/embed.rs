@@ -168,7 +168,6 @@ pub fn build_embed_description(tweet: &Tweet) -> String {
       },
    );
 
-   // Append quote tweet text
    if let Some(ref quote) = tweet.quote {
       let _ = write!(
          desc,
@@ -179,7 +178,6 @@ pub fn build_embed_description(tweet: &Tweet) -> String {
       );
    }
 
-   // Append poll bar chart
    if let Some(ref poll) = tweet.poll {
       let total_votes = poll.values.iter().sum::<i64>();
       desc.push('\n');
@@ -255,8 +253,6 @@ fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> M
    let photos = photos_with_quote(tweet);
    let video_source = video_source_with_quote(tweet);
    let has_video = video_source.is_some();
-   // GIF tweets provide their own og:image (the transcoded .gif URL)
-   // in the GIF branch below, so skip the thumbnail from the image loop.
    let gif_source = gif_source_with_quote(tweet);
    let has_gif = gif_source.is_some();
 
@@ -300,7 +296,6 @@ fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> M
            }
        }
 
-       // Video meta tags for inline playback
        @if let Some((media_tweet, video)) = video_source {
            @let (raw_w, raw_h) = video.best_dimensions();
            @let (width, height) = formatters::scale_dimensions_for_embed(raw_w, raw_h);
@@ -548,7 +543,6 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
                    meta property="og:image" content=(thumbnail_url);
                }
 
-               // Twitter player card
                meta name="twitter:card" content="player";
                meta name="twitter:player:width" content=(width);
                meta name="twitter:player:height" content=(height);

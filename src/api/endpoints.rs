@@ -19,7 +19,6 @@ pub const BEARER_TOKEN_NO_TID: &str =
    "Bearer AAAAAAAAAAAAAAAAAAAAAFXzAwAAAAAAMHCxpeSDG1gLNLghVe8d74hl6k4%\
     3DRUMF4xAQLsbeBhTSRrCiQpJtxoGWeyHrDb5te2jpGskWDFW82F";
 
-// GraphQL endpoints
 pub const GRAPH_USER: &str = "-oaLodhGbbnzJBACb1kk2Q/UserByScreenName";
 pub const GRAPH_USER_BY_ID: &str = "VN33vKXrPT7p35DgNR27aw/UserResultByIdQuery";
 pub const GRAPH_USER_TWEETS: &str = "N9_71NodX1yntoC5pa4IFw/UserTweets";
@@ -46,7 +45,6 @@ pub const STRATO_TRANSLATE: &str = "strato/translateTweet";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                               (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
-// Base URLs
 pub const GRAPHQL_URL: &str = "https://x.com/i/api/graphql";
 pub const API_URL: &str = "https://api.x.com/graphql";
 pub const STRATO_URL: &str = "https://x.com/i/api/1.1/strato/column/None";

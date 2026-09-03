@@ -34,7 +34,6 @@ impl TryFrom<&TweetData> for Tweet {
 
    #[expect(clippy::option_if_let_else, reason = "readability")]
    fn try_from(raw: &TweetData) -> Result<Self> {
-      // Handle tombstones/unavailable tweets
       match raw.__typename.as_deref() {
          Some("TweetTombstone") => {
             let text = raw
@@ -89,8 +88,6 @@ impl TryFrom<&TweetData> for Tweet {
 
       let is_withheld = legacy.is_withheld();
 
-      // Check for note_tweet (long tweets >280 chars) which provides the full
-      // untruncated text
       let note_tweet = raw.note_tweet.as_ref();
 
       let mut text = note_tweet.map_or_else(
@@ -98,7 +95,6 @@ impl TryFrom<&TweetData> for Tweet {
          |nt| nt.text.clone().unwrap_or_default(),
       );
 
-      // Parse user (check both user_results and user_result paths)
       let user = raw
          .core
          .as_ref()
@@ -106,7 +102,6 @@ impl TryFrom<&TweetData> for Tweet {
          .and_then(|user_data| parse_user_object(user_data).ok())
          .unwrap_or_default();
 
-      // Parse stats
       let stats = TweetStats {
          replies:  legacy.reply_count,
          retweets: legacy.retweet_count,
@@ -120,7 +115,6 @@ impl TryFrom<&TweetData> for Tweet {
             .unwrap_or(0),
       };
 
-      // Parse media from typed legacy fields (no side effects on text)
       let media = parse_media(legacy);
       let mut photos = media.photos;
       let video = media.video;
@@ -128,7 +122,6 @@ impl TryFrom<&TweetData> for Tweet {
       let gif = media.gif;
       let media_attribution = media.attribution;
 
-      // Strip media URLs from tweet text
       for url in &media.strip_urls {
          if !url.is_empty() && text.ends_with(url) {
             let new_len = text.len() - url.len();
@@ -146,10 +139,8 @@ impl TryFrom<&TweetData> for Tweet {
 
       let time = legacy.parse_time();
 
-      // Parse reply info (with GraphQL fallbacks)
       let mut reply_id = legacy.reply_id();
 
-      // Fall back to reply_to_results.rest_id from the newer GraphQL path
       if reply_id == 0
          && let Some(ref rtr) = raw.reply_to_results
       {
@@ -166,7 +157,6 @@ impl TryFrom<&TweetData> for Tweet {
          .map(|name| vec![name.clone()])
          .unwrap_or_default();
 
-      // Fall back to reply_to_user_results for the reply username
       if reply.is_empty()
          && let Some(screen_name) = raw.reply_to_screen_name.as_ref()
       {
@@ -174,11 +164,9 @@ impl TryFrom<&TweetData> for Tweet {
       }
       let mut reply_mentions_stripped = false;
 
-      // Parse thread info
       let has_thread = legacy.self_thread.is_some();
       let thread_id = legacy.thread_id(id);
 
-      // Parse quote tweet (check both paths)
       let quote = {
          let qsr = raw
             .quoted_status_result
@@ -204,7 +192,6 @@ impl TryFrom<&TweetData> for Tweet {
                   |quote_data| parse_tweet_object(quote_data).ok().map(Box::new),
                )
             },
-            // Fall back to is_quote_status and quoted_status_id_str
             None => {
                if legacy.is_quote_status.unwrap_or(false) {
                   let quoted_id = legacy
@@ -225,7 +212,6 @@ impl TryFrom<&TweetData> for Tweet {
          }
       };
 
-      // Parse retweet (check legacy path and newer repostedStatusResults)
       let retweet = legacy
          .retweeted_status_result
          .as_ref()
@@ -234,7 +220,6 @@ impl TryFrom<&TweetData> for Tweet {
          .and_then(|rt_data| parse_tweet_object(rt_data).ok())
          .map(Box::new);
 
-      // Parse card, then expand card URL via tweet entities
       let mut card = raw
          .card
          .as_ref()
@@ -246,7 +231,6 @@ impl TryFrom<&TweetData> for Tweet {
          card_ref.url = expanded;
       }
 
-      // Parse poll
       let poll = card
          .as_ref()
          .filter(|card_ref| matches!(card_ref.kind, CardKind::Unknown))
@@ -255,7 +239,6 @@ impl TryFrom<&TweetData> for Tweet {
 
       let location = legacy.location().to_owned();
 
-      // Parse entities for text expansion
       // Use note_tweet entity_set if available (for long tweets), otherwise use
       // legacy entities
       let mut entities = note_tweet.map_or_else(
@@ -272,7 +255,6 @@ impl TryFrom<&TweetData> for Tweet {
          },
       );
 
-      // Apply display_text_range to strip leading @reply mentions
       #[expect(
          clippy::cast_possible_truncation,
          reason = "display_start fits in usize"
@@ -324,7 +306,6 @@ impl TryFrom<&TweetData> for Tweet {
             }
          }
 
-         // Skip the first display_start Unicode code points
          let char_byte_offset = text
             .char_indices()
             .nth(display_start)
@@ -347,13 +328,11 @@ impl TryFrom<&TweetData> for Tweet {
          }
       }
 
-      // Parse community note (Birdwatch pivot)
       let note = raw
          .birdwatch_pivot
          .as_ref()
          .and_then(super::super::schema::BirdwatchPivot::to_note);
 
-      // Parse content disclosure labels
       let (paid_promotion, disclosed_ai) =
          raw.content_disclosure
             .as_ref()
@@ -376,7 +355,6 @@ impl TryFrom<&TweetData> for Tweet {
                .is_some_and(|post_id| !post_id.is_empty())
          });
 
-      // Parse edit history IDs
       let history = raw
          .edit_control
          .as_ref()
@@ -388,7 +366,6 @@ impl TryFrom<&TweetData> for Tweet {
          })
          .unwrap_or_default();
 
-      // Extract poll image into photos
       if let Some(ref poll) = poll
          && let Some(ref img_url) = poll.image
       {
@@ -411,7 +388,6 @@ impl TryFrom<&TweetData> for Tweet {
          (card, video)
       };
 
-      // Strip " Learn more." from withheld text
       if is_withheld {
          #[expect(
             clippy::assigning_clones,
@@ -554,7 +530,6 @@ impl TryFrom<&TweetData> for Tweet {
 
 /// Check if a URL matches `http(s)://(x.com|twitter.com)/i/article/{id}`.
 fn is_article_url(url: &str) -> bool {
-   // Strip scheme first, then match domain
    let without_scheme = url
       .strip_prefix("https://")
       .or_else(|| url.strip_prefix("http://"));

@@ -157,7 +157,6 @@ impl<'a> PageLayout<'a> {
                       meta name="theme-color" content=(self.theme_color);
                   }
 
-                  // Favicon and manifest links
                   @if !self.custom_og {
                       link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png";
                   }
@@ -171,7 +170,6 @@ impl<'a> PageLayout<'a> {
                       title=(self.config.server.title)
                       href=(format!("{}/opensearch", self.config.url_prefix()));
 
-                  // RSS alternate link
                   @if self.config.config.enable_rss && !self.rss.is_empty() {
                       link rel="alternate" type="application/rss+xml"
                           title="RSS feed"
@@ -183,7 +181,6 @@ impl<'a> PageLayout<'a> {
                   // After the component styles, whose layout decisions it replaces.
                   link rel="stylesheet" type="text/css" href=(CLEAN_CSS);
                   link rel="stylesheet" type="text/css" href=(FONTELLO_CSS);
-                  // Theme CSS if different from default
                   @if let Some(ref href) = theme_href {
                       link rel="stylesheet" type="text/css" href=(href);
                   }
@@ -199,7 +196,6 @@ impl<'a> PageLayout<'a> {
                       title { (self.title) " | " (self.config.server.title) }
                   }
 
-                  // OpenGraph meta tags
                   @if !self.custom_og {
                       meta property="og:site_name" content=(self.config.server.title);
                       meta property="og:locale" content="en_US";
@@ -239,7 +235,6 @@ impl<'a> PageLayout<'a> {
                       script src="/js/infiniteScroll.js" defer="" {}
                   }
 
-                  // Font preload
                   link rel="preload" type="font/woff2" as="font"
                       href="/fonts/fontello.woff2?61663884" crossorigin="anonymous";
               }
@@ -353,7 +348,6 @@ pub fn strip_html(text: &str) -> String {
       }
    });
 
-   // Strip remaining HTML tags
    let mut result = String::new();
    let mut in_tag = false;
    for ch in text.chars() {

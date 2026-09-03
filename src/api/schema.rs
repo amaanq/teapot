@@ -198,8 +198,6 @@ impl<T> Default for NestedResult<T> {
    }
 }
 
-// Convenience methods on Entry
-
 impl Entry {
    pub fn entry_id_str(&self) -> &str {
       self.entry_id.as_deref().unwrap_or("")
@@ -245,8 +243,6 @@ impl Entry {
          .unwrap_or(&[])
    }
 }
-
-// Convenience methods on Item
 
 impl Item {
    pub fn entry_id_str(&self) -> &str {

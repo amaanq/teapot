@@ -615,7 +615,6 @@ pub fn oauth1_sign(
    oauth_token: &str,
    oauth_secret: &str,
 ) -> String {
-   // OAuth parameters
    let timestamp = time::OffsetDateTime::now_utc().unix_timestamp().to_string();
    let nonce = format!(
       "{:032x}",
@@ -639,7 +638,6 @@ pub fn oauth1_sign(
    all_params.extend(oauth_params.iter().copied());
    let param_string = normalized_parameter_string(&all_params);
 
-   // Create signature base string
    let base_string = format!(
       "{}&{}&{}",
       method.to_uppercase(),
@@ -647,21 +645,18 @@ pub fn oauth1_sign(
       percent_encode(&param_string)
    );
 
-   // Create signing key
    let signing_key = format!(
       "{}&{}",
       percent_encode(super::endpoints::CONSUMER_SECRET),
       percent_encode(oauth_secret)
    );
 
-   // Generate signature
    let key = hmac::Key::new(hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, signing_key.as_bytes());
    let tag = hmac::sign(&key, base_string.as_bytes());
    let signature = BASE64.encode(tag.as_ref());
 
    oauth_params.push(("oauth_signature", &signature));
 
-   // Build Authorization header
    let auth_header = oauth_params
       .iter()
       .map(|&(param, val)| format!("{}=\"{}\"", param, percent_encode(val)))

@@ -57,11 +57,9 @@ fn expand_entities_with_target(text: &str, entities: &[Entity], link_to_x: bool)
       return text.to_owned();
    }
 
-   // Sort entities by start position
    let mut sorted_entities = entities.iter().collect::<Vec<&Entity>>();
    sorted_entities.sort_by_key(|ent| ent.indices.0);
 
-   // Deduplicate entities at same position
    sorted_entities.dedup_by(|ent_a, ent_b| ent_a.indices.0 == ent_b.indices.0);
 
    let mut result = String::with_capacity(text.len() * 2);
@@ -72,12 +70,10 @@ fn expand_entities_with_target(text: &str, entities: &[Entity], link_to_x: bool)
    for entity in sorted_entities {
       let (start_char, end_char) = entity.indices;
 
-      // Validate character indices
       if start_char > char_count || end_char > char_count || start_char >= end_char {
          continue;
       }
 
-      // Convert character indices to byte indices
       let Some(start_byte) = char_to_byte_index(text, start_char) else {
          continue;
       };
@@ -93,7 +89,6 @@ fn expand_entities_with_target(text: &str, entities: &[Entity], link_to_x: bool)
          result.push_str(&text[last_end_byte..start_byte]);
       }
 
-      // Add the entity as an HTML link
       let entity_text = &text[start_byte..end_byte];
       match entity.kind {
          EntityKind::Mention => {

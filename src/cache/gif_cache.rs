@@ -48,7 +48,6 @@ impl GifCache {
          }
       }
 
-      // Sort by last access time (oldest first) for LRU ordering
       entries.sort_by(|_, lhs, _, rhs| lhs.last_access.cmp(&rhs.last_access));
 
       tracing::info!(
@@ -114,7 +113,6 @@ impl GifCache {
 
       let mut current = total;
       while current > max_bytes && !entries.is_empty() {
-         // Remove from the front (oldest)
          if let Some((hash, entry)) = entries.shift_remove_index(0) {
             current -= entry.file_size;
             let path = dir.join(format!("{hash}.gif"));

@@ -510,7 +510,6 @@ impl ApiClient {
          SessionKind::Cookie => endpoints::GRAPHQL_URL,
       };
 
-      // Build URL with query string (scoped to drop Serializer before await)
       let url = {
          let mut qs = form_urlencoded::Serializer::new(String::new());
          qs.append_pair("variables", variables);
@@ -534,7 +533,6 @@ impl ApiClient {
       let response = self.client.get_with_headers(&url, &headers).await?;
       let (bytes, limit_recorded) = self.account_response(session, endpoint, response).await?;
 
-      // Check for API errors before full deserialization.
       // Mark the session as limited on token errors so the retry picks
       // a different one.
       let api_check = Self::check_api_errors(&bytes);
@@ -626,9 +624,6 @@ impl ApiClient {
             return Err(Error::NotFound("Not found".into()));
          }
 
-         // Only 401 means the credentials themselves were refused. A 403 is an
-         // authenticated request denied a particular resource, unless it
-         // carries code 326, which is the session itself being locked.
          if status.as_u16() == 401
             || (status.as_u16() == 403
                && Self::check_api_errors(body.as_bytes())
@@ -736,7 +731,6 @@ impl ApiClient {
          },
       }
 
-      // Common headers
       headers.insert(header::ACCEPT, header::HeaderValue::from_static("*/*"));
       headers.insert(
          "x-twitter-active-user",

@@ -75,7 +75,6 @@ pub fn router() -> Router<AppState> {
         // Discord turns the Mastodon-looking discovery URL above into this
         // API request. The discovery URL itself is not the JSON endpoint.
         .route("/api/v1/statuses/{id}", get(mastodon_status))
-        // oEmbed endpoints
         .route("/owoembed", get(oembed))
         .route("/oembed", get(oembed_standard))
 }
@@ -287,7 +286,6 @@ async fn oembed_standard(
    State(state): State<AppState>,
    Query(query): Query<StandardOEmbedQuery>,
 ) -> Result<Response> {
-   // Parse the tweet ID from /{username}/status/{id}
    let tweet_id = extract_tweet_id(&query.url)
       .ok_or_else(|| Error::InvalidUrl("Could not parse tweet URL".into()))?;
 
@@ -332,7 +330,6 @@ async fn oembed_standard(
 
 /// Extract tweet ID from a URL path like `/user/status/123` or full URL.
 fn extract_tweet_id(url: &str) -> Option<&str> {
-   // Find "status" or "statuses" followed by the ID in the path
    let path = url
       .strip_prefix("http://")
       .or_else(|| url.strip_prefix("https://"))

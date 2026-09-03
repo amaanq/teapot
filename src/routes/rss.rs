@@ -73,7 +73,6 @@ async fn user_rss_handler(
       _ => cache_keys::rss_user as fn(&str) -> String,
    };
 
-   // Check RSS cache (first page only)
    let rss_cache_key = if cursor.is_none() {
       let key = cache_key_fn(username);
       if let Some(cached) = check_rss_cache(state, &key) {
@@ -243,7 +242,6 @@ async fn thread_rss(
       .get_conversation(&id, None, RankingMode::Relevance)
       .await?;
 
-   // Collect thread tweet references: before → main → after
    let mut tweets = Vec::<&Tweet>::new();
    for tweet in &conversation.before.content {
       if tweet.available {

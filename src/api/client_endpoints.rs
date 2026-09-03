@@ -421,7 +421,6 @@ impl ApiClient {
       reason = "session lease is transferred into the complete upstream request"
    )]
    pub async fn get_user_media(&self, user_id: &str, cursor: Option<&str>) -> Result<Timeline> {
-      // Select the endpoint from the same leased session used for the request.
       let session = self
          .charged_session_by_kind(endpoints::GRAPH_USER_MEDIA, endpoints::GRAPH_USER_MEDIA_V2)
          .await?;
@@ -457,7 +456,6 @@ impl ApiClient {
 
    /// Get user's profile with tweets.
    pub async fn get_profile(&self, screen_name: &str, cursor: Option<&str>) -> Result<Profile> {
-      // First get user info
       let user = self.get_user(screen_name).await?;
 
       // Protected/suspended accounts don't expose tweets
@@ -468,7 +466,6 @@ impl ApiClient {
          });
       }
 
-      // Fetch tweets and photo rail in parallel (only for first page)
       let (tweets, photo_rail) = if cursor.is_none() {
          let tweets_future = self.get_user_tweets(&user.id, None);
          let photo_rail_future = self.get_photo_rail(&user.id);
@@ -478,7 +475,6 @@ impl ApiClient {
          (self.get_user_tweets(&user.id, cursor).await?, Vec::new())
       };
 
-      // Get pinned tweet if present
       let pinned = if user.pinned_tweet > 0 {
          tweets
             .content
@@ -687,7 +683,6 @@ impl ApiClient {
          )
          .await?;
 
-      // Parse the conversation to get the Tweet (reuses proven logic).
       let conversation = parser::conversation::parse_conversation(&data, tweet_id, false)?;
       let mut tweet = conversation.tweet;
 
@@ -931,8 +926,6 @@ impl ApiClient {
 
       let mut photos = Vec::new();
       for mut tweet in timeline.content.into_iter().flatten() {
-         // Extract one photo from each tweet
-         // first photo > video thumb > gif thumb > card image
          let url = if !tweet.photos.is_empty() {
             Some(tweet.photos.swap_remove(0).url)
          } else if let Some(video) = tweet.video.take() {

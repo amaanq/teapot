@@ -81,12 +81,10 @@ pub fn render_preferences_form(
    html! {
        div class="overlay-panel preferences-panel" {
            fieldset class="preferences" {
-               // Close button for animated panel
                a href=(referer) class="preferences-close" {
                    span class="icon-close" {}
                }
 
-               // Header with animation
                div class="preferences-header" {
                    h2 { "Preferences" }
                    p { "Customize your teapot experience" }
@@ -95,7 +93,6 @@ pub fn render_preferences_form(
                form method="post" action="/saveprefs" autocomplete="off" class="preferences-form" id="saveprefs-form" {
                    input type="hidden" name="referer" value=(referer);
 
-                   // Display section
                    div class="pref-section" data-section="display" {
                        legend { "Display" }
                        div class="pref-grid" {
@@ -115,7 +112,6 @@ pub fn render_preferences_form(
                        }
                    }
 
-                   // Media section
                    div class="pref-section" data-section="media" {
                        legend { "Media" }
                        div class="pref-grid" {
@@ -125,7 +121,6 @@ pub fn render_preferences_form(
                        }
                    }
 
-                   // Link replacements section
                    div class="pref-section" data-section="links" {
                        legend { "Link replacements (blank to disable)" }
                        (gen_input("replaceTwitter", "Twitter -> teapot", &prefs.replace_twitter, "teapot hostname"))
@@ -133,7 +128,6 @@ pub fn render_preferences_form(
                        (gen_input("replaceReddit", "Reddit -> Teddit/Libreddit", &prefs.replace_reddit, "Teddit hostname"))
                    }
 
-                   // Translation section
                    div class="pref-section" data-section="translation" {
                        legend { "Translation" }
                        (gen_input("kagiToken", "Kagi session token", &prefs.kagi_token, "Paste session token here"))
@@ -144,7 +138,6 @@ pub fn render_preferences_form(
                        }
                    }
 
-                   // Bookmark section
                    div class="pref-section pref-section-bookmark" data-section="bookmark" {
                        legend { "Bookmark" }
                        p class="bookmark-note" {

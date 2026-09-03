@@ -24,10 +24,9 @@ use crate::{
 
 pub fn router() -> Router<AppState> {
    Router::new()
-        .route("/intent/user", get(intent_user))
-        .route("/intent/follow", get(intent_follow))
-        // Catch-all for other intents
-        .route("/intent/{*path}", get(intent_unsupported))
+      .route("/intent/user", get(intent_user))
+      .route("/intent/follow", get(intent_follow))
+      .route("/intent/{*path}", get(intent_unsupported))
 }
 
 /// Catch-all for unsupported intent handlers.
@@ -51,14 +50,12 @@ async fn intent_user(
    State(state): State<AppState>,
    Query(query): Query<IntentUserQuery>,
 ) -> Result<Response> {
-   // If screen_name is provided, redirect directly
    if let Some(ref screen_name) = query.screen_name
       && !screen_name.is_empty()
    {
       return Ok(Redirect::to(&format!("/{screen_name}")).into_response());
    }
 
-   // If user_id is provided, we need to look up the username
    if let Some(ref user_id) = query.user_id
       && !user_id.is_empty()
    {
@@ -67,7 +64,6 @@ async fn intent_user(
       return Ok(Redirect::to(&format!("/i/user/{user_id}")).into_response());
    }
 
-   // No valid parameters provided
    let content = html! {
        div class="error-page" {
            h1 { "Invalid Intent" }
@@ -91,7 +87,6 @@ async fn intent_follow(
       return Ok(Redirect::to(&format!("/{screen_name}")).into_response());
    }
 
-   // No screen_name provided
    let content = html! {
        div class="error-page" {
            h1 { "Invalid Intent" }

@@ -30,7 +30,6 @@ static X_BARE_RE: LazyLock<Regex> =
    LazyLock::new(|| Regex::new(r"(^|\s)((?:www\.|mobile\.)?x\.com)\b").unwrap());
 static TW_BARE_RE: LazyLock<Regex> =
    LazyLock::new(|| Regex::new(r"(^|\s)((?:www\.|mobile\.)?twitter\.com)\b").unwrap());
-// YouTube and Reddit
 static YT_RE: LazyLock<Regex> =
    LazyLock::new(|| Regex::new(r"(?i)([A-Za-z.]+\.)?youtu(be\.com|\.be)").unwrap());
 static RD_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -38,7 +37,6 @@ static RD_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RD_SHORT_RE: LazyLock<Regex> =
    LazyLock::new(|| Regex::new(r"(?:^|[\s])(redd\.it/)").unwrap());
-// User profile pic
 static USER_PIC_SIZE_RE: LazyLock<Regex> =
    LazyLock::new(|| Regex::new(r"_(normal|bigger|mini|200x200|400x400)(\.[A-Za-z]+)$").unwrap());
 static USER_PIC_EXT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\.[A-Za-z]+)$").unwrap());
@@ -59,12 +57,10 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
 
    let prefix = config.url_prefix();
 
-   // Replace t.co short links -> host/t.co
    if result.contains("https://t.co") {
       result = result.replace("https://t.co", &format!("{prefix}/t.co"));
    }
 
-   // Replace cards.twitter.com/cards -> host/cards
    if result.contains("cards.twitter.com/cards") {
       result = result.replace("cards.twitter.com/cards", &format!("{replace_with}/cards"));
    }
@@ -74,13 +70,10 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
    let result = X_LINK_RE.replace_all(&result, link_replacement.as_str());
    let result = TW_LINK_RE.replace_all(&result, link_replacement.as_str());
 
-   // Replace domains in raw URLs after the "://" boundary.
    let url_replacement = format!("${{1}}{replace_with}");
    let result = X_URL_RE.replace_all(&result, url_replacement.as_str());
    let result = TW_URL_RE.replace_all(&result, url_replacement.as_str());
 
-   // Handle bare domain at start of string or after whitespace (e.g., in display
-   // text)
    let bare_replacement = format!("${{1}}{replace_with}");
    let result = X_BARE_RE.replace_all(&result, bare_replacement.as_str());
    let result = TW_BARE_RE.replace_all(&result, bare_replacement.as_str());
@@ -132,7 +125,6 @@ pub fn replace_urls_abs(text: &str, config: &Config, absolute: &str) -> String {
 
    let mut text = text.into_owned();
 
-   // Convert relative hrefs to absolute for RSS
    if !absolute.is_empty() && text.contains("href") {
       text = text.replace("href=\"/", &format!("href=\"{absolute}/"));
    }
@@ -458,7 +450,6 @@ mod tests {
    fn parses_twitter_time_with_space_padded_day() {
       use time::macros::format_description;
 
-      // Space-padded day (single digit)
       let result = parse_twitter_time("Tue Jun  2 20:12:29 +0000 2009");
       assert!(result.is_some(), "Failed to parse space-padded day");
       let dt = result.unwrap();

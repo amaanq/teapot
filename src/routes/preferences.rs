@@ -271,13 +271,11 @@ async fn save_prefs(
    let prefs = form.to_prefs(&state.config);
    let cookies = prefs_to_cookies(&prefs, &state.config);
 
-   // Add all cookies to the jar
    let mut updated_jar = jar;
    for cookie in cookies {
       updated_jar = updated_jar.add(cookie);
    }
 
-   // Redirect back to referer or settings page
    let redirect_to = local_redirect_target(form.referer.as_deref(), "/settings");
 
    Ok((updated_jar, Redirect::to(&redirect_to)).into_response())
@@ -289,7 +287,6 @@ pub struct ResetPrefsForm {
 }
 
 async fn reset_prefs(jar: CookieJar, Form(form): Form<ResetPrefsForm>) -> Result<Response> {
-   // Remove all preference cookies
    let mut updated_jar = jar;
    for name in Prefs::COOKIE_NAMES {
       let removal = Cookie::build(name.to_string())
@@ -299,7 +296,6 @@ async fn reset_prefs(jar: CookieJar, Form(form): Form<ResetPrefsForm>) -> Result
       updated_jar = updated_jar.remove(removal);
    }
 
-   // Redirect to referer or settings page
    let redirect_to = local_redirect_target(form.referer.as_deref(), "/settings");
    Ok((updated_jar, Redirect::to(&redirect_to)).into_response())
 }

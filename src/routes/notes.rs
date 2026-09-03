@@ -103,7 +103,6 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
 
    let content = notes_view::render_note(&article, &tweets, &state.config, Some(&prefs));
 
-   // Build OG description from the first unstyled paragraph text
    let description = article
       .paragraphs
       .iter()

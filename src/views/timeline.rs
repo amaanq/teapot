@@ -104,7 +104,6 @@ use super::renderutils::tweet_link;
 
 /// Render a thread group wrapped in thread-line.
 fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> Markup {
-   // Sort by ID for correct order
    let mut sorted = thread.to_vec();
    sorted.sort_by_key(|tweet| tweet.id);
 
@@ -121,7 +120,6 @@ fn render_thread(thread: &[&Tweet], config: &Config, prefs: Option<&Prefs>) -> M
                        }
                    }
                }
-               // Render the tweet with thread class ("thread" + optional "with-header" for pinned/retweet)
                @let is_last = idx == sorted.len() - 1;
                @let show_thread = is_last && sorted[0].id != tweet.thread_id;
                @let has_header = tweet.pinned || tweet.retweet.is_some();
@@ -168,7 +166,6 @@ fn render_timeline_full(
 
    html! {
        div class="timeline" {
-           // "Load newest" link when viewing paginated results
            @if let Some(url) = newer_url {
                div class="timeline-item show-more" {
                    a href=(url) { "Load newest" }
@@ -178,22 +175,18 @@ fn render_timeline_full(
            @if !has_tweets {
                (render_none_found())
            } @else {
-               // Render pinned tweet first
                @if let Some(pinned_tweet) = pinned {
                    @if !prefs.is_some_and(|pref| pref.hide_pins) {
                        (TweetRenderer::new(pinned_tweet, config, false).pinned(true).maybe_prefs(prefs).render())
                    }
                }
 
-               // Each group renders as one conversation thread from the API
                @for group in groups {
-                   // Filter out pinned duplicates
                    @let filtered = group.iter().filter(|tweet| Some(tweet.id) != pinned_id).collect::<Vec<_>>();
                    @if filtered.len() > 1 {
                        (render_thread(&filtered, config, prefs))
                    } @else if let Some(tweet) = filtered.first() {
                        (TweetRenderer::new(tweet, config, false).maybe_prefs(prefs).render())
-                       // "Show this thread" for standalone tweets that have threads
                        @if tweet.has_thread {
                            div class="show-thread" {
                                a href=(tweet_link(tweet)) { "Show this thread" }
@@ -202,7 +195,6 @@ fn render_timeline_full(
                    }
                }
 
-               // Pagination
                @if let Some(ref url) = load_more_url {
                    div class="show-more" {
                        a href=(url) { "Load more" }
@@ -211,7 +203,6 @@ fn render_timeline_full(
                    (render_no_more())
                }
 
-               // Scroll to top
                @if has_tweets {
                    (render_to_top())
                }

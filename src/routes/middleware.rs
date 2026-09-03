@@ -77,13 +77,11 @@ pub async fn prefs_middleware(mut request: Request, next: Next) -> Response {
    let uri = request.uri().clone();
    let query_string = uri.query().unwrap_or("");
 
-   // Check if ?prefs= parameter exists
    let prefs_param = form_urlencoded::parse(query_string.as_bytes())
       .find(|&(ref key, _)| key == "prefs")
       .map(|(_, val)| val.to_string());
 
    if let Some(prefs_value) = prefs_param {
-      // Parse prefs in "key=val,key2=val2" form
       let mut jar = CookieJar::new();
       let pref_names = Prefs::URL_PREF_NAMES;
 

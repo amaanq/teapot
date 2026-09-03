@@ -115,8 +115,6 @@ impl Query {
    pub fn build(&self) -> String {
       let mut param = String::new();
 
-      // Add from:user with OR (from users come first), wrapped in parens
-      // so the OR doesn't leak into subsequent filters.
       if !self.from_user.is_empty() {
          param.push('(');
          for (idx, user) in self.from_user.iter().enumerate() {
@@ -128,7 +126,6 @@ impl Query {
          param.push_str(") ");
       }
 
-      // Add self_threads filter for from-user queries with posts/media kind
       if !self.from_user.is_empty() && matches!(self.kind, QueryKind::Posts | QueryKind::Media) {
          param.push_str("(filter:self_threads OR -filter:replies) ");
       }
@@ -138,7 +135,6 @@ impl Query {
          param.push_str("include:nativeretweets ");
       }
 
-      // Build filters
       let mut filters = Vec::new();
       for filter in &self.filters {
          filters.push(format!("filter:{filter}"));
@@ -176,7 +172,6 @@ impl Query {
          let _ = write!(result, " -{term}");
       }
 
-      // Add text last
       if !self.text.is_empty() {
          if result.is_empty() {
             result.clone_from(&self.text);
@@ -201,7 +196,6 @@ impl Query {
 
       for part in text.split_whitespace() {
          if let Some(value) = part.strip_prefix("from:") {
-            // Handle comma-separated users
             for user in value.split(',') {
                let user = user.trim();
                if !user.is_empty() {
@@ -226,7 +220,6 @@ impl Query {
          } else if let Some(value) = part.strip_prefix("exclude:") {
             query.excludes.push(value.to_owned());
          } else if let Some(value) = part.strip_prefix("since:") {
-            // Validate date format (basic check)
             if is_valid_date(value) {
                value.clone_into(&mut query.since);
             } else {

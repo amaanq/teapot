@@ -49,13 +49,10 @@ async fn redirect_handler(
       return Err(Error::NotFound("No URL provided".into()));
    }
 
-   // Decode URL if needed
    let decoded_url = percent_decode(url);
 
-   // Get user preferences for URL replacements
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
-   // Apply URL transformations based on preferences
    let transformed = apply_url_replacements(&decoded_url, &prefs, &state.config);
 
    Ok(Redirect::to(&transformed).into_response())
@@ -69,13 +66,10 @@ async fn tco_resolver(
 ) -> Result<Response> {
    let full_url = format!("https://t.co/{url}");
 
-   // Resolve the redirect
    let resolved = resolve_url(&state, &full_url).await?;
 
-   // Get user preferences for URL replacements
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
-   // Apply URL transformations
    let transformed = apply_url_replacements(&resolved, &prefs, &state.config);
 
    Ok(Redirect::to(&transformed).into_response())
@@ -89,13 +83,10 @@ async fn card_resolver(
 ) -> Result<Response> {
    let full_url = format!("https://cards.twitter.com/cards/{card}/{id}");
 
-   // Resolve the redirect
    let resolved = resolve_url(&state, &full_url).await?;
 
-   // Get user preferences for URL replacements
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
-   // Apply URL transformations
    let transformed = apply_url_replacements(&resolved, &prefs, &state.config);
 
    Ok(Redirect::to(&transformed).into_response())
@@ -113,7 +104,6 @@ async fn resolve_url(state: &AppState, url: &str) -> Result<String> {
       .await
       .map_err(|err| Error::Internal(format!("Failed to resolve URL: {err}")))?;
 
-   // Get Location header for redirect
    if let Some(location) = response.headers().get("location") {
       let resolved = location
          .to_str()
@@ -145,7 +135,6 @@ fn apply_url_replacements(url: &str, prefs: &Prefs, config: &Config) -> String {
       result = result.replace(origin, &twitter_prefix);
    }
 
-   // Replace YouTube URLs if configured
    if !prefs.replace_youtube.is_empty() {
       result = result
          .replace("www.youtube.com", &prefs.replace_youtube)
@@ -153,7 +142,6 @@ fn apply_url_replacements(url: &str, prefs: &Prefs, config: &Config) -> String {
          .replace("youtu.be", &prefs.replace_youtube);
    }
 
-   // Replace Reddit URLs if configured
    if !prefs.replace_reddit.is_empty() {
       result = result
          .replace("old.reddit.com", &prefs.replace_reddit)

@@ -109,11 +109,9 @@ pub struct Session {
    pub apis:       HashMap<String, RateLimit>,
    pub kind:       SessionKind,
 
-   // OAuth credentials
    pub oauth_token:  String,
    pub oauth_secret: String,
 
-   // Cookie credentials
    pub auth_token: String,
    pub ct0:        String,
 }

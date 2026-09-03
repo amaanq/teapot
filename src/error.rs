@@ -265,7 +265,6 @@ impl IntoResponse for Error {
    }
 }
 
-// Twitter API error codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TwitterError {
    NoUserMatches       = 17,

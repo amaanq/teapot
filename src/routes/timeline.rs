@@ -137,14 +137,12 @@ async fn user_timeline(
    Path(username): Path<String>,
    Query(query): Query<TimelineQuery>,
 ) -> Result<Response> {
-   // Validate username
    if is_reserved_path(&username) {
       return Err(Error::InvalidUrl(format!(
          "'{username}' is a reserved path",
       )));
    }
 
-   // Check for multi-user search (comma-separated)
    if username.contains(',') {
       return multi_user_timeline(state, jar, username, query).await;
    }
@@ -153,19 +151,15 @@ async fn user_timeline(
       return Err(Error::InvalidUrl("Invalid username format".into()));
    }
 
-   // Get the tab type and validate
    let tab = query.tab.as_deref().unwrap_or("tweets");
    if !["tweets", "with_replies", "media", "search", ""].contains(&tab) {
       return Err(Error::InvalidUrl("Invalid tab parameter".into()));
    }
 
-   // Check if this is an AJAX scroll request
    let is_scroll = query.scroll.as_ref().is_some_and(|val| val == "true");
 
-   // Extract prefs from cookies
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
-   // Check cache first (only for initial page load without cursor)
    let cache_key = cache_keys::profile(&username);
    let profile_result = if query.cursor.is_none() {
       let refresh = {
@@ -202,7 +196,6 @@ async fn user_timeline(
    match profile_result {
       Ok(mut profile_data) => {
          helpers::apply_account_context(&state, &mut profile_data.user).await;
-         // For AJAX scroll requests, return only the tweets HTML
          if is_scroll {
             let (mut tweets, cursor) = extract_timeline(profile_data.tweets);
             helpers::enrich_tweet_groups(&state, &mut tweets).await;
@@ -278,7 +271,6 @@ async fn user_tab_handler(
       _ => unreachable!(),
    };
 
-   // Fetch timeline (with cache for first page)
    let fetch_timeline = async {
       let cache_key = cache_keys::timeline(username, tab);
       if cursor.is_none() {
@@ -412,7 +404,6 @@ async fn user_search(
    let search_query = query.query.as_deref().unwrap_or("");
    let search_action = format!("/{username}/search");
 
-   // When search query is empty, default to showing the user's recent tweets
    let api_query = if search_query.is_empty() {
       format!("from:{username} include:nativeretweets")
    } else {

@@ -30,7 +30,6 @@ pub fn parse_conversation(
 ) -> Result<Conversation> {
    const MIN_REPLIES_FOR_CURSOR: usize = 20;
 
-   // Single tweet result path
    if let Some(tweet_data) = data
       .tweet_result
       .as_ref()
@@ -44,7 +43,6 @@ pub fn parse_conversation(
       });
    }
 
-   // Instructions path
    let raw_instructions = data
       .threaded_conversation_with_injections_v2
       .as_ref()
@@ -57,7 +55,6 @@ pub fn parse_conversation(
    let mut after = Chain::default();
    let mut replies = PaginatedResult::<Chain>::default();
 
-   // Parse tweet_id for matching
    let target_id = tweet_id.parse().unwrap_or(0);
 
    for instruction in raw_instructions {
@@ -68,7 +65,6 @@ pub fn parse_conversation(
       for entry in instruction.entries.as_deref().unwrap_or_default() {
          let entry_id = entry.entry_id_str();
 
-         // Skip promoted content and injected suggestions (who-to-follow, etc.)
          if entry_id.contains("promoted")
             || entry_id.starts_with("who-to-follow")
             || entry_id.starts_with("tweetdetailrelatedtweets")
@@ -77,7 +73,6 @@ pub fn parse_conversation(
             continue;
          }
          if entry_id.starts_with("tweet-") {
-            // Single tweet entry -- match by ID to determine main vs before
             if let Some(tweet) = entry
                .tweet_result()
                .and_then(|result| parse_tweet_object(result).ok())
@@ -114,12 +109,10 @@ pub fn parse_conversation(
             for item in entry.items() {
                let item_id = item.entry_id_str();
 
-               // Skip promoted items inside threads
                if item_id.contains("promoted") {
                   continue;
                }
 
-               // Check for "Show more" cursor in thread
                if item_id.contains("cursor-showmore") {
                   let cursor = item.cursor_value().unwrap_or_default();
                   chain.has_more = true;
@@ -133,7 +126,6 @@ pub fn parse_conversation(
                   chain.content.push(tweet);
                }
 
-               // Check if this is a self-thread
                if item.display_type() == Some("SelfThread") {
                   is_self_thread = true;
                }
@@ -146,14 +138,13 @@ pub fn parse_conversation(
                   replies.content.push(chain);
                }
             }
-         } else if entry_id.starts_with("cursor-") {
-            // Pagination cursor
-            if let Some(cursor_value) = entry.cursor_value() {
-               if entry_id.contains("bottom") {
-                  replies.bottom = Some(cursor_value.to_owned());
-               } else if entry_id.contains("top") {
-                  replies.top = Some(cursor_value.to_owned());
-               }
+         } else if entry_id.starts_with("cursor-")
+            && let Some(cursor_value) = entry.cursor_value()
+         {
+            if entry_id.contains("bottom") {
+               replies.bottom = Some(cursor_value.to_owned());
+            } else if entry_id.contains("top") {
+               replies.top = Some(cursor_value.to_owned());
             }
          }
       }

@@ -101,13 +101,11 @@ async fn video_proxy(
    req_headers: HeaderMap,
    Path((sig, url)): Path<(String, String)>,
 ) -> Result<Response> {
-   // URL-decode the URL first
    let decoded_url = percent_encoding::percent_decode_str(&url)
       .decode_utf8()
       .map_err(|_| Error::InvalidUrl("Invalid URL encoding".into()))?
       .to_string();
 
-   // Verify HMAC signature using utility function
    if !hmac::verify(&decoded_url, &sig, &state.config.config.hmac_key) {
       return Err(Error::HmacVerification);
    }
@@ -123,7 +121,6 @@ async fn video_proxy_encoded(
    let decoded = formatters::base64_decode_url(&url)
       .ok_or_else(|| Error::InvalidUrl("Invalid base64 encoding".into()))?;
 
-   // Verify HMAC signature using utility function
    if !hmac::verify(&decoded, &sig, &state.config.config.hmac_key) {
       return Err(Error::HmacVerification);
    }
@@ -245,7 +242,6 @@ async fn serve_gif(state: &AppState, mp4_url: &str) -> Result<Response> {
       },
       Err(err) => {
          tracing::warn!("GIF transcode failed, falling back to MP4 proxy: {err}");
-         // Fall back to proxying the MP4 directly
          proxy_video(state, mp4_url, &HeaderMap::new()).await
       },
    }

@@ -44,7 +44,6 @@ pub fn render_profile_with_prefs(
    let cursor = profile.tweets.bottom.as_deref();
    let base_url = format!("/{}", profile.user.username);
 
-   // Only show pinned tweet on the main Tweets tab
    let pinned = if timeline_kind == TimelineKind::Tweets {
       profile.pinned.as_ref()
    } else {
@@ -61,7 +60,6 @@ pub fn render_profile_with_prefs(
 
    html! {
        div class="profile-tabs" {
-           // Left sidebar with profile card and photo rail
            div class=(profile_tab_class) {
                div class="profile-header" {
                    @if !hide_banner {
@@ -72,13 +70,11 @@ pub fn render_profile_with_prefs(
                    (render_user_card(&profile.user, config, prefs))
                }
 
-               // Photo rail positioned on the left side
                @if !profile.photo_rail.is_empty() {
                    (render_photo_rail(&profile.photo_rail, &profile.user, config))
                }
            }
 
-           // Check for suspended or protected account
            @if profile.user.suspended {
                div class="timeline-container" {
                    div class="timeline-header" {
@@ -94,7 +90,6 @@ pub fn render_profile_with_prefs(
                    }
                }
            } @else {
-               // Timeline container - main content area
                div class="timeline-container" {
                    (render_timeline_tabs(timeline_kind, &profile.user.username))
                    (render_timeline_with_pinned_and_prefs(groups, config, cursor, Some(&base_url), pinned, prefs, newer_url))
@@ -126,7 +121,6 @@ pub fn render_profile_page(
 
    html! {
        div class="profile-tabs" {
-           // Left sidebar
            div class=(profile_tab_class) {
                div class="profile-header" {
                    @if !hide_banner {
@@ -137,13 +131,11 @@ pub fn render_profile_page(
                    (render_user_card(user, config, Some(prefs)))
                }
 
-               // Photo rail on the left sidebar
                @if !photo_rail.is_empty() {
                    (render_photo_rail(photo_rail, user, config))
                }
            }
 
-           // Main content area
            div class="timeline-container" {
                (render_timeline_tabs(tab, &user.username))
                (timeline_content)
@@ -155,7 +147,6 @@ pub fn render_profile_page(
 /// Render a single profile stat.
 fn render_stat(num: i64, class: &str, text: &str) -> Markup {
    let display_text = if text.is_empty() {
-      // Capitalize class name
       let mut chars = class.chars();
       chars.next().map_or_else(String::new, |ch| {
          format!("{}{}", ch.to_uppercase(), chars.as_str())
@@ -395,7 +386,6 @@ fn render_photo_rail(photos: &[GalleryPhoto], user: &User, config: &Config) -> M
                }
            }
 
-           // Mobile toggle
            input id="photo-rail-grid-toggle" type="checkbox";
            label for="photo-rail-grid-toggle" class="photo-rail-header-mobile" {
                div class="photo-rail-header-mobile-inner" {

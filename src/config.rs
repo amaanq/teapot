@@ -171,7 +171,6 @@ pub struct PreferencesConfig {
    pub infinite_scroll: bool,
 }
 
-// Default value functions
 fn default_hostname() -> String {
    "localhost".to_owned()
 }
@@ -264,7 +263,6 @@ impl Config {
             "cache listMinutes and rssMinutes must be greater than zero".into(),
          ));
       }
-      // Validate GIF transcoding config
       match config.gif_transcoding.mode {
          GifTranscodingMode::Local => {
             if Command::new("ffmpeg").arg("-version").output().is_err() {

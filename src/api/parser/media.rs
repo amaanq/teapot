@@ -63,7 +63,6 @@ pub fn parse_media(legacy: &TweetLegacy) -> ParsedMedia {
             } else {
                additional_videos.push(parsed);
             }
-            // Parse media attribution from additional_media_info.source_user
             if let Some(ref info) = media.additional_media_info
                && let Some(ref source_user) = info.source_user
             {
@@ -76,7 +75,6 @@ pub fn parse_media(legacy: &TweetLegacy) -> ParsedMedia {
          _ => {},
       }
 
-      // Collect URLs that should be stripped from tweet text
       let tco_url = media.url.as_deref().unwrap_or_default();
       let expanded_url = media.expanded_url.as_deref().unwrap_or(tco_url);
       if !tco_url.is_empty() {
@@ -120,8 +118,6 @@ pub fn parse_video(media: &MediaItem) -> Video {
             RawVideoContentType::M3u8 | RawVideoContentType::Other => continue,
          };
 
-         // Parse resolution from URL paths shaped like /vid/WIDTHxHEIGHT/ or
-         // /vid/avc1/WIDTHxHEIGHT/)
          let resolution = url
             .split("/vid/")
             .nth(1)
@@ -143,10 +139,8 @@ pub fn parse_video(media: &MediaItem) -> Video {
       }
    }
 
-   // Sort variants by resolution (highest first)
    variants.sort_by_key(|var| cmp::Reverse(var.resolution));
 
-   // Check media availability via ext_media_availability
    let (available, reason) = media.ext_media_availability.as_ref().map_or_else(
       || (true, String::new()),
       |avail| {
@@ -159,7 +153,6 @@ pub fn parse_video(media: &MediaItem) -> Video {
       },
    );
 
-   // Parse video title and description from additional_media_info
    let title = media
       .additional_media_info
       .as_ref()

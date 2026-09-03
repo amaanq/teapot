@@ -103,10 +103,8 @@ async fn list_by_slug(
 ) -> Result<Response> {
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
-   // Look up list by owner username and slug
    let list = state.api.get_list_by_slug(&username, &slug).await?;
 
-   // Fetch list tweets with cursor support
    let timeline = state
       .api
       .get_list_tweets(&list.id, query.cursor.as_deref())

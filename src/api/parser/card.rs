@@ -50,7 +50,6 @@ impl TryFrom<&CardData> for Card {
    fn try_from(card: &CardData) -> Result<Self> {
       let name = card.name();
 
-      // Strip "poll2choice_" etc. prefix
       let kind_name = name.rsplit_once(':').map_or(name, |(_, suffix)| suffix);
       let kind = CardKind::from_name(kind_name);
 
@@ -74,7 +73,6 @@ impl TryFrom<&CardData> for Card {
          }
       };
 
-      // Try multiple image keys in order of preference (with _large suffix)
       let image = [
          "summary_photo_image_large",
          "player_image_large",
@@ -84,7 +82,6 @@ impl TryFrom<&CardData> for Card {
          "thumbnail_large",
          "event_thumbnail_large",
          "image_large",
-         // Fallbacks without _large suffix
          "thumbnail_image",
          "player_image",
          "summary_photo_image",
@@ -143,10 +140,8 @@ impl TryFrom<&CardData> for Card {
          CardKind::Player => {
             let player_url = bv.string("player_url");
             if !player_url.is_empty() {
-               // Convert YouTube embed URLs to watch URLs.
                // e.g. /embed/VIDEO_ID?list=LIST → /watch?v=VIDEO_ID&list=LIST
                let mut watch_url = player_url.replace("/embed/", "/watch?v=");
-               // Replace a second query marker in ?v=X?param with ?v=X&param
                if let Some(second_q) = watch_url[1..].find('?') {
                   watch_url.replace_range(second_q + 1..second_q + 2, "&");
                }
@@ -156,7 +151,6 @@ impl TryFrom<&CardData> for Card {
          _ => {},
       }
 
-      // Clear URL for DM cards
       if matches!(
          kind,
          CardKind::VideoDirectMessage | CardKind::ImageDirectMessage
@@ -183,7 +177,6 @@ fn parse_promo_video(bv: &BindingValues) -> Video {
    let thumb = bv.image("player_image_large").to_owned();
    let duration_secs = bv.string("content_duration_seconds").parse().unwrap_or(0);
 
-   // Use direct MP4 streams and skip unsupported HLS and VMAP URLs
    let raw_stream = bv.string("player_stream_url");
    let stream_url =
       if !raw_stream.is_empty() && !raw_stream.contains("m3u8") && !raw_stream.contains("vmap") {
@@ -461,11 +454,8 @@ impl TryFrom<&CardData> for Poll {
          .max_by_key(|&(_, val)| val)
          .map_or(0, |(idx, _)| idx as i64);
 
-      // Parse poll end time from end_datetime_utc (display formatting deferred
-      // to views via Poll::status_text)
       let end_time = time::OffsetDateTime::parse(bv.string("end_datetime_utc"), &Rfc3339).ok();
 
-      // Extract poll image if the card name contains "image"
       let image = if name.contains("image") {
          let img = bv.image("image_large");
          if img.is_empty() {

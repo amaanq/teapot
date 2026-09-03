@@ -41,7 +41,6 @@ pub fn parse_edit_history(data: &EditHistoryData) -> Result<EditHistory> {
                result.latest = tweet;
             }
          } else if entry_id == "staleTweets" {
-            // Previous versions
             for item in entry.items() {
                if let Some(tweet) = item
                   .tweet_result()

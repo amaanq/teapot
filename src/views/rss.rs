@@ -200,7 +200,6 @@ fn render_tweet_items_with_pinned(
 
    let mut items = Vec::new();
 
-   // Add pinned tweet first if present
    if let Some(pinned_tweet) = pinned
       && pinned_tweet.available
    {
@@ -215,12 +214,10 @@ fn render_tweet_items_with_pinned(
       if !tweet.available || Some(tweet.id) == pinned_id {
          continue;
       }
-      // Filter by userId for user timeline feeds
       if user_id.is_some_and(|uid| tweet.user.id != uid) {
          continue;
       }
       let link = tweet_link(tweet.retweet.as_deref().unwrap_or(tweet));
-      // Deduplicate by link
       if !seen_links.insert(link) {
          continue;
       }
@@ -261,7 +258,6 @@ fn get_title(tweet: &Tweet, retweet_username: &str) -> String {
       return format!("{}{}", prefix, escape_xml(&body));
    }
 
-   // Fallback to media type
    if !tweet.photos.is_empty() {
       return format!("{prefix}Image");
    }
@@ -279,11 +275,9 @@ fn get_title(tweet: &Tweet, retweet_username: &str) -> String {
 fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
    let url_prefix = config.url_prefix();
 
-   // Use replaceUrls with absolute URLs
    let text = formatters::replace_urls_abs(&tweet.text, config, url_prefix);
    let mut body = format!("<p>{}</p>", text.replace('\n', "<br>\n"));
 
-   // Photos
    if !tweet.photos.is_empty() {
       for photo in &tweet.photos {
          let pic_url = get_pic_url(&photo.url, config);
@@ -293,19 +287,18 @@ fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
          );
       }
    }
-   if let Some(ref video) = tweet.video {
-      // Render videos as linked thumbnails with a "Video" label
-      if !video.thumb.is_empty() {
-         let thumb_url = get_pic_url(&video.thumb, config);
-         let tweet_link = format!("{}{}", url_prefix, tweet_link(tweet));
-         let _ = write!(
-            body,
-            r#"<a href="{tweet_link}">
+   if let Some(ref video) = tweet.video
+      && !video.thumb.is_empty()
+   {
+      let thumb_url = get_pic_url(&video.thumb, config);
+      let tweet_link = format!("{}{}", url_prefix, tweet_link(tweet));
+      let _ = write!(
+         body,
+         r#"<a href="{tweet_link}">
 <br>Video<br>
   <img src="{url_prefix}{thumb_url}" style="max-width:250px;" />
 </a>"#
-         );
-      }
+      );
    }
    for video in &tweet.additional_videos {
       if !video.thumb.is_empty() {
@@ -321,7 +314,6 @@ fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
       }
    }
    if let Some(ref gif) = tweet.gif {
-      // Render GIFs with a <video> element
       let thumb = format!("{}{}", url_prefix, get_pic_url(&gif.thumb, config));
       let url = format!("{}{}", url_prefix, get_video_url(&gif.url, config));
       let _ = write!(
@@ -330,25 +322,22 @@ fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
   <source src="{url}" type="video/mp4"></video>"#
       );
    }
-   if let Some(ref card) = tweet.card {
-      // Card image
-      if !card.image.is_empty() {
-         let card_url = get_pic_url(&card.image, config);
-         let _ = write!(
-            body,
-            r#"<img src="{url_prefix}{card_url}" style="max-width:250px;" />"#
-         );
-      }
+   if let Some(ref card) = tweet.card
+      && !card.image.is_empty()
+   {
+      let card_url = get_pic_url(&card.image, config);
+      let _ = write!(
+         body,
+         r#"<img src="{url_prefix}{card_url}" style="max-width:250px;" />"#
+      );
    }
 
-   // Community note
    if let Some(ref note) = tweet.note {
       let note_html = community_note_to_html(note);
       let note_text = formatters::replace_urls_abs(&note_html, config, url_prefix);
       let _ = write!(body, "<p><b>Community note:</b> {note_text}</p>");
    }
 
-   // Quote tweet
    if let Some(ref quote) = tweet.quote
       && quote.available
    {
@@ -376,7 +365,6 @@ fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
 
 /// Render a single tweet as an RSS item.
 fn render_tweet_item(tweet: &Tweet, url_prefix: &str, config: &Config) -> String {
-   // Extract the inner tweet from retweets
    let retweet_username = if tweet.retweet.is_some() {
       tweet.user.username.as_str()
    } else {
@@ -407,7 +395,6 @@ fn render_tweet_item(tweet: &Tweet, url_prefix: &str, config: &Config) -> String
    let description = formatters::sanitize_xml(&render_rss_tweet(display_tweet, config))
       .replace("]]>", "]]]]><![CDATA[>");
 
-   // Use bare tweet IDs for new tweets and URLs for tweets before the cutoff
    let guid = if display_tweet.id >= GUID_CUTOFF {
       format!(
          r#"        <guid isPermaLink="false">{}</guid>"#,

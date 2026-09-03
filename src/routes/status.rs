@@ -137,7 +137,6 @@ async fn status(
    Path((username, id)): Path<(String, String)>,
    Query(query): Query<StatusQuery>,
 ) -> Result<Response> {
-   // Extract prefs from cookies
    let prefs = Prefs::from_cookies(&jar, &state.config);
    let discord_activity = headers
       .get(header::USER_AGENT)
@@ -147,7 +146,6 @@ async fn status(
    let sort = RankingMode::from_sort(query.sort.as_deref());
    let is_sorted = sort != RankingMode::Relevance;
 
-   // Fetch conversation (with cache for first page, default sort only)
    let conv_result = if query.cursor.is_none() && !is_sorted {
       let cache_key = cache_keys::conversation(&id);
       if let Some(cached) = state.cache.get(&cache_key) {
@@ -194,7 +192,6 @@ async fn status(
             }
          }
 
-         // For AJAX scroll requests, return only the replies HTML fragment.
          // Check this first because paginated responses omit the main tweet.
          if is_scroll {
             if conversation.replies.content.is_empty() {
@@ -296,7 +293,6 @@ fn render_conversation(
 ) -> Response {
    let tweet = &conversation.tweet;
 
-   // If the main tweet is unavailable (tombstone/withheld), show error
    if !tweet.available && tweet.id == 0 {
       let msg = if tweet.tombstone.is_empty() {
          "Tweet is unavailable"
@@ -307,7 +303,6 @@ fn render_conversation(
       return (StatusCode::NOT_FOUND, Html(markup.into_string())).into_response();
    }
 
-   // Build sort toggle markup (rendered inside the main tweet's stats row)
    let has_replies = !prefs.hide_replies && !conversation.replies.content.is_empty();
    let sort_toggle = (has_replies && !has_cursor).then(|| {
       let base = format!("/{username}/status/{id}");
@@ -334,7 +329,6 @@ fn render_conversation(
    let content = html! {
        div class="conversation" {
            @if has_cursor {
-               // Render paginated replies with a compact tweet header
                div class="main-thread" {
                    div class="main-tweet" id="m" {
                        (TweetRenderer::new(tweet, config, false).prefs(prefs).render())
@@ -376,7 +370,6 @@ fn render_conversation(
                        }
                    }
 
-                   // Highlight the larger main tweet and inject sorting into its stats row
                    @let has_after = !conversation.after.content.is_empty();
                    @let after_class = if has_after { "thread thread-line" } else { "" };
                    div class="main-tweet" id="m" {
@@ -414,7 +407,6 @@ fn render_conversation(
                    }
                }
 
-               // Replies section
                @if has_replies {
                    (tweet_view::render_thread_context(tweet, config))
                    div class="replies" id="r" {
@@ -430,7 +422,6 @@ fn render_conversation(
                }
            }
 
-           // Scroll to top button
            (render_to_top_with_focus("#m"))
 
        }
@@ -455,7 +446,6 @@ async fn status_by_id(
    Path(id): Path<String>,
    Query(query): Query<StatusQuery>,
 ) -> Result<Response> {
-   // Validate tweet ID is numeric
    if id.parse::<u64>().is_err() {
       return Ok((
          StatusCode::NOT_FOUND,
@@ -545,7 +535,6 @@ async fn translate(
       return Ok(StatusCode::BAD_REQUEST.into_response());
    }
 
-   // Prefer the user cookie, then server config, then Twitter Strato
    let kagi_token = jar
       .get("kagiToken")
       .map(|cookie| cookie.value().to_owned())
@@ -582,14 +571,12 @@ async fn translate(
 
 /// Lookup user by ID and redirect to their profile.
 async fn user_by_id(State(state): State<AppState>, Path(id): Path<String>) -> Result<Response> {
-   // Check cache first for ID -> username mapping
    let cache_key = cache_keys::user_id(&id);
    if let Some(username) = state.cache.get::<String>(&cache_key) {
       tracing::debug!("Cache hit for user ID: {id} -> {username}");
       return Ok(Redirect::to(&format!("/{username}")).into_response());
    }
 
-   // Fetch user from API by ID
    match state.api.get_user_by_id(&id).await {
       Ok(user) => {
          // Cache the ID -> username mapping (long TTL since IDs don't change)
@@ -656,7 +643,6 @@ async fn retweets(
    let cursor = result.bottom.as_deref();
    let base_url = format!("/{username}/status/{id}/retweets");
 
-   // Return only the user list HTML fragment for a scroll request
    if is_scroll {
       let fragment = user_list::render_user_list(
          &result.content,
@@ -707,7 +693,6 @@ async fn quotes(
    let cursor = timeline.bottom.as_deref();
    let base_url = format!("/{username}/status/{id}/quotes");
 
-   // Return only the timeline HTML fragment for a scroll request
    if is_scroll {
       let fragment = render_timeline_with_prefs(
          &groups,
@@ -740,7 +725,6 @@ async fn edit_history(
    jar: CookieJar,
    Path((username, id)): Path<(String, String)>,
 ) -> Result<Response> {
-   // Validate tweet ID
    if id.len() > 19 || !id.chars().all(|ch| ch.is_ascii_digit()) {
       let markup = layout::render_error(&state.config, "Not Found", "Invalid tweet ID");
       return Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response());
