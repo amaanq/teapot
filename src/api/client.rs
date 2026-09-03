@@ -336,6 +336,12 @@ impl ApiClient {
          return Ok(());
       };
 
+      if error.code == 214 && error.message.contains("Unknown request cursor") {
+         return Err(Error::InvalidUrl(
+            "This page has expired. Go back and try again.".into(),
+         ));
+      }
+
       if let Some(twitter_err) = TwitterError::from_code(error.code) {
          return match twitter_err {
             TwitterError::UserNotFound | TwitterError::NoUserMatches => {
