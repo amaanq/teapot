@@ -56,7 +56,7 @@ pub fn og_images(tweet: &Tweet) -> Vec<&str> {
       .video
       .as_ref()
       .map(|vid| vid.thumb.as_str())
-      .or_else(|| tweet.gif.as_ref().map(|gif| gif.thumb.as_str()))
+      .or_else(|| tweet.gifs.first().map(|gif| gif.thumb.as_str()))
       .or_else(|| tweet.card.as_ref().map(|card| card.image.as_str()))
       .filter(|th| !th.is_empty());
    thumb.into_iter().collect()
@@ -108,7 +108,7 @@ fn video_source_with_quote(tweet: &Tweet) -> Option<(&Tweet, &Video)> {
 
 /// Get the GIF source tweet and media, falling back to quote tweet.
 fn gif_source_with_quote(tweet: &Tweet) -> Option<(&Tweet, &Gif)> {
-   with_quote_media_source(tweet, |tw| tw.gif.as_ref())
+   with_quote_media_source(tweet, |tw| tw.gifs.first())
 }
 
 struct VideoEmbedMedia<'a> {

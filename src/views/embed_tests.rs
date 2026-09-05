@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-   api::schema::CommunityNote,
+   api::schema::{
+      CommunityNote,
+      TweetData,
+   },
    config::{
       AppConfig,
       CacheConfig,
@@ -467,7 +470,7 @@ fn activity_payload_renders_poll_and_quote_blocks() {
 #[test]
 fn activity_payload_uses_image_attachment_for_transcoded_gif() {
    let mut tweet = tweet(407, "gif", "animated");
-   tweet.gif = Some(Gif {
+   tweet.gifs.push(Gif {
       url:      "https://video.twimg.com/tweet_video/animation.mp4".to_owned(),
       thumb:    "https://pbs.twimg.com/tweet_video_thumb/animation.jpg".to_owned(),
       alt_text: "animation alt text".to_owned(),
@@ -487,6 +490,103 @@ fn activity_payload_uses_image_attachment_for_transcoded_gif() {
       attachment.description.as_deref(),
       Some("animation alt text")
    );
+}
+
+fn four_gif_tweet() -> Tweet {
+   let media = (0..4)
+      .map(|index| {
+         serde_json::json!({
+            "type": "animated_gif",
+            "media_url_https": format!("https://pbs.twimg.com/tweet_video_thumb/{index}.jpg"),
+            "ext_alt_text": format!("animation {index}"),
+            "original_info": { "width": 400, "height": 300 },
+            "video_info": {
+               "variants": [{
+                  "content_type": "video/mp4",
+                  "url": format!("https://video.twimg.com/tweet_video/{index}.mp4")
+               }]
+            }
+         })
+      })
+      .collect::<Vec<_>>();
+   let raw = serde_json::from_value::<TweetData>(serde_json::json!({
+      "rest_id": "2096201974953714040",
+      "legacy": {
+         "full_text": "four GIFs",
+         "extended_entities": { "media": media }
+      }
+   }))
+   .unwrap();
+   Tweet::try_from(&raw).unwrap()
+}
+
+#[test]
+fn multiple_gifs_survive_parsing_in_order() {
+   let status = four_gif_tweet();
+   assert!(status.has_media());
+   assert_eq!(status.gifs.len(), 4);
+   for (index, gif) in status.gifs.iter().enumerate() {
+      assert_eq!(
+         gif.url,
+         format!("https://video.twimg.com/tweet_video/{index}.mp4")
+      );
+      assert_eq!(gif.alt_text, format!("animation {index}"));
+      assert_eq!((gif.width, gif.height), (400, 300));
+   }
+}
+
+#[test]
+fn posts_and_quotes_render_every_gif() {
+   let status = four_gif_tweet();
+   let mut outer = tweet(408, "outer", "quoted GIFs");
+   outer.quote = Some(Box::new(status.clone()));
+   let config = test_config();
+   for post in [&status, &outer] {
+      for is_main in [false, true] {
+         let rendered =
+            crate::views::tweet::TweetRenderer::new(post, &config, &Prefs::default(), is_main)
+               .render()
+               .into_string();
+         assert_eq!(rendered.matches("<video ").count(), 4);
+         let mut remaining = rendered.as_str();
+         for gif in &status.gifs {
+            let source = formatters::get_vid_url(
+               &gif.url,
+               &config.config.hmac_key,
+               config.config.base64_media,
+            );
+            remaining = remaining.split_once(&source).unwrap().1;
+         }
+      }
+   }
+}
+
+#[test]
+fn activity_payload_preserves_every_gif_in_all_transcoding_modes() {
+   let status = four_gif_tweet();
+   let mut config = test_config();
+   config.gif_transcoding.external_domain = "gifs.teapot.test".to_owned();
+   for mode in [
+      GifTranscodingMode::Local,
+      GifTranscodingMode::External,
+      GifTranscodingMode::Off,
+   ] {
+      config.gif_transcoding.mode = mode;
+      let activity = build_activity_pub(&status, &config);
+      assert_eq!(activity.media_attachments.len(), 4);
+      for (index, attachment) in activity.media_attachments.iter().enumerate() {
+         assert_eq!(attachment.id, format!("{}-gif-{index}", status.id));
+         assert_eq!(attachment.description, Some(format!("animation {index}")));
+         assert_eq!(
+            attachment.type_,
+            if mode == GifTranscodingMode::Off {
+               "video"
+            } else {
+               "image"
+            }
+         );
+      }
+   }
 }
 
 #[test]

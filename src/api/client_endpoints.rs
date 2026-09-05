@@ -930,7 +930,7 @@ impl ApiClient {
             Some(tweet.photos.swap_remove(0).url)
          } else if let Some(video) = tweet.video.take() {
             (!video.thumb.is_empty()).then_some(video.thumb)
-         } else if let Some(gif) = tweet.gif.take() {
+         } else if let Some(gif) = tweet.gifs.into_iter().next() {
             (!gif.thumb.is_empty()).then_some(gif.thumb)
          } else if let Some(card) = tweet.card.take() {
             (!card.image.is_empty()).then_some(card.image)

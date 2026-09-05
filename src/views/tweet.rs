@@ -313,7 +313,7 @@ impl<'a> TweetRenderer<'a> {
                       (render_video(video, config, prefs))
                   }
 
-                  @if let Some(ref gif) = display_tweet.gif {
+                  @for gif in &display_tweet.gifs {
                       @let autoplay_gifs = prefs.autoplay_gifs;
                       @let poster = get_small_pic(&gif.thumb, config);
                       @let gif_src = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
@@ -556,7 +556,7 @@ fn render_quote(quote: &Tweet, config: &Config, prefs: &Prefs) -> Markup {
            @for video in &quote.additional_videos {
                (render_video(video, config, prefs))
            }
-           @if let Some(ref gif) = quote.gif {
+           @for gif in &quote.gifs {
                @let gif_url = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
                div class="attachments media-gif" {
                    div class="gallery-gif" style="max-height: unset" {

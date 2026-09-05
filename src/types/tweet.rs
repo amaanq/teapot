@@ -322,7 +322,7 @@ pub struct Tweet {
    pub quote:                   Option<Box<Self>>,
    pub card:                    Option<Card>,
    pub poll:                    Option<Poll>,
-   pub gif:                     Option<Gif>,
+   pub gifs:                    Vec<Gif>,
    pub video:                   Option<Video>,
    pub additional_videos:       Vec<Video>,
    pub photos:                  Vec<Photo>,
@@ -360,6 +360,6 @@ impl Tweet {
       !self.photos.is_empty()
          || self.video.is_some()
          || !self.additional_videos.is_empty()
-         || self.gif.is_some()
+         || !self.gifs.is_empty()
    }
 }

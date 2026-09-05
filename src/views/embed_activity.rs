@@ -309,15 +309,18 @@ fn build_media_attachments(
       ));
    }
 
-   if let Some(ref gif) = tweet.gif
-      && !gif.url.is_empty()
+   for (index, gif) in tweet
+      .gifs
+      .iter()
+      .enumerate()
+      .filter(|&(_, gif)| !gif.url.is_empty())
    {
       let (width, height) = dimensions_or(gif.width, gif.height, (480, 480));
       let description = (!gif.alt_text.is_empty()).then(|| gif.alt_text.clone());
       match config.gif_transcoding.mode {
          GifTranscodingMode::Local => {
             attachments.push(make_attachment(
-               format!("{}-gif-0", tweet.id),
+               format!("{}-gif-{index}", tweet.id),
                "image",
                full_media_url(
                   url_prefix,
@@ -335,7 +338,7 @@ fn build_media_attachments(
          },
          GifTranscodingMode::External => {
             attachments.push(make_attachment(
-               format!("{}-gif-0", tweet.id),
+               format!("{}-gif-{index}", tweet.id),
                "image",
                formatters::get_external_gif_url(&gif.url, &config.gif_transcoding.external_domain),
                None,
@@ -346,7 +349,7 @@ fn build_media_attachments(
          },
          GifTranscodingMode::Off => {
             attachments.push(make_attachment(
-               format!("{}-gif-0", tweet.id),
+               format!("{}-gif-{index}", tweet.id),
                "video",
                full_media_url(
                   url_prefix,
@@ -379,7 +382,7 @@ fn append_media_overflow(content: &mut String, tweet: &Tweet, config: &Config) {
    let count = usize::from(tweet.video.is_some())
       + tweet.additional_videos.len()
       + tweet.photos.len()
-      + usize::from(tweet.gif.is_some());
+      + tweet.gifs.len();
    let url = format!(
       "{}/{}/status/{}",
       config.url_prefix(),

@@ -264,7 +264,7 @@ fn get_title(tweet: &Tweet, retweet_username: &str) -> String {
    if tweet.video.is_some() {
       return format!("{prefix}Video");
    }
-   if tweet.gif.is_some() {
+   if !tweet.gifs.is_empty() {
       return format!("{prefix}Gif");
    }
 
@@ -313,7 +313,7 @@ fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
          );
       }
    }
-   if let Some(ref gif) = tweet.gif {
+   for gif in &tweet.gifs {
       let thumb = format!("{}{}", url_prefix, get_pic_url(&gif.thumb, config));
       let url = format!("{}{}", url_prefix, get_video_url(&gif.url, config));
       let _ = write!(
