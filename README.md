@@ -1,5 +1,11 @@
 # teapot
 
+## Public instances
+
+- [teapot.amaanq.com](https://teapot.amaanq.com) - A demo instance I have deployed
+  (not intended for mass traffic)
+- [nitter.cf](https://nitter.cf) - public instance (backup: [xitter.cf](https://xitter.cf))
+
 A privacy-focused Twitter/X frontend written in Rust.
 
 ## Features
