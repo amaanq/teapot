@@ -7,8 +7,8 @@ hostname           = "localhost"
 httpMaxConnections = 100
 https              = false       # Set to true when using HTTPS
 port               = 8080
-# Should probably be set if you're using a reverse proxy, or else embed media won't work due to port being inside of the domain. For example og:image will link https://teapot.domain.com:8080 instead of https://teapot.domain.com
-# publicPort       = 443 
+# Needed especially if teapot is behind a reverse proxy
+publicPort         = 443 
 staticDir          = "./public"
 title              = "teapot"
 
