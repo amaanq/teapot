@@ -1,0 +1,62 @@
+/*
+ * Nord Light — Snow Storm ambiance
+ * Palette: https://www.nordtheme.com/docs/colors-and-palettes
+ */
+
+body {
+  --bg_color: #eceff4;
+  --fg_color: #2e3440;
+  --fg_faded: #4c566a;
+  --fg_dark: #3b4252;
+  --fg_nav: #5e81ac;
+
+  --bg_panel: #e5e9f0;
+  --bg_elements: #d8dee9;
+  --bg_overlays: #d8dee9;
+  --bg_hover: #d8dee9;
+
+  --grey: #4c566a;
+  --dark_grey: #d8dee9;
+  --darker_grey: #d8dee9;
+  --darkest_grey: #e5e9f0;
+  --border_grey: #d8dee9;
+
+  --accent: #5e81ac;
+  --accent_light: #81a1c1;
+  --accent_dark: #5e81ac;
+  --accent_border: #81a1c1;
+
+  --play_button: #5e81ac;
+  --play_button_hover: #2e3440;
+  --more_replies_dots: #5e81ac;
+  --error_red: #bf616a;
+
+  --verified_blue: #5e81ac;
+  --verified_business: #d08770;
+  --verified_government: #4c566a;
+  --icon_text: #eceff4;
+
+  --tab: #4c566a;
+  --tab_selected: #5e81ac;
+  --profile_stat: #2e3440;
+
+  --shadow: rgba(46, 52, 64, 0.12);
+  --shadow_dark: rgba(46, 52, 64, 0.24);
+
+  --tp-error: #bf616a;
+  --tp-error-container: #bf616a;
+  --tp-on-error-container: #eceff4;
+  --tp-accent-red: #bf616a;
+  --tp-accent-green: #a3be8c;
+  --tp-accent-yellow: #ebcb8b;
+  --tp-accent-blue: #5e81ac;
+  --tp-accent-magenta: #b48ead;
+  --tp-accent-cyan: #8fbcbb;
+
+  background-color: var(--bg_color);
+  color: var(--fg_color);
+}
+
+.search-bar > form input::placeholder {
+  color: var(--fg_faded);
+}

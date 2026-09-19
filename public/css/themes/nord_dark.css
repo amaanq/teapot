@@ -1,0 +1,62 @@
+/*
+ * Nord Dark — Polar Night ambiance
+ * Palette: https://www.nordtheme.com/docs/colors-and-palettes
+ */
+
+body {
+  --bg_color: #2e3440;
+  --fg_color: #eceff4;
+  --fg_faded: #81a1c1;
+  --fg_dark: #d8dee9;
+  --fg_nav: #88c0d0;
+
+  --bg_panel: #3b4252;
+  --bg_elements: #434c5e;
+  --bg_overlays: #434c5e;
+  --bg_hover: #4c566a;
+
+  --grey: #81a1c1;
+  --dark_grey: #434c5e;
+  --darker_grey: #3b4252;
+  --darkest_grey: #3b4252;
+  --border_grey: #4c566a;
+
+  --accent: #88c0d0;
+  --accent_light: #8fbcbb;
+  --accent_dark: #5e81ac;
+  --accent_border: #81a1c1;
+
+  --play_button: #88c0d0;
+  --play_button_hover: #8fbcbb;
+  --more_replies_dots: #81a1c1;
+  --error_red: #bf616a;
+
+  --verified_blue: #88c0d0;
+  --verified_business: #ebcb8b;
+  --verified_government: #4c566a;
+  --icon_text: #2e3440;
+
+  --tab: #4c566a;
+  --tab_selected: #88c0d0;
+  --profile_stat: #d8dee9;
+
+  --shadow: rgba(46, 52, 64, 0.40);
+  --shadow_dark: rgba(46, 52, 64, 0.64);
+
+  --tp-error: #bf616a;
+  --tp-error-container: #bf616a;
+  --tp-on-error-container: #eceff4;
+  --tp-accent-red: #bf616a;
+  --tp-accent-green: #a3be8c;
+  --tp-accent-yellow: #ebcb8b;
+  --tp-accent-blue: #81a1c1;
+  --tp-accent-magenta: #b48ead;
+  --tp-accent-cyan: #8fbcbb;
+
+  background-color: var(--bg_color);
+  color: var(--fg_color);
+}
+
+.search-bar > form input::placeholder {
+  color: var(--fg_faded);
+}
