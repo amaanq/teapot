@@ -1,6 +1,19 @@
 "use strict";
 
 document.addEventListener("click", async (event) => {
+  const target = event.target;
+  const accountDetails = target instanceof Element
+    ? target.closest(".tweet-account-trigger, .account-context-trigger")
+    : null;
+
+  if (!accountDetails) {
+    document
+      .querySelectorAll(".tweet-account-trigger[open], .account-context-trigger[open]")
+      .forEach((details) => {
+        details.removeAttribute("open");
+      });
+  }
+
   const button = event.target.closest(".copy-btn");
   if (!button) return;
 

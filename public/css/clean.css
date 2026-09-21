@@ -189,6 +189,10 @@ main .container {
   pointer-events: all;
 }
 .tweet-account-trigger[open] { z-index: 90; }
+.timeline:has(.tweet-account-trigger[open]),
+.quote:has(.tweet-account-trigger[open]) {
+  overflow: visible;
+}
 .timeline-item:has(.tweet-account-trigger[open]) {
   z-index: 95;
   overflow: visible;
@@ -487,6 +491,18 @@ main .container {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.account-signal-flag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+}
+.account-signal > .icon-location,
+.tweet-account-location > .icon-location {
+  color: var(--accent);
 }
 .profile-card-extra { display: block; }
 .profile-card-extra .profile-bio { margin: 16px 0 12px; font-size: 14px; }
@@ -1060,7 +1076,7 @@ input[type="text"], input[type="date"], input[type="number"], select {
   display: -webkit-box;
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 16px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
