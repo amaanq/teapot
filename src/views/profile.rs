@@ -19,7 +19,13 @@ use crate::{
       tweet::GalleryPhoto,
       user::User,
    },
-   utils::formatters,
+   utils::{
+      country::{
+         display_name as country_display_name,
+         flag as country_flag,
+      },
+      formatters,
+   },
    views::renderutils::{
       gen_img,
       get_avatar_class,
@@ -199,19 +205,18 @@ fn render_account_context(user: &User) -> Markup {
    if user.account_based_in.is_empty() && user.connection_source.is_empty() {
       return Markup::default();
    }
+   let country = country_display_name(&user.account_based_in);
 
    html! {
        details class="account-context-trigger" {
            summary class="account-signal" title="Show X-reported account information" {
-               span class="account-signal-info" aria-hidden="true" { "i" }
-               span class="sr-only" { "Account based in" }
-               strong {
-                   @if user.account_based_in.is_empty() {
-                       "Unknown"
-                   } @else {
-                       (user.account_based_in)
-                   }
+               @if let Some(flag) = country_flag(country) {
+                   span class="account-signal-flag" role="img" aria-label=(country) { (flag) }
+               } @else {
+                   span class="icon-location" role="img"
+                        aria-label=(if country.is_empty() { "Account information" } else { country }) {}
                }
+               span class="sr-only" { "Account based in" }
                @if user.location_accurate == Some(false) {
                    span class="account-signal-warning"
                         title="X says this location may be affected by a proxy or VPN" { "!" }
@@ -226,7 +231,7 @@ fn render_account_context(user: &User) -> Markup {
                    @if !user.account_based_in.is_empty() {
                        div class="account-context-row" {
                            dt { "Account based in" }
-                           dd { (user.account_based_in) }
+                           dd { (country) }
                        }
                    }
                    @if !user.connection_source.is_empty() {
