@@ -170,10 +170,12 @@ main .container {
   vertical-align: middle;
 }
 .verified-icon svg { display: block; width: 15px; height: 15px; fill: currentColor; }
+.verified-icon .verified-badge-bg { fill: currentColor; }
+.verified-icon .verified-badge-check { fill: #fff; }
 .verified-icon.blue { color: var(--verified_blue); }
 .verified-icon.business { color: var(--verified_business); }
 .verified-icon.government { color: var(--verified_government); }
-.tweet-content { color: var(--text); line-height: 1.5; }
+.tweet-content { color: var(--text); line-height: 1.5; font-weight: 400; }
 .tweet-stats { margin-top: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
 .retweet-header, .pinned { color: var(--muted); font-size: 13px; }
 .tweet-link:hover { background: transparent; }

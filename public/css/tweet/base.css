@@ -16,6 +16,7 @@
 
 .tweet-content {
   line-height: 1.3em;
+  font-weight: 450;
   pointer-events: all;
   display: inline;
 }
