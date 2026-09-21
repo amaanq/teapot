@@ -45,7 +45,7 @@ rustls = {
     "std",
     "tls12",
   ],
-  version = "0.23.42",
+  version = "0.23.45",
 }
 rustls-native-certs = "0.8.4"
 serde = { features = [ "derive" ], version = "1.0.228" }
