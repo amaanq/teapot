@@ -1110,7 +1110,8 @@ input[type="text"], input[type="date"], input[type="number"], select {
 .reply > .timeline-item:only-child {
   border-radius: 9px;
 }
-.main-thread { margin-bottom: 16px; border-top: 3px solid var(--accent); }
+.main-thread { margin-bottom: 16px; }
+.main-thread .timeline-item { background: transparent; }
 .reply { margin-bottom: 14px; }
 .conversation .replies > .show-more {
   display: flex !important;
