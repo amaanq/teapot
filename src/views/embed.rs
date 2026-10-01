@@ -8,6 +8,7 @@ use maud::{
 use time::format_description::well_known::Rfc3339;
 
 use super::{
+   embed_activity::ActivityId,
    layout::strip_html,
    tweet::TweetRenderer,
 };
@@ -579,9 +580,10 @@ pub fn render_status_page(
    config: &Config,
    username: &str,
    id: &str,
-   discord_activity: bool,
+   activity: Option<ActivityId>,
 ) -> Markup {
    let url_prefix = config.url_prefix();
+   let discord_activity = activity.is_some();
    let oembed_url = build_oembed_url(tweet, config);
 
    let title = format!(
@@ -622,11 +624,11 @@ pub fn render_status_page(
        meta property="og:title" content=(og_title);
        meta property="og:description" content=(description);
        meta property="og:site_name" content=(embed_provider_name(tweet, config));
-       @if discord_activity {
+       @if let Some(activity) = activity {
            // Discord recognizes this as a Mastodon status, then requests
            // `/api/v1/statuses/{id}` from the same host.
             link rel="alternate"
-                href=(format!("{url_prefix}/users/{username}/statuses/{id}"))
+                href=(format!("{url_prefix}/users/{username}/statuses/{activity}"))
                 type="application/activity+json";
        }
 

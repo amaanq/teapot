@@ -40,6 +40,7 @@ use crate::{
    views::{
       embed as embed_view,
       embed_activity,
+      embed_activity::ActivityId,
       layout::strip_html,
    },
 };
@@ -71,10 +72,10 @@ pub fn router() -> Router<AppState> {
         // Legacy embed URL support (Twitter's old embed format)
         .route("/embed/Tweet.html", get(legacy_embed_redirect))
         // ActivityPub endpoint for Discord multi-image support
-        .route("/users/{username}/statuses/{id}", get(activity_pub_status))
+        .route("/users/{username}/statuses/{status}", get(activity_pub_status))
         // Discord turns the Mastodon-looking discovery URL above into this
         // API request. The discovery URL itself is not the JSON endpoint.
-        .route("/api/v1/statuses/{id}", get(mastodon_status))
+        .route("/api/v1/statuses/{status}", get(mastodon_status))
         .route("/owoembed", get(oembed))
         .route("/oembed", get(oembed_standard))
 }
@@ -120,9 +121,10 @@ async fn video_embed(State(state): State<AppState>, Path(id): Path<String>) -> R
 /// Discord fetches this to get all media attachments for carousel display.
 async fn activity_pub_status(
    State(state): State<AppState>,
-   Path((username, id)): Path<(String, String)>,
+   Path((username, status)): Path<(String, String)>,
    headers: HeaderMap,
 ) -> Result<Response> {
+   let activity = status.parse::<ActivityId>()?;
    let accept = headers
       .get(header::ACCEPT)
       .and_then(|hv| hv.to_str().ok())
@@ -141,23 +143,23 @@ async fn activity_pub_status(
       || accept.contains("application/activity+json")
       || accept.contains("application/ld+json")
    {
-      return activity_response(&state, &id).await;
+      return activity_response(&state, activity).await;
    }
 
    // Otherwise redirect to normal status page
-   Ok(Redirect::to(&format!("/{username}/status/{id}")).into_response())
+   Ok(Redirect::to(&format!("/{username}/status/{}", activity.tweet())).into_response())
 }
 
 /// Mastodon API v1 status endpoint used by Discord after discovery.
 async fn mastodon_status(
    State(state): State<AppState>,
-   Path(id): Path<String>,
+   Path(status): Path<String>,
 ) -> Result<Response> {
-   activity_response(&state, &id).await
+   activity_response(&state, status.parse()?).await
 }
 
-async fn activity_response(state: &AppState, id: &str) -> Result<Response> {
-   let conversation = cached_conversation(state, id).await?;
+async fn activity_response(state: &AppState, activity: ActivityId) -> Result<Response> {
+   let conversation = cached_conversation(state, &activity.tweet().to_string()).await?;
    let reply_id = conversation.tweet.reply_id;
    let mut replied_to = if reply_id > 0 {
       conversation
@@ -170,6 +172,9 @@ async fn activity_response(state: &AppState, id: &str) -> Result<Response> {
       None
    };
    let mut tweet = conversation.tweet;
+   if let Some(idx) = activity.photo_idx() {
+      tweet.keep_only_photo(idx);
+   }
 
    if replied_to.is_none() && reply_id > 0 && reply_id != tweet.id {
       replied_to = cached_conversation(state, &reply_id.to_string())
@@ -188,15 +193,16 @@ async fn activity_response(state: &AppState, id: &str) -> Result<Response> {
       }
    }
 
-   let activity = replied_to.as_ref().map_or_else(
+   let mut note = replied_to.as_ref().map_or_else(
       || embed_activity::build_activity_pub(&tweet, &state.config),
       |original| {
          embed_activity::build_activity_pub_with_reply(&tweet, Some(original), &state.config)
       },
    );
+   note.id = activity.to_string();
    Ok((
       [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-      Json(activity),
+      Json(note),
    )
       .into_response())
 }

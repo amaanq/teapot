@@ -311,7 +311,7 @@ fn activity_payload_renders_live_broadcast_preview() {
       &test_config(),
       "tbpn",
       "406",
-      true,
+      Some(ActivityId::new(406, None)),
    )
    .into_string();
    let image_url = format!(
@@ -688,7 +688,7 @@ fn status_page_uses_author_first_embed_metadata() {
       &test_config(),
       "G2CSGO",
       "400",
-      false,
+      None,
    )
    .into_string();
 
@@ -726,7 +726,7 @@ fn discord_activity_page_defers_photo_media_to_mastodon_api() {
       &test_config(),
       "photos",
       "401",
-      true,
+      Some(ActivityId::new(401, None)),
    )
    .into_string();
 
@@ -750,7 +750,7 @@ fn discord_activity_page_uses_avatar_for_text_only_status() {
       &test_config(),
       "plain",
       "402",
-      true,
+      Some(ActivityId::new(402, None)),
    )
    .into_string();
 
@@ -776,7 +776,7 @@ fn generic_photo_metadata_includes_real_dimensions() {
       &test_config(),
       "photos",
       "403",
-      false,
+      None,
    )
    .into_string();
 
