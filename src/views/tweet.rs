@@ -184,9 +184,9 @@ impl<'a> TweetRenderer<'a> {
          classes.push(extra_class);
       }
       match thread_ctx {
-         ThreadContext::Start => classes.push("thread-first"),
-         ThreadContext::Middle => classes.push("thread-middle"),
-         ThreadContext::End => classes.push("thread-last"),
+         ThreadContext::Start => classes.extend(["thread", "thread-first"]),
+         ThreadContext::Middle => classes.extend(["thread", "thread-middle"]),
+         ThreadContext::End => classes.extend(["thread", "thread-last"]),
          ThreadContext::None => {},
       }
       let class = classes.join(" ");

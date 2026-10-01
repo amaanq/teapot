@@ -985,12 +985,12 @@ input[type="text"], input[type="date"], input[type="number"], select {
 .thread-line .timeline-item.thread:not(.thread-last)::after {
   content: "";
   position: absolute;
-  z-index: 1;
+  z-index: 3;
   left: 38px;
   top: 68px;
   bottom: -16px;
   width: 2px;
-  background: var(--line);
+  background: color-mix(in srgb, var(--muted) 60%, var(--surface));
   pointer-events: none;
 }
 
@@ -1184,7 +1184,7 @@ input[type="text"], input[type="date"], input[type="number"], select {
   color: var(--text);
   text-decoration: none;
 }
-.reply.thread-line > .timeline-item + .timeline-item { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.reply.thread-line > .timeline-item + .timeline-item { border-top: 0; }
 .reply.thread-line > .timeline-item.thread { background: transparent; }
 .reply.thread-line > .more-replies,
 .after-tweet.thread-line > .more-replies {
