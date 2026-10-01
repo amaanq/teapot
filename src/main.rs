@@ -21,6 +21,8 @@ use std::{
 
 use axum::{
    Router,
+   ServiceExt,
+   extract::Request,
    http::{
       StatusCode,
       header::HeaderValue,
@@ -29,8 +31,12 @@ use axum::{
 };
 use hyper::header;
 use tokio::net::TcpListener;
-use tower::limit::ConcurrencyLimitLayer;
+use tower::{
+   Layer as _,
+   limit::ConcurrencyLimitLayer,
+};
 use tower_http::{
+   normalize_path::NormalizePathLayer,
    services::{
       ServeDir,
       ServeFile,
@@ -236,7 +242,9 @@ async fn main() -> eyre::Result<()> {
    tracing::info!("Listening on {addr}");
    axum::serve(
       listener,
-      app.into_make_service_with_connect_info::<SocketAddr>(),
+      ServiceExt::<Request>::into_make_service_with_connect_info::<SocketAddr>(
+         NormalizePathLayer::trim_trailing_slash().layer(app),
+      ),
    )
    .await?;
 

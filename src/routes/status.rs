@@ -66,6 +66,12 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
+struct StatusParams {
+   username: String,
+   id:       String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct StatusQuery {
    pub cursor: Option<String>,
    pub scroll: Option<String>,
@@ -121,8 +127,8 @@ async fn thread_redirect(Path((username, id)): Path<(String, String)>) -> Respon
 }
 
 /// Redirect legacy media URLs (photo/video/history) to the main status page.
-async fn status_media_redirect(Path((username, id)): Path<(String, String)>) -> Response {
-   Redirect::to(&format!("/{username}/status/{id}")).into_response()
+async fn status_media_redirect(Path(params): Path<StatusParams>) -> Response {
+   Redirect::to(&format!("/{}/status/{}", params.username, params.id)).into_response()
 }
 
 #[expect(
