@@ -24,6 +24,7 @@ use super::{
    },
    endpoints,
    http::HttpClient,
+   query_ids::QueryIds,
    tid::TidClient,
 };
 use crate::{
@@ -239,6 +240,7 @@ pub struct ApiClient {
    client:      HttpClient,
    sessions:    SessionPool,
    tid:         TidClient,
+   query_ids:   QueryIds,
    budget:      ClientBudget,
    tid_enabled: bool,
 }
@@ -272,11 +274,13 @@ impl ApiClient {
          HttpClient::new(api_proxy, &config.config.proxy_auth).with_default_headers(headers);
 
       let tid = TidClient::new(client.clone(), sessions.clone());
+      let query_ids = QueryIds::new(client.clone(), sessions.clone());
 
       Self {
          client,
          sessions,
          tid,
+         query_ids,
          budget: ClientBudget::new(config.config.client_budget),
          tid_enabled: !config.config.disable_tid,
       }
@@ -505,9 +509,9 @@ impl ApiClient {
    where
       T: DeserializeOwned,
    {
-      let base_url = match session.kind {
-         SessionKind::OAuth => endpoints::API_URL,
-         SessionKind::Cookie => endpoints::GRAPHQL_URL,
+      let (base_url, path) = match session.kind {
+         SessionKind::OAuth => (endpoints::API_URL, endpoint.into()),
+         SessionKind::Cookie => (endpoints::GRAPHQL_URL, self.query_ids.resolve(endpoint)),
       };
 
       let url = {
@@ -517,21 +521,20 @@ impl ApiClient {
          if let Some(toggles) = field_toggles {
             qs.append_pair("fieldToggles", toggles);
          }
-         format!("{base_url}/{endpoint}?{}", qs.finish())
+         format!("{base_url}/{path}?{}", qs.finish())
       };
       let headers = self
-         .graphql_headers(
-            session,
-            base_url,
-            endpoint,
-            variables,
-            features,
-            field_toggles,
-         )
+         .graphql_headers(session, base_url, &path, variables, features, field_toggles)
          .await?;
 
       let response = self.client.get_with_headers(&url, &headers).await?;
-      let (bytes, limit_recorded) = self.account_response(session, endpoint, response).await?;
+      let accounted = self.account_response(session, endpoint, response).await;
+
+      if session.kind == SessionKind::Cookie && matches!(accounted, Err(Error::TransientUpstream)) {
+         self.query_ids.mark_stale();
+      }
+
+      let (bytes, limit_recorded) = accounted?;
 
       // Mark the session as limited on token errors so the retry picks
       // a different one.

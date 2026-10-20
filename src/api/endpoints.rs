@@ -37,6 +37,24 @@ pub const GRAPH_TWEET_EDIT_HISTORY: &str = "upS9teTSG45aljmP9oTuXA/TweetEditHist
 pub const GRAPH_RETWEETERS: &str = "tj-dlOvzRKjw69iy4z3LzQ/Retweeters";
 pub const GRAPH_ABOUT_ACCOUNT: &str = "XRqGa7EeokUU5kppkh13EA/AboutAccountQuery";
 pub const GRAPH_AUDIO_SPACE: &str = "xpwpkJD3FetGBaSq7zH4Lw/AudioSpaceById";
+
+/// Operations the logged-in web client ships, so [`super::query_ids`] can track
+/// their live IDs. The rest are app-only and keep their compiled IDs.
+pub const WEB_OPERATIONS: [&str; 12] = [
+   GRAPH_USER,
+   GRAPH_USER_TWEETS,
+   GRAPH_USER_MEDIA,
+   GRAPH_TWEET_DETAIL,
+   GRAPH_SEARCH_TIMELINE,
+   GRAPH_LIST_BY_ID,
+   GRAPH_LIST_BY_SLUG,
+   GRAPH_LIST_MEMBERS,
+   GRAPH_USER_TWEETS_AND_REPLIES,
+   GRAPH_TWEET_EDIT_HISTORY,
+   GRAPH_RETWEETERS,
+   GRAPH_AUDIO_SPACE,
+];
+
 pub const BROADCAST_SHOW_PATH: &str = "/i/api/1.1/broadcasts/show.json";
 
 /// Strato translation keeps its own budget, so it must not be accounted

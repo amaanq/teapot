@@ -4,6 +4,7 @@ pub mod client;
 mod endpoints;
 pub mod http;
 mod parser;
+mod query_ids;
 pub mod schema;
 pub mod schema_responses;
 pub mod tid;

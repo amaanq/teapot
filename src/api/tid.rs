@@ -101,46 +101,7 @@ impl TidClient {
    /// Fetch the x.com homepage and ondemand JS to create a new
    /// [`ClientTransaction`].
    async fn fetch_client(&self) -> Result<ClientTransaction, String> {
-      let mut headers = HeaderMap::new();
-      headers.insert(header::USER_AGENT, endpoints::USER_AGENT.parse().unwrap());
-      headers.insert(
-         header::ACCEPT,
-         header::HeaderValue::from_static(
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-         ),
-      );
-      headers.insert(
-         "sec-fetch-dest",
-         header::HeaderValue::from_static("document"),
-      );
-      headers.insert(
-         "sec-fetch-mode",
-         header::HeaderValue::from_static("navigate"),
-      );
-      headers.insert("sec-fetch-site", header::HeaderValue::from_static("none"));
-
-      // Logged-out visitors get a stripped shell built from a different bundle
-      // that carries no chunk manifest, so the bootstrap needs a session cookie
-      // to reach the client-web app the transaction ID is derived from.
-      let cookie = self
-         .sessions
-         .cookie_header()
-         .ok_or("no cookie session available for TID bootstrap")?;
-      headers.insert(
-         header::COOKIE,
-         cookie
-            .parse()
-            .map_err(|_| "invalid cookie header value".to_owned())?,
-      );
-
-      let home_html = self
-         .http
-         .get_with_headers("https://x.com", &headers)
-         .await
-         .map_err(|err| format!("fetch x.com: {err}"))?
-         .text()
-         .await
-         .map_err(|err| format!("read x.com body: {err}"))?;
+      let (home_html, headers) = fetch_home(&self.http, &self.sessions).await?;
 
       let js_url = ClientTransaction::extract_ondemand_url(&home_html)
          .map_err(|err| format!("extract ondemand URL: {err}"))?;
@@ -157,4 +118,52 @@ impl TidClient {
       ClientTransaction::new(&home_html, &js_text)
          .map_err(|err| format!("create TID client: {err}"))
    }
+}
+
+/// Fetch the logged-in x.com homepage, returning it with the browser headers
+/// that fetched it for the scripts it names.
+pub async fn fetch_home(
+   http: &HttpClient,
+   sessions: &SessionPool,
+) -> Result<(String, HeaderMap), String> {
+   let mut headers = HeaderMap::new();
+   headers.insert(header::USER_AGENT, endpoints::USER_AGENT.parse().unwrap());
+   headers.insert(
+      header::ACCEPT,
+      header::HeaderValue::from_static(
+         "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      ),
+   );
+   headers.insert(
+      "sec-fetch-dest",
+      header::HeaderValue::from_static("document"),
+   );
+   headers.insert(
+      "sec-fetch-mode",
+      header::HeaderValue::from_static("navigate"),
+   );
+   headers.insert("sec-fetch-site", header::HeaderValue::from_static("none"));
+
+   // Logged-out visitors get a stripped shell built from a different bundle
+   // that carries no chunk manifest, so the bootstrap needs a session cookie
+   // to reach the client-web app the transaction ID is derived from.
+   let cookie = sessions
+      .cookie_header()
+      .ok_or("no cookie session available to load x.com")?;
+   headers.insert(
+      header::COOKIE,
+      cookie
+         .parse()
+         .map_err(|_| "invalid cookie header value".to_owned())?,
+   );
+
+   let home_html = http
+      .get_with_headers("https://x.com", &headers)
+      .await
+      .map_err(|err| format!("fetch x.com: {err}"))?
+      .text()
+      .await
+      .map_err(|err| format!("read x.com body: {err}"))?;
+
+   Ok((home_html, headers))
 }
