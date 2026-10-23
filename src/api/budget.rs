@@ -199,12 +199,7 @@ pub fn client_from(peer: IpAddr, headers: &HeaderMap, trusted: &[IpAddr]) -> Cli
       .filter_map(|entry| entry.trim().parse::<IpAddr>().ok())
       .find(|address| !trusted.contains(address));
 
-   let real_ip = || {
-      let value = headers.get("x-real-ip")?.to_str().ok()?;
-      value.trim().parse::<IpAddr>().ok()
-   };
-
-   ClientKey::from_ip(forwarded.or_else(real_ip).unwrap_or(peer))
+   ClientKey::from_ip(forwarded.unwrap_or(peer))
 }
 
 impl ClientBudget {

@@ -211,9 +211,9 @@
                 default = [ ];
                 example = [ "::1" ];
                 description = ''
-                  Peers whose X-Forwarded-For and X-Real-IP headers name the real
-                  client. Any other peer is billed by its socket address, since
-                  those headers are otherwise caller-controlled.
+                  Peers whose X-Forwarded-For header names the real client. Any
+                  other peer is billed by its socket address, since the header is
+                  otherwise caller-controlled.
                 '';
               };
               clientBudgetMessage = lib.mkOption {

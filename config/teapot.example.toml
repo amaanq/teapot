@@ -33,7 +33,7 @@ enableRSS = true
 # static assets are never charged, since they cost no upstream call.
 clientBudget = true
 
-# Peers whose X-Forwarded-For and X-Real-IP name the real client. Anything not
+# Peers whose X-Forwarded-For names the real client. Anything not
 # listed is billed by its socket address, so behind a reverse proxy this MUST
 # list that proxy or every visitor shares one budget. The header is read right
 # to left past trusted hops, since proxies append rather than replace.
