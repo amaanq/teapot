@@ -30,6 +30,10 @@ use axum::{
    middleware,
 };
 use hyper::header;
+use misstep::{
+   Result,
+   ResultExt as _,
+};
 use tokio::net::TcpListener;
 use tower::{
    Layer as _,
@@ -78,7 +82,7 @@ pub struct AppState {
 }
 
 #[tokio::main]
-async fn main() -> eyre::Result<()> {
+async fn main() -> Result<()> {
    tracing_subscriber::registry()
       .with(
          tracing_subscriber::EnvFilter::try_from_default_env()
@@ -89,7 +93,8 @@ async fn main() -> eyre::Result<()> {
 
    let config_path =
       env::var("TEAPOT_CONF_FILE").unwrap_or_else(|_| "config/teapot.toml".to_owned());
-   let config = Config::load(&config_path)?;
+   let config =
+      Config::load(&config_path).with_context(|| format!("loading {config_path}"))?;
    let config = Arc::new(config);
 
    tracing::info!(
@@ -109,7 +114,9 @@ async fn main() -> eyre::Result<()> {
 
    let sessions_path =
       env::var("TEAPOT_SESSIONS_FILE").unwrap_or_else(|_| "sessions.jsonl".to_owned());
-   let sessions = SessionPool::load(&sessions_path, config.config.max_concurrent_reqs).await?;
+   let sessions = SessionPool::load(&sessions_path, config.config.max_concurrent_reqs)
+      .await
+      .with_context(|| format!("loading {sessions_path}"))?;
 
    let api = ApiClient::new(&config, sessions);
 

@@ -8,6 +8,11 @@ use std::{
 };
 
 use data_encoding::HEXLOWER;
+use misstep::{
+   Result,
+   ResultExt as _,
+   bail,
+};
 use ring::digest;
 use tokio::{
    fs,
@@ -47,7 +52,7 @@ pub struct GifTranscoder {
 }
 
 impl GifTranscoder {
-   pub async fn new(http_client: HttpClient, config: GifTranscodingConfig) -> eyre::Result<Self> {
+   pub async fn new(http_client: HttpClient, config: GifTranscodingConfig) -> Result<Self> {
       let cache = GifCache::new(&config.cache_dir, config.cache_max_mb).await?;
       Ok(Self {
          cache,
@@ -65,7 +70,7 @@ impl GifTranscoder {
    }
 
    /// Get a cached GIF or transcode the MP4. Returns the path to the GIF file.
-   pub async fn get_or_transcode(&self, mp4_url: &str) -> eyre::Result<PathBuf> {
+   pub async fn get_or_transcode(&self, mp4_url: &str) -> Result<PathBuf> {
       let hash = Self::hash_url(mp4_url);
 
       if let Some(path) = self.cache.get(&hash).await {
@@ -111,7 +116,7 @@ impl GifTranscoder {
       }
    }
 
-   async fn do_transcode(&self, mp4_url: &str, hash: &str) -> eyre::Result<PathBuf> {
+   async fn do_transcode(&self, mp4_url: &str, hash: &str) -> Result<PathBuf> {
       let cache_dir = &self.cache_dir;
       let input = cache_dir.join(format!("{hash}.mp4.tmp"));
       let palette = cache_dir.join(format!("{hash}.palette.png"));
@@ -122,17 +127,19 @@ impl GifTranscoder {
          .http_client
          .get(mp4_url)
          .await
-         .map_err(|err| eyre::eyre!("Failed to fetch MP4: {err}"))?;
+         .context("fetching the MP4")?;
 
       if !response.status().is_success() {
-         return Err(eyre::eyre!("MP4 fetch returned {}", response.status()));
+         bail!("MP4 fetch returned {}", response.status());
       }
 
       let bytes = response
          .bytes_limited(MAX_TRANSCODE_INPUT_BYTES)
          .await
-         .map_err(|err| eyre::eyre!("Failed to read MP4 body: {err}"))?;
-      fs::write(&input, &bytes).await?;
+         .context("reading the MP4 body")?;
+      fs::write(&input, &bytes)
+         .await
+         .with_context(|| format!("writing {}", input.display()))?;
 
       // Pass 1: generate palette
       let mut palette_command = Command::new("ffmpeg");
@@ -152,11 +159,12 @@ impl GifTranscoder {
          .stderr(Stdio::piped());
       let palette_out = timeout(FFMPEG_TIMEOUT, palette_command.output())
          .await
-         .map_err(|_| eyre::eyre!("ffmpeg palettegen timed out"))??;
+         .context("ffmpeg palettegen timed out")?
+         .context("running ffmpeg palettegen")?;
 
       if !palette_out.status.success() {
          let stderr = String::from_utf8_lossy(&palette_out.stderr);
-         return Err(eyre::eyre!("ffmpeg palettegen failed: {stderr}"));
+         bail!("ffmpeg palettegen failed: {stderr}");
       }
 
       // Pass 2: generate GIF with palette
@@ -181,14 +189,17 @@ impl GifTranscoder {
          .stderr(Stdio::piped());
       let gif_out = timeout(FFMPEG_TIMEOUT, gif_command.output())
          .await
-         .map_err(|_| eyre::eyre!("ffmpeg paletteuse timed out"))??;
+         .context("ffmpeg paletteuse timed out")?
+         .context("running ffmpeg paletteuse")?;
 
       if !gif_out.status.success() {
          let stderr = String::from_utf8_lossy(&gif_out.stderr);
-         return Err(eyre::eyre!("ffmpeg paletteuse failed: {stderr}"));
+         bail!("ffmpeg paletteuse failed: {stderr}");
       }
 
-      let gif_data = fs::read(&output).await?;
-      self.cache.put(hash, &gif_data).await
+      let gif_data = fs::read(&output)
+         .await
+         .with_context(|| format!("reading {}", output.display()))?;
+      Ok(self.cache.put(hash, &gif_data).await?)
    }
 }

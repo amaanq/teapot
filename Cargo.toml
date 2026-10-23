@@ -15,7 +15,6 @@ axum = { features = [ "macros" ], version = "0.8.9" }
 axum-extra = { features = [ "cookie" ], version = "0.12.6" }
 bytes = "1.12.1"
 data-encoding = "2.11.0"
-eyre = "0.6.12"
 flate2 = "1.1.9"
 flub = "0.1.0"
 form_urlencoded = "1.2.2"
@@ -35,6 +34,7 @@ hyper-rustls = {
 hyper-util = { features = [ "client-legacy", "http1", "tokio" ], version = "0.1.20" }
 indexmap = "2.14.0"
 maud = { features = [ "axum" ], version = "0.27.0" }
+misstep = { features = [ "location", "pretty" ], version = "0.4.1" }
 percent-encoding = "2.3.2"
 regex = "1.13.1"
 ring = "0.17.14"

@@ -1,4 +1,5 @@
 use std::{
+   io,
    path::{
       Path,
       PathBuf,
@@ -8,6 +9,10 @@ use std::{
 };
 
 use indexmap::IndexMap;
+use misstep::{
+   Report,
+   ResultExt as _,
+};
 use tokio::{
    fs,
    sync::RwLock,
@@ -26,13 +31,14 @@ pub struct GifCache {
 
 impl GifCache {
    /// Create a new GIF cache, scanning existing files to rebuild state.
-   pub async fn new(dir: &str, max_mb: u64) -> eyre::Result<Self> {
+   pub async fn new(dir: &str, max_mb: u64) -> Result<Self, Report<io::Error>> {
       let dir = PathBuf::from(dir);
-      fs::create_dir_all(&dir).await?;
+      let scanning = || format!("scanning the GIF cache at {}", dir.display());
+      fs::create_dir_all(&dir).await.with_context(scanning)?;
 
       let mut entries = IndexMap::new();
-      let mut read_dir = fs::read_dir(&dir).await?;
-      while let Some(entry) = read_dir.next_entry().await? {
+      let mut read_dir = fs::read_dir(&dir).await.with_context(scanning)?;
+      while let Some(entry) = read_dir.next_entry().await.with_context(scanning)? {
          let path = entry.path();
          if path.extension().is_some_and(|ext| ext == "gif")
             && let Some(stem) = path.file_stem().and_then(|st| st.to_str())
@@ -87,9 +93,11 @@ impl GifCache {
    }
 
    /// Insert a transcoded GIF into the cache, evicting LRU entries if needed.
-   pub async fn put(&self, hash: &str, data: &[u8]) -> eyre::Result<PathBuf> {
+   pub async fn put(&self, hash: &str, data: &[u8]) -> Result<PathBuf, Report<io::Error>> {
       let path = self.dir.join(format!("{hash}.gif"));
-      fs::write(&path, data).await?;
+      fs::write(&path, data)
+         .await
+         .with_context(|| format!("writing {}", path.display()))?;
 
       let file_size = data.len() as u64;
 
