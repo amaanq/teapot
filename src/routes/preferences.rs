@@ -14,6 +14,7 @@ use axum::{
       HeaderMap,
       header::REFERER,
    },
+   middleware,
    response::{
       Html,
       IntoResponse as _,
@@ -41,6 +42,7 @@ use crate::{
    AppState,
    config::Config,
    error::Result,
+   routes::middleware::same_origin_guard,
    types::prefs::Prefs,
    views::{
       layout,
@@ -152,10 +154,11 @@ fn make_cookie(
 
 pub fn router() -> Router<AppState> {
    Router::new()
-      .route("/settings", get(settings))
       .route("/saveprefs", post(save_prefs))
       .route("/resetprefs", post(reset_prefs))
       .route("/enablemp4", post(enable_mp4))
+      .route_layer(middleware::from_fn(same_origin_guard))
+      .route("/settings", get(settings))
 }
 
 #[derive(Debug, Deserialize)]

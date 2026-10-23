@@ -72,8 +72,33 @@ pub async fn client_middleware(
    budget::CLIENT.scope(client, next.run(request)).await
 }
 
+/// Browsers without `Sec-Fetch-Site` predate 2023, and non-browser clients
+/// cannot be lured into a request, so a missing header passes.
+fn is_cross_site(request: &Request) -> bool {
+   request
+      .headers()
+      .get("sec-fetch-site")
+      .is_some_and(|value| !matches!(value.as_bytes(), b"same-origin" | b"none"))
+}
+
+/// Refuse preference writes submitted from another site's form.
+pub async fn same_origin_guard(request: Request, next: Next) -> Response {
+   if is_cross_site(&request) {
+      return Error::InvalidUrl("Settings can only be changed from this site".into())
+         .into_response();
+   }
+   next.run(request).await
+}
+
 /// Middleware that applies `?prefs=` URL parameter overrides.
+///
+/// A link from another site could otherwise switch off the media proxy or
+/// point redirects elsewhere, so cross-site navigations get no overrides.
 pub async fn prefs_middleware(mut request: Request, next: Next) -> Response {
+   if is_cross_site(&request) {
+      return next.run(request).await;
+   }
+
    let uri = request.uri().clone();
    let query_string = uri.query().unwrap_or("");
 
