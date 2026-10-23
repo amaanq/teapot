@@ -5,6 +5,7 @@ use axum::{
       Query,
       State,
    },
+   http::Uri,
    response::{
       IntoResponse as _,
       Redirect,
@@ -50,12 +51,42 @@ async fn redirect_handler(
    }
 
    let decoded_url = percent_decode(url);
+   if !is_redirectable(&decoded_url) {
+      return Err(Error::InvalidUrl("Redirect target is not allowed".into()));
+   }
 
    let prefs = Prefs::from_cookies(&jar, &state.config);
 
    let transformed = apply_url_replacements(&decoded_url, &prefs, &state.config);
 
    Ok(Redirect::to(&transformed).into_response())
+}
+
+fn is_redirectable(url: &str) -> bool {
+   const HOSTS: [&str; 5] = [
+      "twitter.com",
+      "x.com",
+      "youtube.com",
+      "youtu.be",
+      "reddit.com",
+   ];
+
+   let Ok(uri) = url.parse::<Uri>() else {
+      return false;
+   };
+   if !matches!(uri.scheme_str(), Some("https" | "http")) {
+      return false;
+   }
+   let Some(host) = uri.host().map(str::to_ascii_lowercase) else {
+      return false;
+   };
+
+   HOSTS.iter().any(|allowed| {
+      host == *allowed
+         || host
+            .strip_suffix(allowed)
+            .is_some_and(|sub| sub.ends_with('.'))
+   })
 }
 
 /// Resolve `t.co` short URLs.
