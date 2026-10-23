@@ -86,7 +86,7 @@ const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(20);
    clippy::module_name_repetitions,
    reason = "HttpError is clearer than Error beside the crate Error"
 )]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, flub::Error)]
 pub enum HttpError {
    #[error("request timed out")]
    Timeout,

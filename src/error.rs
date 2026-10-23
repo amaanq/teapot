@@ -18,7 +18,7 @@ use axum::{
       Response,
    },
 };
-use thiserror::Error;
+use flub::Error;
 use toml::de::Error as TomlError;
 
 use crate::{
