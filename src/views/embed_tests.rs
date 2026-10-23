@@ -711,7 +711,7 @@ fn status_page_uses_author_first_embed_metadata() {
 #[test]
 fn discord_activity_page_defers_photo_media_to_mastodon_api() {
    let mut tweet = tweet(401, "photos", "photo text");
-   tweet.time = time::OffsetDateTime::from_unix_timestamp(1).ok();
+   tweet.time = jiff::Timestamp::from_second(1).ok();
    tweet.photos.push(Photo {
       url: "https://pbs.twimg.com/media/photo.jpg".to_owned(),
       width: 2048,

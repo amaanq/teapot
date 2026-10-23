@@ -17,8 +17,8 @@ pub struct Article {
    pub title:       String,
    pub cover_image: String,
    pub user:        User,
-   #[serde(with = "time::serde::timestamp::option")]
-   pub time:        Option<time::OffsetDateTime>,
+   #[serde(with = "jiff::fmt::serde::timestamp::second::optional")]
+   pub time:        Option<jiff::Timestamp>,
    pub paragraphs:  Vec<ArticleParagraph>,
    pub entities:    Vec<ArticleEntity>,
    pub media:       HashMap<String, ArticleMedia>,

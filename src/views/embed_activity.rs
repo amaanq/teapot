@@ -9,7 +9,6 @@ use std::{
 };
 
 use serde::Serialize;
-use time::format_description::well_known::Rfc3339;
 
 use super::{
    embed::{
@@ -880,14 +879,12 @@ pub fn build_activity_pub_with_reply(
       ));
    }
 
-   let created_at = tweet.time.map_or_else(
-      || time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
-      |ts| ts.format(&Rfc3339).unwrap(),
-   );
-   let account_created_at = tweet.user.join_date.map_or_else(
-      || time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
-      |ts| ts.format(&Rfc3339).unwrap(),
-   );
+   let created_at = tweet.time.unwrap_or_else(jiff::Timestamp::now).to_string();
+   let account_created_at = tweet
+      .user
+      .join_date
+      .unwrap_or_else(jiff::Timestamp::now)
+      .to_string();
 
    let status_url = format!("https://x.com/{}/status/{}", tweet.user.username, tweet.id);
    let profile_url = format!("https://x.com/{}", tweet.user.username);

@@ -31,12 +31,12 @@ use axum_extra::extract::cookie::{
    CookieJar,
    SameSite,
 };
+use cookie::time::Duration;
 use percent_encoding::{
    NON_ALPHANUMERIC,
    utf8_percent_encode,
 };
 use serde::Deserialize;
-use time::Duration;
 
 use crate::{
    AppState,

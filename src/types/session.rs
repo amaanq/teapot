@@ -61,7 +61,7 @@ impl SessionLimits {
          return true;
       }
       if let Some(limit) = self.apis.get(api) {
-         let now = time::OffsetDateTime::now_utc().unix_timestamp();
+         let now = jiff::Timestamp::now().as_second();
          if limit.remaining == 0 && limit.reset > now {
             return true;
          }
@@ -74,8 +74,7 @@ impl SessionLimits {
    pub fn is_globally_limited(&self) -> bool {
       // Cleared on the next mutable access rather than here.
       self.limited
-         && time::OffsetDateTime::now_utc().unix_timestamp() - self.limited_at
-            < GLOBAL_LIMIT_DURATION_SECS
+         && jiff::Timestamp::now().as_second() - self.limited_at < GLOBAL_LIMIT_DURATION_SECS
    }
 
    pub fn update_limit(&mut self, api: &str, limit: i32, remaining: i32, reset: i64) {
@@ -91,7 +90,7 @@ impl SessionLimits {
    /// For a 429 that arrives without `x-rate-limit-*` headers, where nothing
    /// would otherwise be recorded and the session would retry immediately.
    pub fn limit_endpoint(&mut self, api: &str) {
-      let now = time::OffsetDateTime::now_utc().unix_timestamp();
+      let now = jiff::Timestamp::now().as_second();
       let limit = self.apis.get(api).map_or(0, |rate| rate.limit);
       self.update_limit(api, limit, 0, now + GLOBAL_LIMIT_DURATION_SECS);
    }

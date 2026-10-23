@@ -5,7 +5,6 @@ use maud::{
    Markup,
    html,
 };
-use time::format_description::well_known::Rfc3339;
 
 use super::{
    embed_activity::ActivityId,
@@ -611,7 +610,7 @@ pub fn render_status_page(
 
        // Publish time for Discord footer timestamp
        @if !discord_activity && let Some(ts) = tweet.time {
-           @let iso = ts.format(&Rfc3339).unwrap_or_default();
+           @let iso = ts.to_string();
            meta property="article:published_time" content=(iso);
        }
 

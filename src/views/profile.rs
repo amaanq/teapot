@@ -331,17 +331,7 @@ fn render_user_card(user: &User, config: &Config, prefs: &Prefs) -> Markup {
                }
 
                @if let Some(join_date) = user.join_date {
-                   @let full_date = {
-                       let hour_24 = join_date.hour();
-                       let (hour_12, period) = match hour_24 {
-                           0 => (12_u8, "AM"),
-                           1..=11 => (hour_24, "AM"),
-                           12 => (12, "PM"),
-                           _ => (hour_24 - 12, "PM"),
-                       };
-                       let date_part = join_date.format(time::macros::format_description!("[day padding:none] [month repr:short] [year]")).unwrap_or_default();
-                       format!("{hour_12}:{:02} {period} - {date_part}", join_date.minute())
-                   };
+                   @let full_date = join_date.strftime("%-I:%M %p - %-d %b %Y").to_string();
                    @let short_date = formatters::format_join_date(join_date);
                    div class="profile-joindate" {
                        span title=(full_date) {

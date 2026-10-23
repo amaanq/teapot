@@ -31,7 +31,7 @@ use axum_extra::extract::{
       SameSite,
    },
 };
-use time::Duration;
+use cookie::time::Duration;
 
 use crate::{
    AppState,

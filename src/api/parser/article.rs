@@ -125,7 +125,7 @@ fn parse_inline_article(raw: &InlineArticle, user: User) -> Article {
       .metadata
       .as_ref()
       .and_then(|meta| meta.first_published_at_secs)
-      .and_then(|secs| time::OffsetDateTime::from_unix_timestamp(secs).ok());
+      .and_then(|secs| jiff::Timestamp::from_second(secs).ok());
 
    let (paragraphs, entities) = raw
       .content_state

@@ -4,6 +4,10 @@ use std::{
 };
 
 use data_encoding::BASE64URL_NOPAD;
+use jiff::{
+   Timestamp,
+   tz::TimeZone,
+};
 use percent_encoding::{
    NON_ALPHANUMERIC,
    utf8_percent_encode,
@@ -259,59 +263,18 @@ pub fn abbreviate_number(num: i64) -> String {
 /// Parse tweet time from Twitter format.
 /// Twitter uses: "Wed Jun 01 12:00:00 +0000 2009" or "Wed Jun  1 12:00:00 +0000
 /// 2009".
-pub fn parse_twitter_time(time_str: &str) -> Option<time::OffsetDateTime> {
-   use time::macros::format_description;
-
-   time::OffsetDateTime::parse(
-      time_str,
-      format_description!(
-         "[weekday repr:short] [month repr:short] [day padding:zero] [hour]:[minute]:[second] \
-          [offset_hour sign:mandatory][offset_minute] [year]"
-      ),
-   )
-   .or_else(|_| {
-      time::OffsetDateTime::parse(
-         time_str,
-         format_description!(
-            "[weekday repr:short] [month repr:short] [day padding:space] [hour]:[minute]:[second] \
-             [offset_hour sign:mandatory][offset_minute] [year]"
-         ),
-      )
-   })
-   .ok()
+pub fn parse_twitter_time(time_str: &str) -> Option<Timestamp> {
+   Timestamp::strptime("%a %b %d %H:%M:%S %z %Y", time_str).ok()
 }
 
 /// Format tweet time for display: "Feb 7, 2026 · 4:48 AM UTC".
-pub fn format_tweet_time(time: time::OffsetDateTime) -> String {
-   use time::macros::format_description;
-
-   let month_day_year = time
-      .format(format_description!(
-         "[month repr:short] [day padding:none], [year]"
-      ))
-      .unwrap_or_default();
-   let hour_24 = time.hour();
-   let (hour_12, period) = match hour_24 {
-      0 => (12, "AM"),
-      1..=11 => (hour_24, "AM"),
-      12 => (12, "PM"),
-      _ => (hour_24 - 12, "PM"),
-   };
-   format!(
-      "{month_day_year} · {hour_12}:{:02} {period} UTC",
-      time.minute()
-   )
+pub fn format_tweet_time(time: Timestamp) -> String {
+   time.strftime("%b %-d, %Y · %-I:%M %p UTC").to_string()
 }
 
 /// Format time in RFC822 format for RSS feeds.
-pub fn format_rfc822_time(time: time::OffsetDateTime) -> String {
-   use time::macros::format_description;
-
-   time
-      .format(format_description!(
-         "[weekday repr:short], [day] [month repr:short] [year] [hour]:[minute]:[second] GMT"
-      ))
-      .unwrap_or_default()
+pub fn format_rfc822_time(time: Timestamp) -> String {
+   time.strftime("%a, %d %b %Y %H:%M:%S GMT").to_string()
 }
 
 /// Format relative time for compact display:
@@ -320,43 +283,28 @@ pub fn format_rfc822_time(time: time::OffsetDateTime) -> String {
 /// - < 24 hours: "Xh"
 /// - >= 1 day, same year: "MMM d" (e.g. "Feb 3")
 /// - different year: "d MMM yyyy" (e.g. "3 Feb 2024")
-pub fn format_relative_time(time: time::OffsetDateTime) -> String {
-   use time::macros::format_description;
+pub fn format_relative_time(time: Timestamp) -> String {
+   let now = Timestamp::now();
+   let duration = now.duration_since(time);
 
-   let now = time::OffsetDateTime::now_utc();
-   let duration = now - time;
-
-   if now.year() != time.year() {
-      time
-         .format(format_description!(
-            "[day padding:none] [month repr:short] [year]"
-         ))
-         .unwrap_or_default()
-   } else if duration.whole_hours() >= 24 {
-      time
-         .format(format_description!("[month repr:short] [day padding:none]"))
-         .unwrap_or_default()
-   } else if duration.whole_hours() >= 1 {
-      format!("{}h", duration.whole_hours())
-   } else if duration.whole_minutes() >= 1 {
-      format!("{}m", duration.whole_minutes())
-   } else if duration.whole_seconds() >= 1 {
-      format!("{}s", duration.whole_seconds())
+   if TimeZone::UTC.to_datetime(now).year() != TimeZone::UTC.to_datetime(time).year() {
+      time.strftime("%-d %b %Y").to_string()
+   } else if duration.as_hours() >= 24 {
+      time.strftime("%b %-d").to_string()
+   } else if duration.as_hours() >= 1 {
+      format!("{}h", duration.as_hours())
+   } else if duration.as_mins() >= 1 {
+      format!("{}m", duration.as_mins())
+   } else if duration.as_secs() >= 1 {
+      format!("{}s", duration.as_secs())
    } else {
       "now".to_owned()
    }
 }
 
 /// Format join date for profile display (e.g., "Joined March 2020").
-pub fn format_join_date(time: time::OffsetDateTime) -> String {
-   use time::macros::format_description;
-
-   format!(
-      "Joined {}",
-      time
-         .format(format_description!("[month repr:long] [year]"))
-         .unwrap_or_default()
-   )
+pub fn format_join_date(time: Timestamp) -> String {
+   time.strftime("Joined %B %Y").to_string()
 }
 
 /// Scale video dimensions for Discord embed compatibility.
@@ -433,31 +381,19 @@ mod tests {
 
    #[test]
    fn parses_twitter_time_with_zero_padded_day() {
-      use time::macros::format_description;
-
       // Elon Musk's created_at uses a zero-padded day
       let result = parse_twitter_time("Tue Jun 02 20:12:29 +0000 2009");
       assert!(result.is_some(), "Failed to parse zero-padded day");
       let dt = result.unwrap();
-      assert_eq!(
-         dt.format(format_description!("[month repr:long] [year]"))
-            .unwrap(),
-         "June 2009"
-      );
+      assert_eq!(dt.strftime("%B %Y").to_string(), "June 2009");
    }
 
    #[test]
    fn parses_twitter_time_with_space_padded_day() {
-      use time::macros::format_description;
-
       let result = parse_twitter_time("Tue Jun  2 20:12:29 +0000 2009");
       assert!(result.is_some(), "Failed to parse space-padded day");
       let dt = result.unwrap();
-      assert_eq!(
-         dt.format(format_description!("[month repr:long] [year]"))
-            .unwrap(),
-         "June 2009"
-      );
+      assert_eq!(dt.strftime("%B %Y").to_string(), "June 2009");
    }
 
    #[test]

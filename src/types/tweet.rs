@@ -161,8 +161,8 @@ pub struct Poll {
    pub values:        Vec<i64>,
    pub votes:         i64,
    pub leader:        i64,
-   #[serde(with = "time::serde::timestamp::option")]
-   pub end_time:      Option<time::OffsetDateTime>,
+   #[serde(with = "jiff::fmt::serde::timestamp::second::optional")]
+   pub end_time:      Option<jiff::Timestamp>,
    pub image:         Option<String>,
    pub choice_images: Vec<String>,
 }
@@ -175,17 +175,17 @@ impl Poll {
       let Some(end_time) = self.end_time else {
          return "Final results".to_owned();
       };
-      let now = time::OffsetDateTime::now_utc();
+      let now = jiff::Timestamp::now();
       if end_time <= now {
          return "Final results".to_owned();
       }
-      let diff = end_time - now;
-      if diff.whole_days() > 0 {
-         format!("{} days", diff.whole_days())
-      } else if diff.whole_hours() > 0 {
-         format!("{} hours", diff.whole_hours())
+      let diff = end_time.duration_since(now);
+      if diff.as_hours() >= 24 {
+         format!("{} days", diff.as_hours() / 24)
+      } else if diff.as_hours() > 0 {
+         format!("{} hours", diff.as_hours())
       } else {
-         format!("{} minutes", diff.whole_minutes())
+         format!("{} minutes", diff.as_mins())
       }
    }
 }
@@ -305,8 +305,8 @@ pub struct Tweet {
    pub reply_id:                i64,
    pub user:                    User,
    pub text:                    String,
-   #[serde(with = "time::serde::timestamp::option")]
-   pub time:                    Option<time::OffsetDateTime>,
+   #[serde(with = "jiff::fmt::serde::timestamp::second::optional")]
+   pub time:                    Option<jiff::Timestamp>,
    pub reply:                   Vec<String>,
    pub reply_mentions_stripped: bool,
    pub pinned:                  bool,

@@ -40,8 +40,8 @@ pub struct User {
    pub verified_type:     VerifiedType,
    pub protected:         bool,
    pub suspended:         bool,
-   #[serde(with = "time::serde::timestamp::option")]
-   pub join_date:         Option<time::OffsetDateTime>,
+   #[serde(with = "jiff::fmt::serde::timestamp::second::optional")]
+   pub join_date:         Option<jiff::Timestamp>,
 }
 
 /// X's "About this account" record.

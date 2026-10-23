@@ -14,6 +14,7 @@ categories   = [ "web-programming::http-server" ]
 axum = { features = [ "macros" ], version = "0.8.9" }
 axum-extra = { features = [ "cookie" ], version = "0.12.6" }
 bytes = "1.12.1"
+cookie = { default-features = false, version = "0.18.2" }
 data-encoding = "2.11.0"
 flate2 = "1.1.9"
 flub = "0.1.0"
@@ -33,6 +34,7 @@ hyper-rustls = {
 }
 hyper-util = { features = [ "client-legacy", "http1", "tokio" ], version = "0.1.20" }
 indexmap = "2.14.0"
+jiff = { default-features = false, features = [ "serde", "std" ], version = "0.2.38" }
 maud = { features = [ "axum" ], version = "0.27.0" }
 misstep = { features = [ "location", "pretty" ], version = "0.4.1" }
 percent-encoding = "2.3.2"
@@ -51,7 +53,6 @@ rustls = {
 rustls-native-certs = "0.8.4"
 serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.150"
-time = { features = [ "formatting", "parsing", "macros", "serde" ], version = "0.3.53" }
 tokio = {
   features = [
     "rt-multi-thread",

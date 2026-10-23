@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use time::format_description::well_known::Rfc3339;
-
 use crate::{
    api::schema::{
       BindingValues,
@@ -454,7 +452,10 @@ impl TryFrom<&CardData> for Poll {
          .max_by_key(|&(_, val)| val)
          .map_or(0, |(idx, _)| idx as i64);
 
-      let end_time = time::OffsetDateTime::parse(bv.string("end_datetime_utc"), &Rfc3339).ok();
+      let end_time = bv
+         .string("end_datetime_utc")
+         .parse::<jiff::Timestamp>()
+         .ok();
 
       let image = if name.contains("image") {
          let img = bv.image("image_large");

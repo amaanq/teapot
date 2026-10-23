@@ -22,7 +22,6 @@ use std::{
 use data_encoding::BASE64;
 use ring::hmac;
 use serde::Serialize;
-use time::format_description::well_known::Rfc3339;
 use tokio::{
    fs,
    sync::{
@@ -53,7 +52,7 @@ use crate::{
 pub struct HealthResponse {
    pub sessions:  SessionStats,
    pub requests:  RequestStats,
-   pub timestamp: String,
+   pub timestamp: jiff::Timestamp,
 }
 
 #[derive(Serialize)]
@@ -74,7 +73,7 @@ pub struct RequestStats {
 pub struct DebugResponse {
    pub sessions:  Vec<SessionDetail>,
    pub count:     usize,
-   pub timestamp: String,
+   pub timestamp: jiff::Timestamp,
 }
 
 #[derive(Serialize)]
@@ -314,7 +313,7 @@ impl SessionPool {
    /// account. Every session leaves from one address, so the block is shared
    /// and flagging the session that happened to draw it walks the rotation.
    pub fn back_off_edge(&self) {
-      let now = time::OffsetDateTime::now_utc().unix_timestamp();
+      let now = jiff::Timestamp::now().as_second();
       let previous = self
          .edge_backoff
          .swap(now + EDGE_BACKOFF_SECS, Ordering::Relaxed);
@@ -326,7 +325,7 @@ impl SessionPool {
    }
 
    fn edge_blocked(&self) -> bool {
-      self.edge_backoff.load(Ordering::Relaxed) > time::OffsetDateTime::now_utc().unix_timestamp()
+      self.edge_backoff.load(Ordering::Relaxed) > jiff::Timestamp::now().as_second()
    }
 
    /// Whether some other session still has budget for `api`.
@@ -450,7 +449,7 @@ impl SessionPool {
       }
       drop(limits);
 
-      if remaining <= 0 && reset > time::OffsetDateTime::now_utc().unix_timestamp() {
+      if remaining <= 0 && reset > jiff::Timestamp::now().as_second() {
          self.persist_now().await;
       } else {
          self.mark_dirty();
@@ -486,7 +485,7 @@ impl SessionPool {
 
       if let Some(lim) = limits.get_mut(&session_id) {
          lim.limited = true;
-         lim.limited_at = time::OffsetDateTime::now_utc().unix_timestamp();
+         lim.limited_at = jiff::Timestamp::now().as_second();
       }
       drop(limits);
       self.persist_now().await;
@@ -560,7 +559,7 @@ impl SessionPool {
             total: total_requests,
             by_api,
          },
-         timestamp: time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+         timestamp: jiff::Timestamp::now(),
       }
    }
 
@@ -595,7 +594,7 @@ impl SessionPool {
       DebugResponse {
          sessions,
          count: self.sessions.len(),
-         timestamp: time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+         timestamp: jiff::Timestamp::now(),
       }
    }
 }
@@ -608,7 +607,7 @@ pub fn oauth1_sign(
    oauth_token: &str,
    oauth_secret: &str,
 ) -> String {
-   let timestamp = time::OffsetDateTime::now_utc().unix_timestamp().to_string();
+   let timestamp = jiff::Timestamp::now().as_second().to_string();
    let nonce = format!(
       "{:032x}",
       SystemTime::now()

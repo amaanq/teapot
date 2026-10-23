@@ -67,8 +67,8 @@ fn space_id_from_url(url: &str) -> Option<&str> {
       .filter(|id| !id.is_empty())
 }
 
-fn millis_to_time(milliseconds: i64) -> Option<time::OffsetDateTime> {
-   time::OffsetDateTime::from_unix_timestamp(milliseconds.checked_div(1_000)?).ok()
+fn millis_to_time(milliseconds: i64) -> Option<jiff::Timestamp> {
+   jiff::Timestamp::from_second(milliseconds.checked_div(1_000)?).ok()
 }
 
 fn audio_space_status(metadata: &AudioSpaceMetadata) -> String {
@@ -587,7 +587,7 @@ impl ApiClient {
             .sessions
             .update_session_limit(session.id, endpoint, limit, remaining_val, reset)
             .await;
-         remaining_val <= 0 && reset > time::OffsetDateTime::now_utc().unix_timestamp()
+         remaining_val <= 0 && reset > jiff::Timestamp::now().as_second()
       } else {
          false
       };

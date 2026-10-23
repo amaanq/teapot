@@ -49,7 +49,7 @@ impl TweetLegacy {
          .unwrap_or_default()
    }
 
-   pub fn parse_time(&self) -> Option<time::OffsetDateTime> {
+   pub fn parse_time(&self) -> Option<jiff::Timestamp> {
       self
          .created_at
          .as_deref()
@@ -59,7 +59,7 @@ impl TweetLegacy {
             if ms == 0 {
                return None;
             }
-            time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()
+            jiff::Timestamp::from_millisecond(ms).ok()
          })
    }
 
