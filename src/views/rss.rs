@@ -15,7 +15,10 @@ use crate::{
       user::User,
    },
    utils::{
-      entity_expander::html_escape,
+      entity_expander::{
+         escape_tags,
+         html_escape,
+      },
       formatters,
    },
    views::{
@@ -275,7 +278,7 @@ fn get_title(tweet: &Tweet, retweet_username: &str) -> String {
 fn render_rss_tweet(tweet: &Tweet, config: &Config) -> String {
    let url_prefix = config.url_prefix();
 
-   let text = formatters::replace_urls_abs(&tweet.text, config, url_prefix);
+   let text = formatters::replace_urls_abs(&escape_tags(&tweet.text), config, url_prefix);
    let mut body = format!("<p>{}</p>", text.replace('\n', "<br>\n"));
 
    if !tweet.photos.is_empty() {
