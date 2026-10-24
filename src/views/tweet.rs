@@ -7,6 +7,7 @@ use topcoat::{
       request::headers,
    },
    runtime::{
+      Event,
       procedure,
       record,
       signal,
@@ -16,6 +17,7 @@ use topcoat::{
       View,
       class,
       component,
+      element_id,
       view,
    },
 };
@@ -392,34 +394,48 @@ async fn translate_button(cx: &Cx, id: i64) -> Result<impl View> {
 }
 
 /// Lay photos out in one row, or two rows once there are three or more.
+/// Each thumbnail opens the gallery's lightbox popover on its photo.
 #[component]
 async fn photo_gallery(cx: &Cx, photos: &[Photo]) -> Result<impl View> {
    let config = config(cx);
-   let rows = if photos.len() < 3 {
-      vec![photos]
+   let lightbox = element_id(cx);
+   let active = signal(cx, || 0_usize);
+   let last = photos.len().saturating_sub(1);
+   let originals = photos
+      .iter()
+      .map(|photo| formatters::get_orig_pic_url(&photo.url, config.config.base64_media))
+      .collect::<Vec<_>>();
+   let alts = photos
+      .iter()
+      .map(|photo| photo.alt_text.clone())
+      .collect::<Vec<_>>();
+   let split = if photos.len() < 3 {
+      photos.len()
    } else {
-      let (top, bottom) = photos.split_at(photos.len().div_ceil(2));
-      vec![top, bottom]
+      photos.len().div_ceil(2)
    };
+   let rows = [0..split, split..photos.len()];
 
    Ok(view! {
       <div class="attachments">
-         for (row_index, row) in rows.into_iter().enumerate() {
+         for (row_index, row) in rows.into_iter().filter(|row| !row.is_empty()).enumerate() {
             <div class="gallery-row" style=((row_index > 0).then_some("margin-top: .25em"))>
-               for photo in row {
+               for index in row {
+                  let photo = &photos[index];
                   let small = if photo.url.contains("name=") {
                      formatters::get_pic_url(&photo.url, config.config.base64_media)
                   } else {
                      get_small_pic(&photo.url, config)
                   };
                   <div class="attachment image">
-                     <a
+                     <button
                         class="still-image"
-                        href=(formatters::get_orig_pic_url(&photo.url, config.config.base64_media))
-                        target="_blank"
+                        type="button"
+                        popovertarget=(&lightbox)
+                        @click=$(|_e| active.set(index))
                      >
                         <img src=(small) alt=(&photo.alt_text) loading="lazy">
-                     </a>
+                     </button>
                      if !photo.alt_text.is_empty() {
                         <p class="alt-text">"ALT  " (&photo.alt_text)</p>
                      }
@@ -427,6 +443,82 @@ async fn photo_gallery(cx: &Cx, photos: &[Photo]) -> Result<impl View> {
                }
             </div>
          }
+         <div
+            id=(&lightbox)
+            class="image-lightbox"
+            popover=""
+            aria-label="Image viewer"
+            @keydown=$(|event: Event| {
+               if event.key == "ArrowLeft" {
+                  active.set(if active.get() == 0 { last } else { active.get() - 1 });
+               } else if event.key == "ArrowRight" {
+                  active.set(if active.get() == last { 0 } else { active.get() + 1 });
+               }
+            })
+         >
+            <button
+               class="image-lightbox-dismiss"
+               type="button"
+               popovertarget=(&lightbox)
+               popovertargetaction="hide"
+               tabindex="-1"
+               aria-hidden="true"
+            ></button>
+            <div class="image-lightbox-frame">
+               <button
+                  class="image-lightbox-close"
+                  type="button"
+                  popovertarget=(&lightbox)
+                  popovertargetaction="hide"
+                  aria-label="Close image viewer"
+                  autofocus=""
+               >
+                  "×"
+               </button>
+               if last > 0 {
+                  <button
+                     class="image-lightbox-nav image-lightbox-prev"
+                     type="button"
+                     aria-label="Previous image"
+                     @click=$(|_e| active.set(if active.get() == 0 { last } else { active.get() - 1 }))
+                  >
+                     "‹"
+                  </button>
+               }
+               <img
+                  class="image-lightbox-image"
+                  :src=$(originals.index(active.get()).to_owned())
+                  :alt=$(alts.index(active.get()).to_owned())
+                  loading="lazy"
+               >
+               if last > 0 {
+                  <button
+                     class="image-lightbox-nav image-lightbox-next"
+                     type="button"
+                     aria-label="Next image"
+                     @click=$(|_e| active.set(if active.get() == last { 0 } else { active.get() + 1 }))
+                  >
+                     "›"
+                  </button>
+               }
+               <div class="image-lightbox-footer">
+                  <span class="image-lightbox-caption">
+                     $(alts.index(active.get()).to_owned())
+                     <span :hidden=$(!alts.index(active.get()).is_empty())>
+                        $((active.get() + 1, " of ", last + 1))
+                     </span>
+                  </span>
+                  <a
+                     class="image-lightbox-original"
+                     :href=$(originals.index(active.get()).to_owned())
+                     target="_blank"
+                     rel="noopener"
+                  >
+                     "Open original"
+                  </a>
+               </div>
+            </div>
+         </div>
       </div>
    })
 }

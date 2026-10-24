@@ -246,7 +246,8 @@ main .container {
 .attachments, .quote, .card, .poll, .community-note { border-radius: 8px; }
 
 .quote .translate-btn { position: relative; z-index: 2; }
-.still-image { cursor: zoom-in; }
+.still-image { cursor: zoom-in; padding: 0; border: 0; background: none; }
+.still-image:hover { background: none; }
 .image-lightbox {
   position: fixed;
   inset: 0;
@@ -331,6 +332,17 @@ main .container {
   padding-top: 10px;
   font-size: 12px;
 }
+.image-lightbox-dismiss,
+.image-lightbox-dismiss:hover {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-out;
+}
+.image-lightbox-frame { pointer-events: none; }
+.image-lightbox-frame > * { pointer-events: auto; }
 .image-lightbox-caption { overflow: hidden; color: #bbb; text-overflow: ellipsis; white-space: nowrap; }
 .image-lightbox-original { flex: 0 0 auto; }
 @media (max-width: 600px) {
