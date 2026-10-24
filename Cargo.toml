@@ -83,7 +83,7 @@ tower-http = {
   version = "0.7.0",
 }
 tracing = "0.1.44"
-tracing-subscriber = { features = [ "env-filter" ], version = "0.3.23" }
+tracing-subscriber = "0.3.23"
 unicode-ident = "1.0.24"
 xitter-txid = "0.2.0"
 

@@ -54,6 +54,7 @@ use tower_http::{
    timeout::TimeoutLayer,
 };
 use tracing_subscriber::{
+   filter::Targets,
    fmt,
    layer::SubscriberExt as _,
    util::SubscriberInitExt as _,
@@ -88,11 +89,10 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+   let log_filter =
+      env::var("RUST_LOG").unwrap_or_else(|_| "teapot=debug,tower_http=debug".to_owned());
    tracing_subscriber::registry()
-      .with(
-         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "teapot=debug,tower_http=debug".into()),
-      )
+      .with(log_filter.parse::<Targets>().context("parsing RUST_LOG")?)
       .with(fmt::layer())
       .init();
 
