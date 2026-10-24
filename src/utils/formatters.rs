@@ -156,29 +156,31 @@ fn youtube_at(text: &str, pos: usize) -> Option<usize> {
       .or_else(|| youtu_end(pos))
 }
 
-fn reddit_at(text: &str, pos: usize) -> Option<usize> {
-   let reddit_end = |at: usize| {
-      let rest = &text[at..];
-      REDDIT_SUBDOMAINS
-         .into_iter()
-         .find_map(|sub| rest.strip_prefix(sub)?.strip_prefix("reddit.com"))
-         .or_else(|| rest.strip_prefix("reddit.com"))
-         .map(|after| text.len() - after.len())
-   };
-   let start_of_text = (pos == 0).then_some(0);
-   let after_scheme = text[pos..]
-      .starts_with("https://")
-      .then_some(pos + "https://".len());
-   let after_space = text[pos..]
+/// The end of a Reddit domain at `pos`, and whether it is the `redd.it`
+/// short form. The domain must follow whitespace or a scheme, so the scheme
+/// and the space before it stay in place.
+fn reddit_at(text: &str, pos: usize) -> Option<(usize, bool)> {
+   let head = &text[..pos];
+   if head
       .chars()
-      .next()
-      .filter(|ch| ch.is_whitespace())
-      .map(|ch| pos + ch.len_utf8());
-
-   [start_of_text, after_scheme, after_space]
+      .next_back()
+      .is_some_and(|ch| !ch.is_whitespace())
+      && !head.ends_with("://")
+   {
+      return None;
+   }
+   let rest = &text[pos..];
+   if let Some(after) = rest.strip_prefix("redd.it/") {
+      return Some((text.len() - after.len(), true));
+   }
+   let domain = REDDIT_SUBDOMAINS
       .into_iter()
-      .flatten()
-      .find_map(reddit_end)
+      .find_map(|sub| rest.strip_prefix(sub))
+      .unwrap_or(rest);
+   let after = domain
+      .strip_prefix("reddit.com")
+      .filter(|after| !after.starts_with(is_word_char))?;
+   Some((text.len() - after.len(), false))
 }
 
 /// Replace Twitter/X URLs with teapot instance URLs.
@@ -278,34 +280,22 @@ pub fn replace_reddit_urls<'a>(text: &'a str, config: &Config) -> Cow<'a, str> {
    }
 
    let host = config.preferences.replace_reddit.trim_end_matches('/');
-   let short_replaced = replace_matches(
+   let replaced = replace_matches(
       text,
-      |pos| {
-         match_leads(text, pos, char::is_whitespace).find_map(|(_, short)| {
-            text[short..]
-               .starts_with("redd.it/")
-               .then_some((short + "redd.it/".len(), ()))
-         })
-      },
-      |out, ()| {
+      |pos| reddit_at(text, pos),
+      |out, short| {
          out.push_str(host);
-         out.push_str("/comments/");
+         if short {
+            out.push_str("/comments/");
+         }
       },
-   );
-   let result = replace_matches(
-      &short_replaced,
-      |pos| reddit_at(&short_replaced, pos).map(|end| (end, ())),
-      |out, ()| out.push_str(host),
    );
 
    // Reddit gallery -> comments redirect
-   if result.contains(host) && result.contains("/gallery/") {
-      Cow::Owned(result.replace("/gallery/", "/comments/"))
+   if replaced.contains(host) && replaced.contains("/gallery/") {
+      Cow::Owned(replaced.replace("/gallery/", "/comments/"))
    } else {
-      match result {
-         Cow::Borrowed(_) => Cow::Borrowed(text),
-         Cow::Owned(owned) => Cow::Owned(owned),
-      }
+      replaced
    }
 }
 
