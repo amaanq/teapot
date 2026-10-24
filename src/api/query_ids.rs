@@ -15,7 +15,6 @@ use std::{
    collections::HashMap,
    sync::{
       Arc,
-      LazyLock,
       RwLock,
    },
    time::{
@@ -25,7 +24,6 @@ use std::{
 };
 
 use axum::http::HeaderMap;
-use regex::Regex;
 use tokio::{
    sync::Mutex,
    task::JoinSet,
@@ -37,6 +35,10 @@ use super::{
    http::HttpClient,
    tid,
 };
+use crate::utils::formatters::{
+   find_matches,
+   is_word_char,
+};
 
 const REFRESH_INTERVAL: Duration = Duration::from_hours(1);
 
@@ -47,18 +49,6 @@ const RETRY_INTERVAL: Duration = Duration::from_mins(5);
 const CHUNK_CONCURRENCY: usize = 8;
 
 const CLIENT_WEB: &str = "https://abs.twimg.com/responsive-web/client-web/";
-
-static MAIN_RE: LazyLock<Regex> = LazyLock::new(|| {
-   Regex::new(r"https://abs\.twimg\.com/responsive-web/client-web/main\.[0-9a-f]+\.js").unwrap()
-});
-static PAIR_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r#"queryId:"([A-Za-z0-9_-]+)",operationName:"(\w+)""#).unwrap());
-static CHUNK_MAP_RE: LazyLock<Regex> = LazyLock::new(|| {
-   Regex::new(r#"\(\{([^{}]*)\}\)\[\w+\]\|\|\w+\)\+"\."\+\(\{([^{}]*)\}\)\[\w+\]\+"a\.js""#)
-      .unwrap()
-});
-static CHUNK_ENTRY_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r#"(\d+):"([^"]+)""#).unwrap());
 
 struct RefreshState {
    next:     Instant,
@@ -169,10 +159,8 @@ impl QueryIds {
       scanned_main: Option<&str>,
    ) -> Result<Option<(String, HashMap<String, String>)>, String> {
       let (home, headers) = tid::fetch_home(&self.http, &self.sessions).await?;
-      let main_url = MAIN_RE
-         .find(&home)
+      let main_url = main_js_url(&home)
          .ok_or("no main.js in the x.com homepage")?
-         .as_str()
          .to_owned();
 
       if scanned_main == Some(main_url.as_str()) {
@@ -226,15 +214,46 @@ async fn fetch_text(http: &HttpClient, url: &str, headers: &HeaderMap) -> Result
       .map_err(|err| format!("read {url}: {err}"))
 }
 
-fn collect_pairs(js: &str, found: &mut HashMap<String, String>) {
-   for caps in PAIR_RE.captures_iter(js) {
-      let operation = &caps[2];
+fn main_js_url(home: &str) -> Option<&str> {
+   let prefix = format!("{CLIENT_WEB}main.");
+   home.match_indices(&prefix).find_map(|(start, _)| {
+      let hash_start = start + prefix.len();
+      let hash_len = home[hash_start..]
+         .find(|ch: char| !matches!(ch, '0'..='9' | 'a'..='f'))
+         .unwrap_or(home.len() - hash_start);
+      let end = hash_start + hash_len + ".js".len();
+      (hash_len > 0 && home[hash_start + hash_len..].starts_with(".js")).then(|| &home[start..end])
+   })
+}
 
+fn word_len(text: &str) -> Option<usize> {
+   let len = text.find(|ch| !is_word_char(ch)).unwrap_or(text.len());
+   (len > 0).then_some(len)
+}
+
+fn query_pairs(js: &str) -> impl Iterator<Item = (&str, &str)> {
+   js.match_indices(r#"queryId:""#)
+      .filter_map(|(start, needle)| {
+         let id_and_rest = &js[start + needle.len()..];
+         let id_len = id_and_rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-')))
+            .unwrap_or(id_and_rest.len());
+         let operation_and_rest = id_and_rest[id_len..].strip_prefix(r#"",operationName:""#)?;
+         let operation_len = word_len(operation_and_rest)?;
+         operation_and_rest[operation_len..]
+            .starts_with('"')
+            .then_some(())?;
+         (id_len > 0).then(|| (&id_and_rest[..id_len], &operation_and_rest[..operation_len]))
+      })
+}
+
+fn collect_pairs(js: &str, found: &mut HashMap<String, String>) {
+   for (id, operation) in query_pairs(js) {
       if endpoints::WEB_OPERATIONS
          .iter()
          .any(|endpoint| endpoint.ends_with(&format!("/{operation}")))
       {
-         found.insert(operation.to_owned(), caps[1].to_owned());
+         found.insert(operation.to_owned(), id.to_owned());
       }
    }
 }
@@ -247,21 +266,53 @@ fn all_found(found: &HashMap<String, String>) -> bool {
    })
 }
 
-fn chunk_urls(home: &str) -> Result<Vec<String>, String> {
-   let caps = CHUNK_MAP_RE
-      .captures(home)
-      .ok_or("no webpack chunk map in the x.com homepage")?;
-   let names: HashMap<&str, &str> = CHUNK_ENTRY_RE
-      .captures_iter(caps.get(1).map_or("", |names| names.as_str()))
-      .filter_map(|entry| Some((entry.get(1)?.as_str(), entry.get(2)?.as_str())))
-      .collect();
+fn chunk_map(home: &str) -> Option<(&str, &str)> {
+   let object = |text: &'_ str| -> Option<(usize, usize)> {
+      let len = text.find(['{', '}'])?;
+      text[len..].starts_with('}').then_some((len, len + 1))
+   };
+   home.match_indices("({").find_map(|(start, _)| {
+      let names_and_rest = &home[start + 2..];
+      let (names_len, names_end) = object(names_and_rest)?;
+      let after_names = names_and_rest[names_end..].strip_prefix(")[")?;
+      let after_or = after_names[word_len(after_names)?..].strip_prefix("]||")?;
+      let hashes_and_rest = after_or[word_len(after_or)?..].strip_prefix(r#")+"."+({"#)?;
+      let (hashes_len, hashes_end) = object(hashes_and_rest)?;
+      let after_hashes = hashes_and_rest[hashes_end..].strip_prefix(")[")?;
+      after_hashes[word_len(after_hashes)?..]
+         .starts_with(r#"]+"a.js""#)
+         .then(|| (&names_and_rest[..names_len], &hashes_and_rest[..hashes_len]))
+   })
+}
 
-   Ok(CHUNK_ENTRY_RE
-      .captures_iter(caps.get(2).map_or("", |hashes| hashes.as_str()))
-      .filter_map(|entry| {
-         let id = entry.get(1)?.as_str();
+fn chunk_entries(object: &str) -> impl Iterator<Item = (&str, &str)> {
+   let is_digit = |ch: char| ch.is_numeric() && is_word_char(ch) && !ch.is_alphabetic();
+   find_matches(object, move |pos| {
+      let digits_and_rest = &object[pos..];
+      let digits_len = digits_and_rest
+         .find(|ch| !is_digit(ch))
+         .unwrap_or(digits_and_rest.len());
+      let value_and_rest = digits_and_rest[digits_len..].strip_prefix(r#":""#)?;
+      let value_len = value_and_rest.find('"').filter(|&len| len > 0)?;
+      let end = object.len() - value_and_rest.len() + value_len + 1;
+      (digits_len > 0).then(|| {
+         (
+            end,
+            (&digits_and_rest[..digits_len], &value_and_rest[..value_len]),
+         )
+      })
+   })
+   .map(|(_, _, entry)| entry)
+}
+
+fn chunk_urls(home: &str) -> Result<Vec<String>, String> {
+   let (names_object, hashes_object) =
+      chunk_map(home).ok_or("no webpack chunk map in the x.com homepage")?;
+   let names = chunk_entries(names_object).collect::<HashMap<&str, &str>>();
+
+   Ok(chunk_entries(hashes_object)
+      .filter_map(|(id, hash)| {
          let name = names.get(id).copied().unwrap_or(id);
-         let hash = entry.get(2)?.as_str();
          let skip = name.starts_with("i18n/") || name.starts_with("ondemand.");
          (!skip).then(|| format!("{CLIENT_WEB}{name}.{hash}a.js"))
       })

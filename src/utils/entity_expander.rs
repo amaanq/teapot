@@ -10,20 +10,19 @@
 use std::{
    borrow::Cow,
    fmt::Write as _,
-   sync::LazyLock,
 };
 
-use regex::Regex;
-
-use crate::types::tweet::{
-   Entity,
-   EntityKind,
+use crate::{
+   types::tweet::{
+      Entity,
+      EntityKind,
+   },
+   utils::formatters::{
+      is_word_char,
+      match_leads,
+      replace_matches,
+   },
 };
-
-static MENTION_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new("(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{1,15})").unwrap());
-static HASHTAG_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(^|[^\w&;])([#$])(\w+)").unwrap());
 
 /// Convert character index to byte index.
 /// Twitter entities use character (code point) indices, not byte indices.
@@ -159,15 +158,52 @@ fn expand_entities_with_target(text: &str, entities: &[Entity], link_to_x: bool)
    result
 }
 
-/// Regex-based expansion fallback.
+/// Expansion fallback for text without entities.
 ///
-/// Operates directly on Twitter's pre-escaped text. The `HASHTAG_RE` pattern
-/// uses `[^\w&;]` to avoid matching HTML entities like `&#x27;`.
-pub fn expand_with_regex(text: &str) -> String {
+/// Operates directly on Twitter's pre-escaped text. A hashtag needs a lead
+/// outside `\w`, `&` and `;` to avoid matching HTML entities like `&#x27;`.
+pub fn expand_without_entities(text: &str) -> String {
    let escaped = escape_tags(text);
-   let result = MENTION_RE.replace_all(&escaped, r#"$1<a href="/$2">@$2</a>"#);
-   let result = HASHTAG_RE.replace_all(&result, r#"$1<a href="/search?q=%23$3">$2$3</a>"#);
-   result.into_owned()
+   let mentioned = replace_matches(
+      &escaped,
+      |pos| {
+         let is_lead = |ch: char| !(ch.is_ascii_alphanumeric() || ch == '_');
+         match_leads(&escaped, pos, is_lead).find_map(|(lead, at)| {
+            let name = escaped[at..].strip_prefix('@')?;
+            let len = name
+               .bytes()
+               .take(15)
+               .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+               .count();
+            (len > 0).then(|| (at + 1 + len, (lead, &name[..len])))
+         })
+      },
+      |out, (lead, name)| {
+         let _ = write!(out, r#"{lead}<a href="/{name}">@{name}</a>"#);
+      },
+   );
+   replace_matches(
+      &mentioned,
+      |pos| {
+         let is_lead = |ch: char| !(is_word_char(ch) || matches!(ch, '&' | ';'));
+         match_leads(&mentioned, pos, is_lead).find_map(|(lead, at)| {
+            let sigil = mentioned[at..]
+               .chars()
+               .next()
+               .filter(|ch| matches!(ch, '#' | '$'))?;
+            let tag = &mentioned[at + 1..];
+            let len = tag.find(|ch| !is_word_char(ch)).unwrap_or(tag.len());
+            (len > 0).then(|| (at + 1 + len, (lead, sigil, &tag[..len])))
+         })
+      },
+      |out, (lead, sigil, tag)| {
+         let _ = write!(
+            out,
+            r#"{lead}<a href="/search?q=%23{tag}">{sigil}{tag}</a>"#
+         );
+      },
+   )
+   .into_owned()
 }
 
 /// HTML escape special characters.
@@ -317,8 +353,8 @@ mod tests {
    }
 
    #[test]
-   fn regex_fallback_expands_entities() {
-      let result = expand_with_regex("Hello @user and #topic!");
+   fn fallback_expands_entities() {
+      let result = expand_without_entities("Hello @user and #topic!");
       assert!(result.contains(r#"<a href="/user">@user</a>"#));
       assert!(result.contains(r#"<a href="/search?q=%23topic">#topic</a>"#));
    }
@@ -327,7 +363,7 @@ mod tests {
    fn html_entity_is_not_treated_as_hashtag() {
       // &#x27; is the HTML entity for a single quote. The #x27 must not become
       // a hashtag link. Twitter sends this pre-escaped.
-      let result = expand_with_regex("It&#x27;s a test");
+      let result = expand_without_entities("It&#x27;s a test");
       assert!(
          result.contains("&#x27;"),
          "HTML entity &#x27; should be preserved"
@@ -340,7 +376,7 @@ mod tests {
 
    #[test]
    fn html_entity_ampersand_is_not_treated_as_hashtag() {
-      let result = expand_with_regex("Test &amp; &#x27;end");
+      let result = expand_without_entities("Test &amp; &#x27;end");
       assert!(
          !result.contains(r#"<a href="/search?q=%23x27">"#),
          "&amp;#x27; should not produce hashtag link"

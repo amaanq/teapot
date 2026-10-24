@@ -9,14 +9,12 @@ use std::{
    fs,
    ops::Index,
    path::Path,
-   sync::LazyLock,
 };
 
 use percent_encoding::{
    NON_ALPHANUMERIC,
    utf8_percent_encode,
 };
-use regex::Regex;
 use topcoat::{
    Result,
    context::Cx,
@@ -39,6 +37,7 @@ use crate::{
       Prefs,
       Toggle,
    },
+   utils::formatters::replace_matches,
    views::renderutils::config,
 };
 
@@ -175,26 +174,20 @@ pub fn themes(static_dir: &str) -> Vec<String> {
    )
 }
 
-static A_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r#"<a\s+[^>]*href="([^"]*)"[^>]*>[^<]*</a>"#).unwrap());
-
 /// Strip HTML tags from text, replacing `<a href="...">display</a>` with the
 /// actual URL. Used for `og:description` where we want link targets, not
 /// display text.
 pub fn strip_html(text: &str) -> String {
    // Show each <a> tag's href URL instead of its display text
-   let text = A_RE.replace_all(text, |caps: &regex::Captures| {
-      let url = &caps[1];
-      if url.contains("http") {
-         url.to_owned()
-      } else {
-         caps[0].to_owned()
-      }
-   });
+   let linked = replace_matches(
+      text,
+      |pos| anchor_at(text, pos),
+      |out, (url, anchor)| out.push_str(if url.contains("http") { url } else { anchor }),
+   );
 
    let mut result = String::new();
    let mut in_tag = false;
-   for ch in text.chars() {
+   for ch in linked.chars() {
       match ch {
          '<' => in_tag = true,
          '>' => in_tag = false,
@@ -203,6 +196,36 @@ pub fn strip_html(text: &str) -> String {
       }
    }
    result
+}
+
+fn anchor_at(text: &str, pos: usize) -> Option<(usize, (&str, &str))> {
+   let after_tag = text[pos..].strip_prefix("<a")?;
+   let space = after_tag
+      .find(|ch: char| !ch.is_whitespace())
+      .unwrap_or(after_tag.len());
+   if space == 0 {
+      return None;
+   }
+   let attrs = &after_tag[space..];
+   let attrs_start = text.len() - attrs.len();
+   let tag_end = attrs.find('>').unwrap_or(attrs.len());
+
+   attrs[..tag_end]
+      .rmatch_indices(r#"href=""#)
+      .find_map(|(offset, _)| {
+         let url_start = attrs_start + offset + r#"href=""#.len();
+         let url_len = text[url_start..].find('"')?;
+         let after_url = url_start + url_len + 1;
+         let content = after_url + text[after_url..].find('>')? + 1;
+         let close = content + text[content..].find('<')?;
+         let end = text[close..]
+            .starts_with("</a>")
+            .then_some(close + "</a>".len())?;
+         Some((
+            end,
+            (&text[url_start..url_start + url_len], &text[pos..end]),
+         ))
+      })
 }
 
 /// The page shell. `head` adds tags after the `OpenGraph` block, and

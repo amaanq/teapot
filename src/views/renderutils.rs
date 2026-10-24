@@ -37,7 +37,7 @@ use crate::{
    },
    utils::{
       entity_expander::{
-         expand_with_regex,
+         expand_without_entities,
          html_escape,
          short_url,
       },
@@ -286,7 +286,7 @@ pub fn render_bio_html(bio: &str, config: &Config) -> String {
    if bio.is_empty() {
       return String::new();
    }
-   let expanded = expand_with_regex(bio);
+   let expanded = expand_without_entities(bio);
    formatters::replace_urls(&expanded, config)
 }
 

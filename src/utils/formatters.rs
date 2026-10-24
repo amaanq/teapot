@@ -1,6 +1,7 @@
 use std::{
    borrow::Cow,
-   sync::LazyLock,
+   fmt::Write as _,
+   iter,
 };
 
 use data_encoding::BASE64URL_NOPAD;
@@ -12,38 +13,173 @@ use percent_encoding::{
    NON_ALPHANUMERIC,
    utf8_percent_encode,
 };
-use regex::Regex;
+use unicode_ident::is_xid_continue;
 
 use crate::config::Config;
 
-// Pre-compiled regexes for URL replacement (twitter/x.com)
-static X_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-   Regex::new(
-      r#"<a href="https://(?:www\.|mobile\.)?x\.com([^"]+)">(?:www\.|mobile\.)?x\.com(\S+)</a>"#,
-   )
-   .unwrap()
-});
-static TW_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-   Regex::new(r#"<a href="https://(?:www\.|mobile\.)?twitter\.com([^"]+)">(?:www\.|mobile\.)?twitter\.com(\S+)</a>"#).unwrap()
-});
-static X_URL_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(://)(?:www\.|mobile\.)?x\.com\b").unwrap());
-static TW_URL_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(://)(?:www\.|mobile\.)?twitter\.com\b").unwrap());
-static X_BARE_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(^|\s)((?:www\.|mobile\.)?x\.com)\b").unwrap());
-static TW_BARE_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(^|\s)((?:www\.|mobile\.)?twitter\.com)\b").unwrap());
-static YT_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(?i)([A-Za-z.]+\.)?youtu(be\.com|\.be)").unwrap());
-static RD_RE: LazyLock<Regex> = LazyLock::new(|| {
-   Regex::new(r"(?:^|(?:https://)|[\s])(?:((?:www|np|new|amp|old)\.)?reddit\.com)").unwrap()
-});
-static RD_SHORT_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"(?:^|[\s])(redd\.it/)").unwrap());
-static USER_PIC_SIZE_RE: LazyLock<Regex> =
-   LazyLock::new(|| Regex::new(r"_(normal|bigger|mini|200x200|400x400)(\.[A-Za-z]+)$").unwrap());
-static USER_PIC_EXT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\.[A-Za-z]+)$").unwrap());
+const USER_PIC_SIZES: [&str; 5] = ["normal", "bigger", "mini", "200x200", "400x400"];
+const REDDIT_SUBDOMAINS: [&str; 5] = ["www.", "np.", "new.", "amp.", "old."];
+const KELVIN_SIGN: char = '\u{212A}';
+const LONG_S: char = '\u{017F}';
+
+/// Unicode `\w`, the regex crate's word class. `XID_Continue` covers the
+/// marks, `Nd`, `Pc` and `Join_Control` except the enclosing marks, and adds
+/// `Other_ID_Start` and `Other_ID_Continue` symbols that are not word
+/// characters.
+pub fn is_word_char(ch: char) -> bool {
+   let enclosing_mark = matches!(
+      ch,
+      '\u{0488}' | '\u{0489}' | '\u{1ABE}' | '\u{20E2}' | '\u{20E3}' | '\u{20E4}' | '\u{A670}'
+   ) || ('\u{20DD}'..='\u{20E0}').contains(&ch)
+      || ('\u{A671}'..='\u{A672}').contains(&ch);
+   let symbol = matches!(
+      ch,
+      '\u{00B7}' | '\u{0387}' | '\u{19DA}' | '\u{2118}' | '\u{212E}' | '\u{30FB}' | '\u{FF65}'
+   ) || ('\u{1369}'..='\u{1371}').contains(&ch);
+   enclosing_mark || (ch.is_alphabetic() || is_xid_continue(ch)) && !symbol
+}
+
+pub fn find_matches<'a, M, F>(
+   text: &'a str,
+   match_at: F,
+) -> impl Iterator<Item = (usize, usize, M)> + 'a
+where
+   F: Fn(usize) -> Option<(usize, M)> + 'a,
+{
+   let mut pos = 0;
+   iter::from_fn(move || {
+      while let Some(ch) = text[pos..].chars().next() {
+         if let Some((end, found)) = match_at(pos) {
+            let start = pos;
+            pos = end;
+            return Some((start, end, found));
+         }
+         pos += ch.len_utf8();
+      }
+      None
+   })
+}
+
+pub fn replace_matches<'a, M, F, R>(text: &'a str, match_at: F, mut render: R) -> Cow<'a, str>
+where
+   F: Fn(usize) -> Option<(usize, M)> + 'a,
+   R: FnMut(&mut String, M),
+{
+   let mut replaced = None::<String>;
+   let mut copied = 0;
+
+   for (start, end, found) in find_matches(text, match_at) {
+      let out = replaced.get_or_insert_with(|| String::with_capacity(text.len()));
+      out.push_str(&text[copied..start]);
+      render(out, found);
+      copied = end;
+   }
+
+   replaced.map_or(Cow::Borrowed(text), |mut out| {
+      out.push_str(&text[copied..]);
+      Cow::Owned(out)
+   })
+}
+
+pub fn match_leads<F>(text: &str, pos: usize, is_lead: F) -> impl Iterator<Item = (&str, usize)>
+where
+   F: Fn(char) -> bool,
+{
+   let start_of_text = (pos == 0).then_some(("", 0));
+   let lead = text[pos..]
+      .chars()
+      .next()
+      .filter(|&ch| is_lead(ch))
+      .map(|ch| (&text[pos..pos + ch.len_utf8()], pos + ch.len_utf8()));
+   start_of_text.into_iter().chain(lead)
+}
+
+fn subdomain_len(text: &str) -> usize {
+   ["www.", "mobile."]
+      .into_iter()
+      .find(|sub| text.starts_with(sub))
+      .map_or(0, str::len)
+}
+
+fn host_end(text: &str, pos: usize, domain: &str) -> Option<usize> {
+   let host = pos + subdomain_len(&text[pos..]);
+   let end = host + domain.len();
+   let bounded =
+      text[host..].starts_with(domain) && !text[end..].chars().next().is_some_and(is_word_char);
+   bounded.then_some(end)
+}
+
+fn domain_link_at<'a>(
+   text: &'a str,
+   pos: usize,
+   domain: &str,
+) -> Option<(usize, (&'a str, &'a str))> {
+   let href = text[pos..].strip_prefix(r#"<a href="https://"#)?;
+   let path_and_rest = href[subdomain_len(href)..].strip_prefix(domain)?;
+   let path_len = path_and_rest.find('"').filter(|&len| len > 0)?;
+   let display = path_and_rest[path_len..].strip_prefix(r#"">"#)?;
+   let shown_and_rest = display[subdomain_len(display)..].strip_prefix(domain)?;
+   let run = shown_and_rest
+      .find(char::is_whitespace)
+      .unwrap_or(shown_and_rest.len());
+   let shown_len = shown_and_rest[..run].rfind("</a>").filter(|&len| len > 0)?;
+   let end = text.len() - shown_and_rest.len() + shown_len + "</a>".len();
+   Some((
+      end,
+      (&path_and_rest[..path_len], &shown_and_rest[..shown_len]),
+   ))
+}
+
+fn youtube_at(text: &str, pos: usize) -> Option<usize> {
+   let youtu_end = |at: usize| {
+      let suffix_start = at + "youtu".len();
+      text
+         .get(at..suffix_start)
+         .filter(|head| head.eq_ignore_ascii_case("youtu"))?;
+      ["be.com", ".be"].into_iter().find_map(|suffix| {
+         let end = suffix_start + suffix.len();
+         text
+            .get(suffix_start..end)
+            .filter(|found| found.eq_ignore_ascii_case(suffix))
+            .map(|_| end)
+      })
+   };
+   let run = text[pos..]
+      .find(|ch: char| !(ch.is_ascii_alphabetic() || matches!(ch, '.' | KELVIN_SIGN | LONG_S)))
+      .map_or(text.len(), |len| pos + len);
+
+   text[pos..run]
+      .rmatch_indices('.')
+      .map(|(offset, _)| pos + offset)
+      .filter(|&dot| dot > pos)
+      .find_map(|dot| youtu_end(dot + 1))
+      .or_else(|| youtu_end(pos))
+}
+
+fn reddit_at(text: &str, pos: usize) -> Option<usize> {
+   let reddit_end = |at: usize| {
+      let rest = &text[at..];
+      REDDIT_SUBDOMAINS
+         .into_iter()
+         .find_map(|sub| rest.strip_prefix(sub)?.strip_prefix("reddit.com"))
+         .or_else(|| rest.strip_prefix("reddit.com"))
+         .map(|after| text.len() - after.len())
+   };
+   let start_of_text = (pos == 0).then_some(0);
+   let after_scheme = text[pos..]
+      .starts_with("https://")
+      .then_some(pos + "https://".len());
+   let after_space = text[pos..]
+      .chars()
+      .next()
+      .filter(|ch| ch.is_whitespace())
+      .map(|ch| pos + ch.len_utf8());
+
+   [start_of_text, after_scheme, after_space]
+      .into_iter()
+      .flatten()
+      .find_map(reddit_end)
+}
 
 /// Replace Twitter/X URLs with teapot instance URLs.
 /// Handles both raw URLs (in href attributes) and HTML anchor tags (display
@@ -70,19 +206,55 @@ pub fn replace_twitter_urls(text: &str, config: &Config) -> String {
    }
 
    // Handle full <a> tags with x.com/twitter.com
-   let link_replacement = format!(r#"<a href="{prefix}$1">{replace_with}$2</a>"#);
-   let result = X_LINK_RE.replace_all(&result, link_replacement.as_str());
-   let result = TW_LINK_RE.replace_all(&result, link_replacement.as_str());
+   let linked = ["x.com", "twitter.com"]
+      .into_iter()
+      .fold(result, |current, domain| {
+         replace_matches(
+            &current,
+            |pos| domain_link_at(&current, pos, domain),
+            |out, (path, shown)| {
+               let _ = write!(out, r#"<a href="{prefix}{path}">{replace_with}{shown}</a>"#);
+            },
+         )
+         .into_owned()
+      });
 
-   let url_replacement = format!("${{1}}{replace_with}");
-   let result = X_URL_RE.replace_all(&result, url_replacement.as_str());
-   let result = TW_URL_RE.replace_all(&result, url_replacement.as_str());
+   let schemed = ["x.com", "twitter.com"]
+      .into_iter()
+      .fold(linked, |current, domain| {
+         replace_matches(
+            &current,
+            |pos| {
+               current[pos..]
+                  .starts_with("://")
+                  .then(|| host_end(&current, pos + "://".len(), domain))
+                  .flatten()
+                  .map(|end| (end, ()))
+            },
+            |out, ()| {
+               out.push_str("://");
+               out.push_str(replace_with);
+            },
+         )
+         .into_owned()
+      });
 
-   let bare_replacement = format!("${{1}}{replace_with}");
-   let result = X_BARE_RE.replace_all(&result, bare_replacement.as_str());
-   let result = TW_BARE_RE.replace_all(&result, bare_replacement.as_str());
-
-   result.to_string()
+   ["x.com", "twitter.com"]
+      .into_iter()
+      .fold(schemed, |current, domain| {
+         replace_matches(
+            &current,
+            |pos| {
+               match_leads(&current, pos, char::is_whitespace)
+                  .find_map(|(lead, host)| Some((host_end(&current, host, domain)?, lead)))
+            },
+            |out, lead| {
+               out.push_str(lead);
+               out.push_str(replace_with);
+            },
+         )
+         .into_owned()
+      })
 }
 
 /// Replace `YouTube` URLs with configured replacement.
@@ -92,10 +264,11 @@ pub fn replace_youtube_urls<'a>(text: &'a str, config: &Config) -> Cow<'a, str> 
    }
 
    let host = config.preferences.replace_youtube.trim_end_matches('/');
-   match YT_RE.replace_all(text, host) {
-      Cow::Borrowed(_) => Cow::Borrowed(text),
-      Cow::Owned(owned) => Cow::Owned(owned),
-   }
+   replace_matches(
+      text,
+      |pos| youtube_at(text, pos).map(|end| (end, ())),
+      |out, ()| out.push_str(host),
+   )
 }
 
 /// Replace Reddit URLs with configured replacement.
@@ -105,8 +278,25 @@ pub fn replace_reddit_urls<'a>(text: &'a str, config: &Config) -> Cow<'a, str> {
    }
 
    let host = config.preferences.replace_reddit.trim_end_matches('/');
-   let result = RD_SHORT_RE.replace_all(text, format!("{host}/comments/").as_str());
-   let result = RD_RE.replace_all(&result, host);
+   let short_replaced = replace_matches(
+      text,
+      |pos| {
+         match_leads(text, pos, char::is_whitespace).find_map(|(_, short)| {
+            text[short..]
+               .starts_with("redd.it/")
+               .then_some((short + "redd.it/".len(), ()))
+         })
+      },
+      |out, ()| {
+         out.push_str(host);
+         out.push_str("/comments/");
+      },
+   );
+   let result = replace_matches(
+      &short_replaced,
+      |pos| reddit_at(&short_replaced, pos).map(|end| (end, ())),
+      |out, ()| out.push_str(host),
+   );
 
    // Reddit gallery -> comments redirect
    if result.contains(host) && result.contains("/gallery/") {
@@ -161,10 +351,18 @@ pub fn url_encode(input: &str) -> String {
 /// Example: `get_user_pic("...pic_400x400.jpg", "_mini")` ->
 /// `"...pic_mini.jpg"`.
 pub fn get_user_pic(user_pic: &str, style: &str) -> String {
-   let without_size = USER_PIC_SIZE_RE.replace(user_pic, "$2").to_string();
-   USER_PIC_EXT_RE
-      .replace(&without_size, format!("{style}$1").as_str())
-      .to_string()
+   let Some(dot) = user_pic.rfind('.').filter(|&dot| {
+      let ext = &user_pic[dot + 1..];
+      !ext.is_empty() && ext.bytes().all(|byte| byte.is_ascii_alphabetic())
+   }) else {
+      return user_pic.to_owned();
+   };
+   let (stem, ext) = user_pic.split_at(dot);
+   let base = USER_PIC_SIZES
+      .into_iter()
+      .find_map(|size| stem.strip_suffix(size)?.strip_suffix('_'))
+      .unwrap_or(stem);
+   format!("{base}{style}{ext}")
 }
 
 /// Encode a URL for proxy path segments: base64 (with `/enc/` prefix) or

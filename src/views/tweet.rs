@@ -54,7 +54,7 @@ use crate::{
       country,
       entity_expander::{
          expand_entities,
-         expand_with_regex,
+         expand_without_entities,
          html_escape,
       },
       formatters,
@@ -766,7 +766,7 @@ async fn account_signal(user: &User) -> Result<impl View> {
 /// Expand a tweet's entities and append its location, as trusted HTML.
 fn tweet_text_html(text: &str, entities: &[Entity], location: &str, config: &Config) -> String {
    let processed = if entities.is_empty() {
-      expand_with_regex(text)
+      expand_without_entities(text)
    } else {
       expand_entities(text, entities)
    };
