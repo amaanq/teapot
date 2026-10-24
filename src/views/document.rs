@@ -223,8 +223,7 @@ fn anchor_at(text: &str, pos: usize) -> Option<(usize, (&str, &str))> {
 
 /// The page shell. `head` adds tags after the `OpenGraph` block, and
 /// `custom_og` lets `head` supply that block itself. With `live`, the theme,
-/// font size and toggles follow their signals. A `fragment` renders only the
-/// child, for infinite scroll requests.
+/// font size and toggles follow their signals.
 #[component]
 pub async fn document<'a>(
    cx: &Cx,
@@ -240,7 +239,6 @@ pub async fn document<'a>(
    #[default("#1F1F1F")] theme_color: &'a str,
    #[default] custom_og: bool,
    #[default] head: Option<Child<'a>>,
-   #[default] fragment: bool,
    #[default] child: Child<'a>,
 ) -> Result<impl View> {
    let config = config(cx);
@@ -283,141 +281,134 @@ pub async fn document<'a>(
    });
 
    Ok(view! {
-      if fragment {
-         (child)
-      } else {
-         <!DOCTYPE html>
-         <html lang="en">
-            <head>
-               <meta charset="utf-8">
-               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-               if custom_og {
-                  <meta property="theme-color" content=(theme_color)>
-               } else {
-                  <meta name="theme-color" content=(theme_color)>
-                  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-               }
-               <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-               <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-               <link rel="manifest" href="/site.webmanifest">
-               <link
-                  rel="mask-icon"
-                  href="/safari-pinned-tab.svg"
-                  color=(if custom_og { theme_color } else { "#ff6c60" })
-               >
-               // OpenSearch description (full absolute URL to /opensearch)
-               <link
-                  rel="search"
-                  type="application/opensearchdescription+xml"
-                  title=(server_title)
-                  href=(format!("{}/opensearch", config.url_prefix()))
-               >
-               if let Some(rss) = rss {
-                  <link rel="alternate" type="application/rss+xml" title="RSS feed" href=(rss)>
-               }
-               // Main CSS + icon fonts (with cache-busting)
-               <link rel="stylesheet" type="text/css" href=(STYLE_CSS)>
-               // After the component styles, whose layout decisions it replaces.
-               <link rel="stylesheet" type="text/css" href=(CLEAN_CSS)>
-               <link rel="stylesheet" type="text/css" href=(FONTELLO_CSS)>
-               if let Some(href) = static_theme {
-                  <link rel="stylesheet" type="text/css" href=(href)>
-               }
-               if let Some((theme, _, _, twemoji)) = signals {
-                  for (name, href) in live_themes {
-                     <link
-                        rel="stylesheet"
-                        type="text/css"
-                        href=(href)
-                        :disabled=$(theme.get() != name)
-                     >
-                  }
+      <!DOCTYPE html>
+      <html lang="en">
+         <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            if custom_og {
+               <meta property="theme-color" content=(theme_color)>
+            } else {
+               <meta name="theme-color" content=(theme_color)>
+               <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+            }
+            <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+            <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+            <link rel="manifest" href="/site.webmanifest">
+            <link
+               rel="mask-icon"
+               href="/safari-pinned-tab.svg"
+               color=(if custom_og { theme_color } else { "#ff6c60" })
+            >
+            // OpenSearch description (full absolute URL to /opensearch)
+            <link
+               rel="search"
+               type="application/opensearchdescription+xml"
+               title=(server_title)
+               href=(format!("{}/opensearch", config.url_prefix()))
+            >
+            if let Some(rss) = rss {
+               <link rel="alternate" type="application/rss+xml" title="RSS feed" href=(rss)>
+            }
+            // Main CSS + icon fonts (with cache-busting)
+            <link rel="stylesheet" type="text/css" href=(STYLE_CSS)>
+            // After the component styles, whose layout decisions it replaces.
+            <link rel="stylesheet" type="text/css" href=(CLEAN_CSS)>
+            <link rel="stylesheet" type="text/css" href=(FONTELLO_CSS)>
+            if let Some(href) = static_theme {
+               <link rel="stylesheet" type="text/css" href=(href)>
+            }
+            if let Some((theme, _, _, twemoji)) = signals {
+               for (name, href) in live_themes {
                   <link
                      rel="stylesheet"
                      type="text/css"
-                     href="/css/twemoji.css"
-                     :disabled=$(!twemoji.get())
+                     href=(href)
+                     :disabled=$(theme.get() != name)
                   >
-               } else if prefs.use_twemoji {
-                  // Twemoji font (opt-in via preferences, on by default)
-                  <link rel="stylesheet" type="text/css" href="/css/twemoji.css">
                }
-               <title>(page_title)</title>
-               if !custom_og {
-                  <meta property="og:site_name" content=(server_title)>
-                  <meta property="og:locale" content="en_US">
-                  <meta property="og:title" content=(title)>
-                  <meta property="og:description" content=(strip_html(description))>
-                  // head provides its own og:type and twitter:card when present
-                  // (e.g. video/player for GIF embeds). Discord takes the first
-                  // occurrence, so suppress defaults.
-                  if !has_head {
-                     <meta property="og:type" content=(og_type)>
-                  }
-                  if !og_image.is_empty() {
-                     <meta property="og:image" content=(og_image)>
-                     <meta property="twitter:image:src" content=(og_image)>
-                  }
-                  if !has_head && rss.is_some() {
-                     <meta name="twitter:card" content="summary">
-                  }
-               }
-               // Custom head content (OG overrides, oEmbed, ActivityPub)
-               if let Some(head) = head {
-                  (head)
-               }
-               // Link to original x.com URL
-               if !canonical.is_empty() {
-                  <link rel="alternate" href=(canonical) title="View on X">
-               }
-               // Scripts in <head> with defer
-               for src in SCRIPTS {
-                  <script src=(src) defer=""></script>
-               }
-               if prefs.infinite_scroll {
-                  <script src="/js/infiniteScroll.js" defer=""></script>
-               }
-               script()
                <link
-                  rel="preload"
-                  type="font/woff2"
-                  as="font"
-                  href="/fonts/fontello.woff2?61663884"
-                  crossorigin="anonymous"
+                  rel="stylesheet"
+                  type="text/css"
+                  href="/css/twemoji.css"
+                  :disabled=$(!twemoji.get())
                >
-            </head>
-            if let Some((_, font_size, sticky_nav, _)) = signals {
-               <body
-                  :class=$(if sticky_nav.get() { "fixed-nav" } else { "" })
-                  :style=$({
-                     let size = font_size.get();
-                     if size == "Small" {
-                        "font-size: 14px"
-                     } else if size == "Medium" {
-                        "font-size: 16px"
-                     } else if size == "Large" {
-                        "font-size: 18px"
-                     } else if size == "X-Large" {
-                        "font-size: 20px"
-                     } else {
-                        ""
-                     }
-                  })
-               >
-                  navbar(rss: rss, canonical: canonical_or_x, settings_href: &settings_href)
-                  <main><div class="container">(child)</div></main>
-               </body>
-            } else {
-               <body
-                  class=(class!("fixed-nav" if prefs.sticky_nav))
-                  style=(Some(font_size_style(&prefs.font_size)).filter(|style| !style.is_empty()))
-               >
-                  navbar(rss: rss, canonical: canonical_or_x, settings_href: &settings_href)
-                  <main><div class="container">(child)</div></main>
-               </body>
+            } else if prefs.use_twemoji {
+               // Twemoji font (opt-in via preferences, on by default)
+               <link rel="stylesheet" type="text/css" href="/css/twemoji.css">
             }
-         </html>
-      }
+            <title>(page_title)</title>
+            if !custom_og {
+               <meta property="og:site_name" content=(server_title)>
+               <meta property="og:locale" content="en_US">
+               <meta property="og:title" content=(title)>
+               <meta property="og:description" content=(strip_html(description))>
+               // head provides its own og:type and twitter:card when present
+               // (e.g. video/player for GIF embeds). Discord takes the first
+               // occurrence, so suppress defaults.
+               if !has_head {
+                  <meta property="og:type" content=(og_type)>
+               }
+               if !og_image.is_empty() {
+                  <meta property="og:image" content=(og_image)>
+                  <meta property="twitter:image:src" content=(og_image)>
+               }
+               if !has_head && rss.is_some() {
+                  <meta name="twitter:card" content="summary">
+               }
+            }
+            // Custom head content (OG overrides, oEmbed, ActivityPub)
+            if let Some(head) = head {
+               (head)
+            }
+            // Link to original x.com URL
+            if !canonical.is_empty() {
+               <link rel="alternate" href=(canonical) title="View on X">
+            }
+            // Scripts in <head> with defer
+            for src in SCRIPTS {
+               <script src=(src) defer=""></script>
+            }
+            script()
+            <link
+               rel="preload"
+               type="font/woff2"
+               as="font"
+               href="/fonts/fontello.woff2?61663884"
+               crossorigin="anonymous"
+            >
+         </head>
+         if let Some((_, font_size, sticky_nav, _)) = signals {
+            <body
+               :class=$(if sticky_nav.get() { "fixed-nav" } else { "" })
+               :style=$({
+                  let size = font_size.get();
+                  if size == "Small" {
+                     "font-size: 14px"
+                  } else if size == "Medium" {
+                     "font-size: 16px"
+                  } else if size == "Large" {
+                     "font-size: 18px"
+                  } else if size == "X-Large" {
+                     "font-size: 20px"
+                  } else {
+                     ""
+                  }
+               })
+            >
+               navbar(rss: rss, canonical: canonical_or_x, settings_href: &settings_href)
+               <main><div class="container">(child)</div></main>
+            </body>
+         } else {
+            <body
+               class=(class!("fixed-nav" if prefs.sticky_nav))
+               style=(Some(font_size_style(&prefs.font_size)).filter(|style| !style.is_empty()))
+            >
+               navbar(rss: rss, canonical: canonical_or_x, settings_href: &settings_href)
+               <main><div class="container">(child)</div></main>
+            </body>
+         }
+      </html>
    })
 }
 

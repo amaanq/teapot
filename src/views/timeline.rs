@@ -10,6 +10,11 @@ use topcoat::{
 };
 
 use crate::{
+   routes::feed::{
+      Feed,
+      load_more,
+      tweet_ids,
+   },
    types::{
       prefs::Prefs,
       timeline::{
@@ -95,12 +100,11 @@ async fn thread_group<'a>(thread: &'a [&'a Tweet], prefs: &'a Prefs) -> Result<i
 pub async fn timeline<'a>(
    groups: &'a [Tweets],
    prefs: &'a Prefs,
+   feed: &'a Feed,
    #[default] cursor: Option<&'a str>,
-   #[default] base_url: &'a str,
    #[default] pinned: Option<&'a Tweet>,
    #[default] newer_url: Option<&'a str>,
 ) -> Result<impl View> {
-   let load_more_url = cursor.map(|cursor| formatters::cursor_url(base_url, cursor));
    // Get pinned tweet ID to avoid duplicates
    let pinned_id = pinned.map(|tweet| tweet.id);
    let has_tweets = groups.iter().any(|group| !group.is_empty()) || pinned.is_some();
@@ -125,25 +129,32 @@ pub async fn timeline<'a>(
             if let Some(tweet) = pinned.filter(|_| !prefs.hide_pins) {
                tweet_item(tweet: tweet, prefs: prefs, pinned: true)
             }
-            #[key(group.first().map_or(0, |tweet| tweet.id))]
-            for group in &groups {
-               if group.len() > 1 {
-                  thread_group(thread: group, prefs: prefs)
-               } else if let Some(tweet) = group.first().copied() {
-                  tweet_item(tweet: tweet, prefs: prefs)
-                  if tweet.has_thread {
-                     <div class="show-thread"><a href=(tweet_link(tweet))>"Show this thread"</a></div>
-                  }
-               }
-            }
-            if let Some(url) = load_more_url {
-               <div class="show-more"><a href=(url)>"Load more"</a></div>
-            } else {
-               <div class="timeline-footer"><h2 class="timeline-end">"No more items"</h2></div>
-            }
+            timeline_groups(groups: &groups, prefs: prefs)
+            load_more(feed: feed, cursor: cursor, seen: tweet_ids(groups.iter().flatten().copied()))
             to_top()
          }
       </div>
+   })
+}
+
+/// The tweets of a timeline page, one thread per group.
+#[component]
+pub async fn timeline_groups<'a>(
+   groups: &'a [Vec<&'a Tweet>],
+   prefs: &'a Prefs,
+) -> Result<impl View> {
+   Ok(view! {
+      #[key(group.first().map_or(0, |tweet| tweet.id))]
+      for group in groups {
+         if group.len() > 1 {
+            thread_group(thread: group, prefs: prefs)
+         } else if let Some(tweet) = group.first().copied() {
+            tweet_item(tweet: tweet, prefs: prefs)
+            if tweet.has_thread {
+               <div class="show-thread"><a href=(tweet_link(tweet))>"Show this thread"</a></div>
+            }
+         }
+      }
    })
 }
 

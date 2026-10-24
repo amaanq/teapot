@@ -3,6 +3,7 @@
 pub mod app;
 mod debug;
 mod embed;
+pub mod feed;
 pub mod helpers;
 mod intent;
 mod list;

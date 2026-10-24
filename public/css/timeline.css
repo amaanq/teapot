@@ -151,10 +151,21 @@
 }
 
 .show-more {
+  position: relative;
   background-color: transparent;
   text-align: center;
   padding: 12px 0;
   display: block !important;
+}
+
+.scroll-trigger {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 1px;
+  height: 3000px;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .show-more a {

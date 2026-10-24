@@ -12,7 +12,6 @@ use serde::Deserialize;
 use topcoat::{
    context::Cx,
    router::{
-      StatusCode,
       error::see_other,
       page,
       path_param,
@@ -39,13 +38,21 @@ use crate::{
       Error,
       Result,
    },
-   routes::helpers::{
-      enrich_conversation,
-      enrich_tweet_groups,
-      get_cached_translation,
-      request_prefs,
-      state,
-      user_agent,
+   routes::{
+      feed::{
+         Feed,
+         Post,
+         chain_ids,
+         load_more,
+      },
+      helpers::{
+         enrich_conversation,
+         enrich_tweet_groups,
+         get_cached_translation,
+         request_prefs,
+         state,
+         user_agent,
+      },
    },
    types::{
       prefs::Prefs,
@@ -64,7 +71,7 @@ use crate::{
          to_top,
       },
       tweet::{
-         reply_chains,
+         chain_items,
          thread_context,
          thread_context_bar,
          tweet_item,
@@ -91,14 +98,7 @@ const SORT_MODES: [RankingMode; 3] = [
 #[query_params(error = bad_request)]
 struct StatusQuery {
    cursor: Option<String>,
-   scroll: Option<String>,
    sort:   Option<String>,
-}
-
-impl StatusQuery {
-   fn is_scroll(&self) -> bool {
-      self.scroll.as_deref() == Some("true")
-   }
 }
 
 #[derive(Deserialize)]
@@ -210,27 +210,8 @@ async fn status_view(cx: &Cx, photo: Option<usize>) -> topcoat::Result<BoxView<'
 
    let focused_photo = photo.filter(|&idx| conversation.tweet.keep_only_photo(idx));
    let activity = is_discord.then(|| ActivityId::new(conversation.tweet.id, focused_photo));
-   if !is_discord && !query.is_scroll() && !has_cursor {
+   if !is_discord && !has_cursor {
       auto_translate(state, &mut conversation).await;
-   }
-
-   // Check this first because paginated responses omit the main tweet.
-   if query.is_scroll() {
-      let replies = conversation.replies;
-      return Ok(view! { cx =>
-         if replies.content.is_empty() {
-            (StatusCode::NO_CONTENT)
-         } else {
-            reply_chains(
-               chains: &replies.content,
-               bottom_cursor: replies.bottom.as_deref().unwrap_or_default(),
-               username: username,
-               id: id,
-               prefs: &prefs,
-            )
-         }
-      }
-      .boxed());
    }
 
    // Paginated requests with no replies indicate that the cursor reached a
@@ -340,7 +321,12 @@ async fn conversation_page<'a>(
 
    let base = format!("/{username}/status/{id}");
    let has_replies = !prefs.hide_replies && !conversation.replies.content.is_empty();
-   let replies_cursor = conversation.replies.bottom.as_deref().unwrap_or_default();
+   let replies_cursor = conversation.replies.bottom.as_deref();
+   let post = Post {
+      username: username.to_owned(),
+      id:       id.to_owned(),
+   };
+   let feed = Feed::Conversation(post, sort);
    let before = &conversation.before.content;
    let after = &conversation.after.content;
    let earlier = before
@@ -370,13 +356,8 @@ async fn conversation_page<'a>(
                <div class="timeline-item show-more"><a href=(format!("{base}#r"))>"Back to tweet"</a></div>
                thread_context_bar(tweet: tweet)
                <div class="replies" id="r">
-                  reply_chains(
-                     chains: &conversation.replies.content,
-                     bottom_cursor: replies_cursor,
-                     username: username,
-                     id: id,
-                     prefs: prefs,
-                  )
+                  chain_items(chains: &conversation.replies.content, prefs: prefs)
+                  load_more(feed: &feed, cursor: replies_cursor, seen: chain_ids(&conversation.replies.content))
                </div>
             } else {
                <div class="main-thread">
@@ -437,13 +418,8 @@ async fn conversation_page<'a>(
                if has_replies {
                   thread_context_bar(tweet: tweet)
                   <div class="replies" id="r">
-                     reply_chains(
-                        chains: &conversation.replies.content,
-                        bottom_cursor: replies_cursor,
-                        username: username,
-                        id: id,
-                        prefs: prefs,
-                     )
+                     chain_items(chains: &conversation.replies.content, prefs: prefs)
+                     load_more(feed: &feed, cursor: replies_cursor, seen: chain_ids(&conversation.replies.content))
                   </div>
                }
             }
@@ -498,34 +474,28 @@ enum Engagement {
    Quotes,
 }
 
-/// Render the back-arrow + Retweets/Quotes tab bar above the list, or the
-/// bare list for an infinite scroll request.
+/// Render the back-arrow + Retweets/Quotes tab bar above the list.
 #[component]
 async fn engagement_tabs<'a>(
    base: &'a str,
    active: Engagement,
-   scroll: bool,
    child: Child<'a>,
 ) -> topcoat::Result<impl View> {
    Ok(view! {
-      if scroll {
-         (child)
-      } else {
-         <div class="timeline-container">
-            <div class="engagement-header">
-               <a class="back-arrow" href=(format!("{base}#m"))>"\u{2190}"</a>
-               <ul class="tab">
-                  <li class=(class!("tab-item", "active" if active == Engagement::Retweets))>
-                     <a href=(format!("{base}/retweets"))>"Retweets"</a>
-                  </li>
-                  <li class=(class!("tab-item", "active" if active == Engagement::Quotes))>
-                     <a href=(format!("{base}/quotes"))>"Quotes"</a>
-                  </li>
-               </ul>
-            </div>
-            (child)
+      <div class="timeline-container">
+         <div class="engagement-header">
+            <a class="back-arrow" href=(format!("{base}#m"))>"\u{2190}"</a>
+            <ul class="tab">
+               <li class=(class!("tab-item", "active" if active == Engagement::Retweets))>
+                  <a href=(format!("{base}/retweets"))>"Retweets"</a>
+               </li>
+               <li class=(class!("tab-item", "active" if active == Engagement::Quotes))>
+                  <a href=(format!("{base}/quotes"))>"Quotes"</a>
+               </li>
+            </ul>
          </div>
-      }
+         (child)
+      </div>
    })
 }
 
@@ -543,23 +513,24 @@ pub async fn retweets(cx: &Cx) -> topcoat::Result<impl View> {
       .get_retweeters(id, query.cursor.as_deref())
       .await?;
    let base = format!("/{username}/status/{id}");
-   let base_url = format!("{base}/retweets");
+   let feed = Feed::Retweets(Post {
+      username: username.to_owned(),
+      id:       id.to_owned(),
+   });
    let title = format!("Retweets - @{username}/status/{id}");
 
    Ok(view! {
       document(
          title: &title,
          prefs: &prefs,
-         fragment: query.is_scroll(),
          engagement_tabs(
             base: &base,
             active: Engagement::Retweets,
-            scroll: query.is_scroll(),
             user_list(
                users: &result.content,
                prefs: &prefs,
+               feed: &feed,
                cursor: result.bottom.as_deref(),
-               base_url: &base_url,
             )
          )
       )
@@ -586,23 +557,24 @@ pub async fn quotes(cx: &Cx) -> topcoat::Result<impl View> {
    let mut groups = results.content;
    enrich_tweet_groups(state, &mut groups).await;
    let base = format!("/{username}/status/{id}");
-   let base_url = format!("{base}/quotes");
+   let feed = Feed::Quotes(Post {
+      username: username.to_owned(),
+      id:       id.to_owned(),
+   });
    let title = format!("Quotes - @{username}/status/{id}");
 
    Ok(view! {
       document(
          title: &title,
          prefs: &prefs,
-         fragment: query.is_scroll(),
          engagement_tabs(
             base: &base,
             active: Engagement::Quotes,
-            scroll: query.is_scroll(),
             timeline(
                groups: &groups,
                prefs: &prefs,
+               feed: &feed,
                cursor: results.bottom.as_deref(),
-               base_url: &base_url,
             )
          )
       )

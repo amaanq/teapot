@@ -15,9 +15,12 @@ use crate::{
    AppState,
    cache::keys as cache_keys,
    error::Result,
-   routes::helpers::{
-      request_prefs,
-      state,
+   routes::{
+      feed::Feed,
+      helpers::{
+         request_prefs,
+         state,
+      },
    },
    types::{
       timeline::{
@@ -72,7 +75,7 @@ pub async fn user_lists_unsupported(cx: &Cx) -> topcoat::Result<impl View> {
 }
 
 /// Filter retweets from timeline groups if requested.
-fn maybe_filter_retweets(content: Vec<Vec<Tweet>>, exclude: bool) -> Vec<Vec<Tweet>> {
+pub fn maybe_filter_retweets(content: Vec<Vec<Tweet>>, exclude: bool) -> Vec<Vec<Tweet>> {
    if exclude {
       content
          .into_iter()
@@ -110,7 +113,10 @@ pub async fn list_by_slug(cx: &Cx) -> topcoat::Result<impl View> {
       .get_list_tweets(&list.id, query.cursor.as_deref())
       .await?;
    let groups = maybe_filter_retweets(tweets.content, query.no_retweets.as_deref() == Some("true"));
-   let base_url = format!("/{username}/lists/{slug}");
+   let feed = Feed::List {
+      id:          list.id.clone(),
+      no_retweets: query.no_retweets.as_deref() == Some("true"),
+   };
    let title = format!("{} - List by @{username}", list.name);
 
    Ok(view! {
@@ -120,7 +126,7 @@ pub async fn list_by_slug(cx: &Cx) -> topcoat::Result<impl View> {
          description: &list.description,
          <div class="timeline-container">
             list_header(list: &list, active: ListTab::Tweets)
-            timeline(groups: &groups, prefs: &prefs, cursor: tweets.bottom.as_deref(), base_url: &base_url)
+            timeline(groups: &groups, prefs: &prefs, feed: &feed, cursor: tweets.bottom.as_deref())
          </div>
       )
    })
@@ -140,7 +146,10 @@ pub async fn list_by_id(cx: &Cx) -> topcoat::Result<impl View> {
    let list = list?;
    let tweets = tweets?;
    let groups = maybe_filter_retweets(tweets.content, query.no_retweets.as_deref() == Some("true"));
-   let base_url = format!("/i/lists/{id}");
+   let feed = Feed::List {
+      id:          id.to_owned(),
+      no_retweets: query.no_retweets.as_deref() == Some("true"),
+   };
    let title = format!("{} - List", list.name);
 
    Ok(view! {
@@ -150,7 +159,7 @@ pub async fn list_by_id(cx: &Cx) -> topcoat::Result<impl View> {
          description: &list.description,
          <div class="timeline-container">
             list_header(list: &list, active: ListTab::Tweets)
-            timeline(groups: &groups, prefs: &prefs, cursor: tweets.bottom.as_deref(), base_url: &base_url)
+            timeline(groups: &groups, prefs: &prefs, feed: &feed, cursor: tweets.bottom.as_deref())
          </div>
       )
    })
@@ -189,7 +198,7 @@ pub async fn list_members(cx: &Cx) -> topcoat::Result<impl View> {
    );
    let list = list?;
    let members = members?;
-   let base_url = format!("/i/lists/{id}/members");
+   let feed = Feed::ListMembers(id.to_owned());
    let title = format!("{} - Members", list.name);
 
    Ok(view! {
@@ -201,8 +210,8 @@ pub async fn list_members(cx: &Cx) -> topcoat::Result<impl View> {
             user_list(
                users: &members.content,
                prefs: &prefs,
+               feed: &feed,
                cursor: members.bottom.as_deref(),
-               base_url: &base_url,
             )
          </div>
       )

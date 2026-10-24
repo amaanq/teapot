@@ -9,6 +9,11 @@ use topcoat::{
 };
 
 use crate::{
+   routes::feed::{
+      Feed,
+      load_more,
+      user_ids,
+   },
    types::{
       prefs::Prefs,
       user::User,
@@ -29,10 +34,9 @@ use crate::{
 pub async fn user_list<'a>(
    users: &'a [User],
    prefs: &'a Prefs,
+   feed: &'a Feed,
    #[default] cursor: Option<&'a str>,
-   #[default] base_url: &'a str,
 ) -> Result<impl View> {
-   let load_more_url = cursor.map(|cursor| formatters::cursor_url(base_url, cursor));
    Ok(view! {
       <div class="timeline">
          if users.is_empty() {
@@ -41,9 +45,7 @@ pub async fn user_list<'a>(
             for user in users {
                user_item(user: user, prefs: prefs)
             }
-            if let Some(url) = load_more_url {
-               <div class="show-more"><a href=(url)>"Load more"</a></div>
-            }
+            load_more(feed: feed, cursor: cursor, seen: user_ids(users))
          }
       </div>
    })

@@ -885,15 +885,9 @@ fn location_html(location: &str) -> String {
    }
 }
 
-/// Render reply chains with thread lines and a "Load more replies" link.
+/// Render reply chains with thread lines.
 #[component]
-pub async fn reply_chains<'a>(
-   chains: &'a [Chain],
-   bottom_cursor: &'a str,
-   username: &'a str,
-   id: &'a str,
-   prefs: &'a Prefs,
-) -> Result<impl View> {
+pub async fn chain_items<'a>(chains: &'a [Chain], prefs: &'a Prefs) -> Result<impl View> {
    let chains = chains.iter().filter(|chain| !chain.content.is_empty());
 
    Ok(view! {
@@ -922,13 +916,6 @@ pub async fn reply_chains<'a>(
                   </div>
                }
             }
-         </div>
-      }
-      if !bottom_cursor.is_empty() {
-         <div class="show-more">
-            <a href=(format!("{}#r", formatters::cursor_url(&format!("/{username}/status/{id}"), bottom_cursor)))>
-               "Load more replies"
-            </a>
          </div>
       }
    })

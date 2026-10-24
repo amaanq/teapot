@@ -22,6 +22,7 @@ use crate::{
    routes::{
       debug,
       embed,
+      feed,
       helpers,
       intent,
       list,
@@ -52,6 +53,7 @@ pub fn router(state: &AppState, assets: AssetBundle) -> Router<AppState> {
       .route(preferences::save_toggle)
       .route(preferences::save_text)
       .route(tweet::translate)
+      .route(feed::more)
       .runtime();
 
    macro_rules! pages {

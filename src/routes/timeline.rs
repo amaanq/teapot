@@ -29,14 +29,20 @@ use crate::{
       Error,
       Result,
    },
-   routes::helpers::{
-      apply_account_context,
-      enrich_tweet_groups,
-      extract_timeline,
-      get_cached_user,
-      request_prefs,
-      state,
-      swr_take,
+   routes::{
+      feed::{
+         Account,
+         Feed,
+      },
+      helpers::{
+         apply_account_context,
+         enrich_tweet_groups,
+         extract_timeline,
+         get_cached_user,
+         request_prefs,
+         state,
+         swr_take,
+      },
    },
    types::{
       query::SearchProduct,
@@ -44,6 +50,7 @@ use crate::{
          Profile,
          Timeline,
          TimelineKind,
+         Tweets,
       },
       tweet::GalleryPhoto,
    },
@@ -85,7 +92,7 @@ const RESERVED_PATHS: &[&str] = &[
 ];
 
 /// Validate username contains only valid characters.
-fn is_valid_username(name: &str) -> bool {
+pub fn is_valid_username(name: &str) -> bool {
    !name.is_empty()
       && name
          .chars()
@@ -100,7 +107,7 @@ fn is_reserved_path(name: &str) -> bool {
 }
 
 /// Split comma-separated usernames and validate each.
-fn parse_usernames(name: &str) -> Option<Vec<String>> {
+pub fn parse_usernames(name: &str) -> Option<Vec<String>> {
    let names = name
       .split(',')
       .map(|part| part.trim().to_owned())
@@ -122,8 +129,6 @@ fn parse_usernames(name: &str) -> Option<Vec<String>> {
 struct TimelineQuery {
    tab:    Option<String>,
    cursor: Option<String>,
-   /// For AJAX infinite scroll requests - returns only tweet HTML.
-   scroll: Option<String>,
 }
 
 #[query_params(error = bad_request)]
@@ -160,15 +165,7 @@ pub async fn user_timeline(cx: &Cx) -> topcoat::Result<impl View> {
    let mut profile = fetch_profile(state, username, query.cursor.as_deref()).await?;
    apply_account_context(state, &mut profile.user).await;
    let base_url = format!("/{}", profile.user.username);
-
-   if query.scroll.as_deref() == Some("true") {
-      let (mut tweets, cursor) = extract_timeline(profile.tweets);
-      enrich_tweet_groups(state, &mut tweets).await;
-      return Ok(view! {
-         timeline(groups: &tweets, prefs: &prefs, cursor: cursor.as_deref(), base_url: &base_url)
-      }
-      .boxed());
-   }
+   let feed = Feed::Profile(profile.user.username.clone());
 
    let kind = tab_to_kind(tab);
    let user = &profile.user;
@@ -205,8 +202,8 @@ pub async fn user_timeline(cx: &Cx) -> topcoat::Result<impl View> {
             timeline(
                groups: &profile.tweets.content,
                prefs: &prefs,
+               feed: &feed,
                cursor: profile.tweets.bottom.as_deref(),
-               base_url: &base_url,
                pinned: pinned,
                newer_url: has_cursor.then_some(base_url.as_str()),
             )
@@ -301,6 +298,15 @@ async fn user_tab(cx: &Cx, tab: TimelineKind) -> topcoat::Result<impl View> {
    enrich_tweet_groups(state, &mut tweets).await;
 
    let base_url = format!("/{username}/{tab_path}");
+   let account = Account {
+      username: username.to_owned(),
+      user_id:  user.id.clone(),
+   };
+   let feed = if tab == TimelineKind::Media {
+      Feed::Media(account)
+   } else {
+      Feed::Replies(account)
+   };
    let title = format!("{title_prefix} @{}", user.username);
    let canonical = format!("https://x.com/{username}/{tab_path}");
    let rss_url = format!("/{username}/{tab_path}/rss");
@@ -321,8 +327,8 @@ async fn user_tab(cx: &Cx, tab: TimelineKind) -> topcoat::Result<impl View> {
             timeline(
                groups: &tweets,
                prefs: &prefs,
+               feed: &feed,
                cursor: next_cursor.as_deref(),
-               base_url: &base_url,
                newer_url: has_cursor.then_some(base_url.as_str()),
             )
          )
@@ -379,6 +385,10 @@ pub async fn user_search(cx: &Cx) -> topcoat::Result<impl View> {
    let canonical = format!("https://x.com/{username}");
    let rss_url = format!("/{username}/search/rss?f=tweets");
    let has_cursor = cursor.is_some();
+   let feed = Feed::ProfileSearch {
+      username: username.to_owned(),
+      query:    search_query.to_owned(),
+   };
 
    Ok(view! {
       document(
@@ -398,8 +408,8 @@ pub async fn user_search(cx: &Cx) -> topcoat::Result<impl View> {
             timeline(
                groups: &tweets,
                prefs: &prefs,
+               feed: &feed,
                cursor: next_cursor.as_deref(),
-               base_url: &base_url,
                newer_url: has_cursor.then_some(base_url.as_str()),
             )
          )
@@ -412,21 +422,14 @@ async fn fetch_photo_rail(state: &AppState, user_id: &str) -> Vec<GalleryPhoto> 
    state.api.get_photo_rail(user_id).await.unwrap_or_default()
 }
 
-/// Handle multi-user timeline (comma-separated usernames).
-async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<impl View> {
+/// One page of the combined timeline, newest first, with tweets older than
+/// the `cursor` tweet id.
+pub async fn multi_user_page(
+   state: &AppState,
+   usernames: &[String],
+   cursor: Option<&str>,
+) -> (Vec<Tweets>, Option<String>) {
    const PAGE_SIZE: usize = 20;
-
-   let state = state(cx);
-   let cursor = query_params::<TimelineQuery>(cx)?.cursor.as_deref();
-   let prefs = request_prefs(cx);
-
-   let Some(usernames) = parse_usernames(usernames_str) else {
-      return Err(Error::InvalidUrl("Invalid username format in multi-user search".into()).into());
-   };
-
-   if usernames.len() > 10 {
-      return Err(Error::InvalidUrl("Maximum 10 users allowed in multi-user search".into()).into());
-   }
 
    let mut all_tweets = Vec::new();
    let handles = usernames
@@ -464,6 +467,28 @@ async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<im
    } else {
       None
    };
+   let groups = all_tweets
+      .into_iter()
+      .map(|tweet| vec![tweet])
+      .collect::<Vec<Vec<_>>>();
+   (groups, next_cursor)
+}
+
+/// Handle multi-user timeline (comma-separated usernames).
+async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let cursor = query_params::<TimelineQuery>(cx)?.cursor.as_deref();
+   let prefs = request_prefs(cx);
+
+   let Some(usernames) = parse_usernames(usernames_str) else {
+      return Err(Error::InvalidUrl("Invalid username format in multi-user search".into()).into());
+   };
+
+   if usernames.len() > 10 {
+      return Err(Error::InvalidUrl("Maximum 10 users allowed in multi-user search".into()).into());
+   }
+
+   let (mut groups, next_cursor) = multi_user_page(state, &usernames, cursor).await;
 
    let title = format!("Tweets from {}", usernames.join(", "));
    let mentions = usernames
@@ -471,12 +496,9 @@ async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<im
       .map(|name| format!("@{name}"))
       .collect::<Vec<_>>()
       .join(", ");
+   let feed = Feed::MultiUser(usernames_str.to_owned());
    let base_url = format!("/{usernames_str}");
    let has_cursor = cursor.is_some();
-   let mut groups = all_tweets
-      .into_iter()
-      .map(|tweet| vec![tweet])
-      .collect::<Vec<Vec<_>>>();
    enrich_tweet_groups(state, &mut groups).await;
 
    Ok(view! { cx =>
@@ -489,7 +511,7 @@ async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<im
                groups: &groups,
                prefs: &prefs,
                cursor: next_cursor.as_deref(),
-               base_url: &base_url,
+               feed: &feed,
                newer_url: has_cursor.then_some(base_url.as_str()),
             )
          </div>

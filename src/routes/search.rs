@@ -38,11 +38,14 @@ use crate::{
       ttl,
    },
    error::Result,
-   routes::helpers::{
-      enrich_tweet_groups,
-      request_prefs,
-      state,
-      swr_take,
+   routes::{
+      feed::Feed,
+      helpers::{
+         enrich_tweet_groups,
+         request_prefs,
+         state,
+         swr_take,
+      },
    },
    types::{
       query::{
@@ -308,6 +311,11 @@ async fn search_page<'a>(cx: &'a Cx, params: &SearchQuery) -> topcoat::Result<Bo
    let mut tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
    enrich_tweet_groups(state, slice::from_mut(&mut tweets)).await;
 
+   let feed = Feed::Search {
+      product: query.kind.product(),
+      query:   api_query.clone(),
+   };
+
    // Display the original user query, not the API query
    let display_query = if query.has_filters() {
       api_query
@@ -332,6 +340,7 @@ async fn search_page<'a>(cx: &'a Cx, params: &SearchQuery) -> topcoat::Result<Bo
             tweets: &tweets,
             prefs: &prefs,
             active_tab: query.kind,
+            feed: Some(&feed),
             cursor: timeline.bottom.as_deref(),
             filters: Some(&filters),
             newer_url: has_cursor.then_some(referer.as_str()),

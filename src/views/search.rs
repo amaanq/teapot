@@ -10,6 +10,12 @@ use topcoat::{
 };
 
 use crate::{
+   routes::feed::{
+      Feed,
+      load_more,
+      tweet_ids,
+      user_ids,
+   },
    types::{
       prefs::Prefs,
       query::QueryKind,
@@ -63,16 +69,11 @@ pub async fn search_results<'a>(
    tweets: &'a [Tweet],
    prefs: &'a Prefs,
    active_tab: QueryKind,
+   #[default] feed: Option<&'a Feed>,
    #[default] cursor: Option<&'a str>,
    #[default] filters: Option<&'a SearchFilters>,
    #[default] newer_url: Option<&'a str>,
 ) -> Result<impl View> {
-   let load_more = cursor.map(|cursor| {
-      format!(
-         "/search?q={}&cursor={cursor}",
-         formatters::url_encode(query)
-      )
-   });
    Ok(view! {
       <div class="timeline-container search-results">
          <div class="timeline-header">
@@ -91,21 +92,12 @@ pub async fn search_results<'a>(
                for tweet in tweets {
                   tweet_item(tweet: tweet, prefs: prefs)
                }
-               more_or_end(load_more: load_more)
+               if let Some(feed) = feed {
+                  load_more(feed: feed, cursor: cursor, seen: tweet_ids(tweets))
+               }
             }
          </div>
       </div>
-   })
-}
-
-#[component]
-async fn more_or_end(load_more: Option<String>) -> Result<impl View> {
-   Ok(view! {
-      if let Some(url) = load_more {
-         <div class="show-more"><a href=(url)>"Load more"</a></div>
-      } else {
-         <div class="timeline-footer"><h2 class="timeline-end">"No more items"</h2></div>
-      }
    })
 }
 
@@ -118,12 +110,7 @@ pub async fn user_search_results<'a>(
    #[default] cursor: Option<&'a str>,
    #[default] newer_url: Option<&'a str>,
 ) -> Result<impl View> {
-   let load_more = cursor.map(|cursor| {
-      format!(
-         "/search?q={}&f=users&cursor={cursor}",
-         formatters::url_encode(query)
-      )
-   });
+   let feed = Feed::Users(query.to_owned());
    Ok(view! {
       <div class="timeline-container search-results">
          <div class="timeline-header">
@@ -147,7 +134,7 @@ pub async fn user_search_results<'a>(
                for user in users {
                   user_item(user: user, prefs: prefs)
                }
-               more_or_end(load_more: load_more)
+               load_more(feed: &feed, cursor: cursor, seen: user_ids(users))
             }
          </div>
       </div>
