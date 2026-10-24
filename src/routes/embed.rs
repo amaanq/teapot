@@ -308,7 +308,7 @@ async fn oembed_standard(
          p { (tweet_text) }
          "— " (author_name) " "
          a href=(format!("{url_prefix}/{}/status/{}", tweet.user.username, tweet.id)) {
-            (tweet.time.map(format_relative_time).unwrap_or_default())
+            (tweet.time.map_or_default(format_relative_time))
          }
       }
    }

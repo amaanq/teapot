@@ -45,8 +45,7 @@ pub fn render_note(
 
    let time_str = article
       .time
-      .map(formatters::format_relative_time)
-      .unwrap_or_default();
+      .map_or_default(formatters::format_relative_time);
 
    html! {
        div class="note" {
@@ -320,8 +319,7 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
    if para.inline_style_ranges.is_empty() {
       let text = chars
          .get(start..end)
-         .map(|slice| slice.iter().collect::<String>())
-         .unwrap_or_default();
+         .map_or_default(|slice| slice.iter().collect::<String>());
       return html! { (text) };
    }
 
@@ -358,8 +356,7 @@ fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end
 
       let chunk = chars
          .get(pos..style_end)
-         .map(|slice| slice.iter().collect::<String>())
-         .unwrap_or_default();
+         .map_or_default(|slice| slice.iter().collect::<String>());
 
       let mut markup = html! { (chunk) };
       if is_strike {

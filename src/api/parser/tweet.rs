@@ -154,8 +154,7 @@ impl TryFrom<&TweetData> for Tweet {
       let mut reply = legacy
          .in_reply_to_screen_name
          .as_ref()
-         .map(|name| vec![name.clone()])
-         .unwrap_or_default();
+         .map_or_default(|name| vec![name.clone()]);
 
       if reply.is_empty()
          && let Some(screen_name) = raw.reply_to_screen_name.as_ref()
@@ -359,12 +358,11 @@ impl TryFrom<&TweetData> for Tweet {
          .edit_control
          .as_ref()
          .and_then(|ec| ec.tweet_ids())
-         .map(|ids| {
+         .map_or_default(|ids| {
             ids.iter()
                .filter_map(|id_str| id_str.parse::<i64>().ok())
                .collect()
-         })
-         .unwrap_or_default();
+         });
 
       if let Some(ref poll) = poll
          && let Some(ref img_url) = poll.image
@@ -429,7 +427,7 @@ impl TryFrom<&TweetData> for Tweet {
                      .iter()
                      .find(|blk| blk.block_type == "unstyled" && !blk.text.is_empty())
                })
-               .map(|blk| {
+               .map_or_default(|blk| {
                   let desc = &blk.text;
                   if desc.len() > 200 {
                      let mut end = 200;
@@ -440,8 +438,7 @@ impl TryFrom<&TweetData> for Tweet {
                   } else {
                      desc.clone()
                   }
-               })
-               .unwrap_or_default();
+               });
 
             card = Some(Card {
                kind: CardKind::Article,

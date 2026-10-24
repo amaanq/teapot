@@ -91,14 +91,13 @@ pub fn attach_article_preview(tweet: &mut Tweet, article: &Article) {
       .find(|paragraph| {
          paragraph.base_type == ArticleBlockType::Unstyled && !paragraph.text.trim().is_empty()
       })
-      .map(|paragraph| {
+      .map_or_default(|paragraph| {
          let mut excerpt = paragraph.text.chars().take(200).collect::<String>();
          if paragraph.text.chars().count() > 200 {
             excerpt.push('…');
          }
          excerpt
-      })
-      .unwrap_or_default();
+      });
 
    tweet.card = Some(Card {
       kind: CardKind::Article,
@@ -264,8 +263,7 @@ fn parse_content_state(state: &InlineContentState) -> (Vec<ArticleParagraph>, Ve
       let markdown = data.and_then(|ed| ed.markdown.clone()).unwrap_or_default();
       let media_ids = data
          .and_then(|ed| ed.media_items.as_ref())
-         .map(|items| items.iter().map(|item| item.media_id.clone()).collect())
-         .unwrap_or_default();
+         .map_or_default(|items| items.iter().map(|item| item.media_id.clone()).collect());
 
       entities.push(ArticleEntity {
          entity_type,

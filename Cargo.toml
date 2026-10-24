@@ -2,7 +2,7 @@
 name         = "teapot"
 version      = "0.1.0"
 edition      = "2024"
-rust-version = "1.96.1"
+rust-version = "1.99"
 authors      = [ "Amaan Qureshi <contact@amaanq.com>" ]
 description  = "A privacy-focused Twitter/X frontend written in Rust"
 license      = "AGPL-3.0-only"

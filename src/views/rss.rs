@@ -377,8 +377,7 @@ fn render_tweet_item(tweet: &Tweet, url_prefix: &str, config: &Config) -> String
 
    let pub_date = display_tweet
       .time
-      .map(formatters::format_rfc822_time)
-      .unwrap_or_default();
+      .map_or_default(formatters::format_rfc822_time);
 
    // For retweets, always link to the original tweet using the inner tweet's
    // id and username even when the tweet is age-gated or otherwise unavailable.

@@ -586,7 +586,7 @@ impl SessionPool {
                      .saturating_sub(slot.permits.available_permits()),
                )
                .unwrap_or(i32::MAX),
-               apis:       lim.map(|sl| sl.apis.clone()).unwrap_or_default(),
+               apis:       lim.map_or_default(|sl| sl.apis.clone()),
             }
          })
          .collect();

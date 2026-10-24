@@ -54,9 +54,7 @@ const SEARCH_COST: f64 = 2.0;
 /// Community-cache strings are written by third parties, so cap them before
 /// they reach a page.
 fn clamp_community_value(value: Option<String>) -> String {
-   value
-      .map(|value| value.trim().chars().take(100).collect())
-      .unwrap_or_default()
+   value.map_or_default(|value| value.trim().chars().take(100).collect())
 }
 
 fn space_id_from_url(url: &str) -> Option<&str> {

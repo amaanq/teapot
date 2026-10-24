@@ -107,7 +107,7 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
       .paragraphs
       .iter()
       .find(|para| para.base_type == ArticleBlockType::Unstyled && !para.text.is_empty())
-      .map(|para| {
+      .map_or_default(|para| {
          if para.text.len() > 200 {
             let mut end = 200;
             while !para.text.is_char_boundary(end) {
@@ -117,8 +117,7 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
          } else {
             para.text.clone()
          }
-      })
-      .unwrap_or_default();
+      });
 
    // Proxy the og:image cover through the media pipeline
    let og_image = if article.cover_image.is_empty() {

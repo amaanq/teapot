@@ -507,10 +507,9 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
    let url_prefix = config.url_prefix();
 
    let media = video_embed_media(tweet);
-   let thumbnail_path = media
-      .as_ref()
-      .map(|media| formatters::get_pic_url(media.thumbnail_url, config.config.base64_media))
-      .unwrap_or_default();
+   let thumbnail_path = media.as_ref().map_or_default(|media| {
+      formatters::get_pic_url(media.thumbnail_url, config.config.base64_media)
+   });
    let thumbnail_url = if thumbnail_path.is_empty() {
       String::new()
    } else {

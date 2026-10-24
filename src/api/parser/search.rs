@@ -78,8 +78,7 @@ pub fn parse_list(raw: &ListData) -> List {
       .as_ref()
       .and_then(|nr| nr.result.as_ref())
       .and_then(|user_data| parse_user_object(user_data).ok())
-      .map(|user| (user.id, user.username))
-      .unwrap_or_default();
+      .map_or_default(|user| (user.id, user.username));
 
    let banner = raw.banner_url.as_deref().unwrap_or_default().to_owned();
 

@@ -155,8 +155,7 @@ impl TimelineResultData {
          .as_ref()
          .or(self.timeline.as_ref())
          .or(self.timeline_response.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
+         .map_or_default(|payload| payload.timeline.instructions.as_slice())
    }
 }
 
@@ -180,8 +179,7 @@ impl SearchTimelineData {
          .search_by_raw_query
          .as_ref()
          .and_then(|nested| nested.search_timeline.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
+         .map_or_default(|payload| payload.timeline.instructions.as_slice())
    }
 }
 
@@ -215,8 +213,7 @@ impl ListTimelineData {
          .list
          .as_ref()
          .and_then(|nested| nested.timeline_response.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
+         .map_or_default(|payload| payload.timeline.instructions.as_slice())
    }
 }
 
@@ -241,8 +238,7 @@ impl ListMembersData {
          .list
          .as_ref()
          .and_then(|nested| nested.members_timeline.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
+         .map_or_default(|payload| payload.timeline.instructions.as_slice())
    }
 }
 
@@ -259,8 +255,7 @@ impl RetweetersData {
       self
          .retweeters_timeline
          .as_ref()
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
+         .map_or_default(|payload| payload.timeline.instructions.as_slice())
    }
 }
 
@@ -327,8 +322,7 @@ impl EditHistoryData {
          .as_ref()
          .and_then(|nested| nested.result.as_ref())
          .and_then(|result| result.edit_history_timeline.as_ref())
-         .map(|payload| payload.timeline.instructions.as_slice())
-         .unwrap_or_default()
+         .map_or_default(|payload| payload.timeline.instructions.as_slice())
    }
 }
 
