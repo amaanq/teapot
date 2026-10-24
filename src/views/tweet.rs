@@ -5,9 +5,19 @@
    reason = "topcoat's #[component] and view! expansions"
 )]
 
+use axum_extra::extract::CookieJar;
 use topcoat::{
    Result,
    context::Cx,
+   router::{
+      error::RouterErrorExt as _,
+      request::headers,
+   },
+   runtime::{
+      procedure,
+      record,
+      signal,
+   },
    view::{
       Child,
       View,
@@ -19,6 +29,11 @@ use topcoat::{
 
 use crate::{
    config::Config,
+   routes::helpers::{
+      get_cached_translation,
+      get_cached_tweet,
+      state,
+   },
    types::{
       prefs::Prefs,
       timeline::Chain,
@@ -306,17 +321,80 @@ fn unavailable_text(tweet: &Tweet) -> &str {
    }
 }
 
+/// A translation as the browser shows it under a tweet.
+#[record]
+#[derive(Clone)]
+pub struct ShownTranslation {
+   source: String,
+   text:   String,
+}
+
+/// Translate a tweet with Kagi Translate if the user has a token set, otherwise
+/// with Twitter's Strato API. A failed translation is `None`.
+#[procedure("/_topcoat/translate")]
+pub async fn translate(cx: &Cx, id: i64) -> Result<Option<ShownTranslation>> {
+   (id > 0).then_some(()).ok_or_bad_request("invalid id")?;
+   let state = state(cx);
+   let tweet_id = id.to_string();
+   let kagi_token = CookieJar::from_headers(headers(cx))
+      .get("kagiToken")
+      .map(|cookie| cookie.value().to_owned())
+      .filter(|val| !val.is_empty())
+      .or_else(|| {
+         let server_token = &state.config.config.kagi_token;
+         (!server_token.is_empty()).then(|| server_token.clone())
+      });
+
+   let translation = match get_cached_tweet(state, &tweet_id).await {
+      Ok(tweet) => get_cached_translation(state, &tweet, kagi_token.as_deref()).await,
+      Err(err) => Err(err),
+   }
+   .inspect_err(|err| tracing::debug!("Translation failed for {id}: {err}"))
+   .ok()
+   .filter(|translation| !translation.text.is_empty());
+
+   Ok(translation.map(|translation| {
+      ShownTranslation {
+         source: translation.source_lang_display,
+         text:   translation.text,
+      }
+   }))
+}
+
 #[component]
-async fn translate_button(id: i64) -> Result<impl View> {
+async fn translate_button(cx: &Cx, id: i64) -> Result<impl View> {
+   let shown = signal(cx, || None::<ShownTranslation>);
+   let pending = signal(cx, || false);
+
    Ok(view! {
       <button
          class="translate-btn"
-         hx-get=(format!("/translate/{id}"))
-         hx-swap="outerHTML"
-         hx-indicator="closest .translate-btn"
+         :hidden=$(shown.read().is_some())
+         :disabled=$(pending.get())
+         @click=$(async |_e| {
+            pending.set(true);
+            let translation = translate(id).await;
+            pending.set(false);
+            shown.set(translation);
+         })
       >
          "Translate post"
       </button>
+      <div class="translation" dir="auto" :hidden=$(shown.read().is_none())>
+         <div class="translation-header">
+            "Translated from "
+            $({
+               let translation = shown.get();
+               if translation.is_some() { translation.unwrap().source } else { "".to_owned() }
+            })
+         </div>
+         <div class="translation-text">
+            $({
+               let translation = shown.get();
+               if translation.is_some() { translation.unwrap().text } else { "".to_owned() }
+            })
+         </div>
+      </div>
    })
 }
 
@@ -826,9 +904,11 @@ pub async fn reply_chains<'a>(
    let chains = chains.iter().filter(|chain| !chain.content.is_empty());
 
    Ok(view! {
+      #[key(chain.content.first().map_or(0, |tweet| tweet.id))]
       for chain in chains {
          let total = chain.content.len();
          <div class="reply thread thread-line">
+            #[key(tweet.id)]
             for (position, tweet) in chain.content.iter().enumerate() {
                let is_last = position == total - 1 && !chain.has_more;
                tweet_item(

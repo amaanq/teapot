@@ -1,9 +1,19 @@
 use std::sync::Arc;
 
 use topcoat::{
+   asset::{
+      AssetConfig,
+      MANIFEST_VERSION,
+      Manifest,
+      ManifestEntry,
+   },
    context::{
       Cx,
       CxTestBuilder,
+   },
+   runtime::{
+      RuntimeSetup,
+      SCRIPT,
    },
    view::{
       BoxView,
@@ -45,8 +55,19 @@ use crate::{
 };
 
 fn test_cx() -> Cx {
+   let runtime_assets = Manifest {
+      version: MANIFEST_VERSION,
+      assets:  vec![ManifestEntry {
+         id:           SCRIPT.id(),
+         file:         "topcoat.js".to_owned(),
+         hash:         String::new(),
+         content_type: "text/javascript".to_owned(),
+      }],
+   };
    CxTestBuilder::new()
       .app_context(Arc::new(test_config()))
+      .app_context(RuntimeSetup)
+      .app_context(AssetConfig::hosted_at("", runtime_assets))
       .build()
 }
 

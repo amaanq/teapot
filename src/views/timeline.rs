@@ -62,6 +62,7 @@ async fn thread_group<'a>(thread: &'a [&'a Tweet], prefs: &'a Prefs) -> Result<i
 
    Ok(view! {
       <div class="thread-line">
+         #[key(tweet.id)]
          for (position, tweet) in sorted.iter().copied().enumerate() {
             if gaps[position] {
                <div class="timeline-item thread more-replies-thread">
@@ -131,6 +132,7 @@ pub async fn timeline<'a>(
             if let Some(tweet) = pinned.filter(|_| !prefs.hide_pins) {
                tweet_item(tweet: tweet, prefs: prefs, pinned: true)
             }
+            #[key(group.first().map_or(0, |tweet| tweet.id))]
             for group in &groups {
                if group.len() > 1 {
                   thread_group(thread: group, prefs: prefs)

@@ -126,7 +126,8 @@ pub async fn note<'a>(
                " · "
                (article.time.map_or_default(formatters::format_relative_time))
             </div>
-            for block in blocks(&article.paragraphs) {
+            #[key(position)]
+            for (position, block) in blocks(&article.paragraphs).into_iter().enumerate() {
                match block {
                   Block::List { ordered: true, items } => {
                      <ol>

@@ -36,6 +36,7 @@ use crate::{
       timeline,
       unsupported,
    },
+   views::tweet,
 };
 
 /// Pages render through topcoat, and axum forwards each page's path to it so
@@ -50,6 +51,7 @@ pub fn router(state: &AppState, assets: AssetBundle) -> Router<AppState> {
       .layout(helpers::error_layout)
       .route(preferences::save_toggle)
       .route(preferences::save_text)
+      .route(tweet::translate)
       .runtime();
 
    macro_rules! pages {
@@ -81,7 +83,6 @@ pub fn router(state: &AppState, assets: AssetBundle) -> Router<AppState> {
       status::status_photo,
       status::status_by_id,
       status::web_status_by_id,
-      status::translate,
       status::user_by_id,
       status::retweets,
       status::quotes,

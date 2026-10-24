@@ -291,7 +291,11 @@ a.tweet-stat {
   width: 100%;
 }
 
-.translate-btn.htmx-request {
+.translate-btn[hidden] {
+  display: none;
+}
+
+.translate-btn:disabled {
   opacity: 0.5;
   cursor: wait;
 }

@@ -94,6 +94,7 @@ pub async fn search_results<'a>(
             if tweets.is_empty() {
                <div class="search-empty">"No posts found"</div>
             } else {
+               #[key(tweet.id)]
                for tweet in tweets {
                   tweet_item(tweet: tweet, prefs: prefs)
                }

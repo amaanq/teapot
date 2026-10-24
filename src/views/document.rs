@@ -50,8 +50,7 @@ const X_LOGO_PATH: &str = "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.7
                            6.231H2.744l7.737-8.834L1.254 2.25H8.08l4.259 5.622L18.244 \
                            2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z";
 
-const SCRIPTS: [&str; 4] = [
-   "/js/htmx.min.js",
+const SCRIPTS: [&str; 3] = [
    "/js/site.js",
    "/js/threadContext.js",
    "/js/imageLightbox.js",
@@ -362,9 +361,7 @@ pub async fn document<'a>(
                if prefs.infinite_scroll {
                   <script src="/js/infiniteScroll.js" defer=""></script>
                }
-               if live.is_some() {
-                  script()
-               }
+               script()
                <link
                   rel="preload"
                   type="font/woff2"

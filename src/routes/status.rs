@@ -15,7 +15,6 @@ use axum::{
    },
    routing::get,
 };
-use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 use topcoat::{
    context::Cx,
@@ -25,7 +24,6 @@ use topcoat::{
       page,
       path_param,
       query_params,
-      request::headers,
    },
    view::{
       BoxView,
@@ -52,7 +50,6 @@ use crate::{
       enrich_conversation,
       enrich_tweet_groups,
       get_cached_translation,
-      get_cached_tweet,
       request_prefs,
       state,
       user_agent,
@@ -404,6 +401,7 @@ async fn conversation_page<'a>(
                               </a>
                            </div>
                         }
+                        #[key(reply.id)]
                         for (position, reply) in before.iter().enumerate() {
                            tweet_item(
                               tweet: reply,
@@ -426,6 +424,7 @@ async fn conversation_page<'a>(
                   // After context (thread continuation) with thread line
                   if !after.is_empty() {
                      <div class="after-tweet thread-line">
+                        #[key(reply.id)]
                         for (position, reply) in after.iter().enumerate() {
                            let is_last = position == after.len() - 1 && !conversation.after.has_more;
                            tweet_item(
@@ -458,44 +457,6 @@ async fn conversation_page<'a>(
             to_top(focus: "#m")
          </div>
       )
-   })
-}
-
-/// Translate a tweet and return an HTML fragment for an htmx swap.
-/// Uses Kagi Translate if the user has a token set, otherwise Twitter's Strato
-/// API.
-#[page("/translate/{id}")]
-pub async fn translate(cx: &Cx) -> topcoat::Result<impl View> {
-   let state = state(cx);
-   let id = path_param::<Id>(cx);
-   let kagi_token = CookieJar::from_headers(headers(cx))
-      .get("kagiToken")
-      .map(|cookie| cookie.value().to_owned())
-      .filter(|val| !val.is_empty())
-      .or_else(|| {
-         let server_token = &state.config.config.kagi_token;
-         (!server_token.is_empty()).then(|| server_token.clone())
-      });
-
-   let translation = match get_cached_tweet(state, id).await {
-      Ok(tweet) => get_cached_translation(state, &tweet, kagi_token.as_deref()).await,
-      Err(err) => Err(err),
-   }
-   .inspect_err(|err| tracing::debug!("Translation failed for {id}: {err}"))
-   .ok()
-   .filter(|translation| !translation.text.is_empty());
-
-   Ok(view! {
-      if let Some(translation) = translation {
-         <div class="translation" dir="auto">
-            <div class="translation-header">
-               "Translated from " (translation.source_lang_display)
-            </div>
-            <div class="translation-text">(translation.text)</div>
-         </div>
-      } else {
-         (StatusCode::NO_CONTENT)
-      }
    })
 }
 
@@ -690,6 +651,7 @@ pub async fn edit_history(cx: &Cx) -> topcoat::Result<impl View> {
             if !edits.history.is_empty() {
                <div class="previous-edits">
                   <div class="edit-history-header">"Version history"</div>
+                  #[key(tweet.id)]
                   for tweet in &edits.history {
                      <div class="tweet-edit">tweet_item(tweet: tweet, prefs: &prefs)</div>
                   }

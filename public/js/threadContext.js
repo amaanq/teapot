@@ -30,6 +30,4 @@
   } else {
     bindThreadContext();
   }
-
-  document.addEventListener("htmx:afterSwap", (event) => bindThreadContext(event.target));
 })();
