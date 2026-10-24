@@ -28,6 +28,9 @@
           pkgs.makeRustPlatform { inherit (fenixPkgs) cargo rustc; }
         else
           pkgs.rustPlatform;
+      topcoatCliFor =
+        system:
+        (pkgsFor system).callPackage ./nix/topcoat-cli.nix { rustPlatform = rustPlatformFor system; };
     in
     {
       packages = forAllSystems (
@@ -38,6 +41,7 @@
         {
           default = pkgs.callPackage ./nix/package.nix {
             rustPlatform = rustPlatformFor system;
+            topcoat-cli = topcoatCliFor system;
           };
         }
       );
@@ -67,6 +71,7 @@
                 pkgs.rust-analyzer
                 pkgs.pkg-config
                 pkgs.ffmpeg-headless
+                (topcoatCliFor system)
               ]
               ++ nativeDeps pkgs;
           };

@@ -1,3 +1,4 @@
+pub mod document;
 pub mod embed;
 pub mod embed_activity;
 pub mod layout;

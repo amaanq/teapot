@@ -10,7 +10,7 @@ mod media;
 pub mod middleware;
 mod notes;
 mod pages;
-mod preferences;
+pub mod preferences;
 mod redirect;
 mod rss;
 mod search;

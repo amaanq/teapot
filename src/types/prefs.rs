@@ -1,4 +1,7 @@
+use std::str::FromStr;
+
 use axum_extra::extract::cookie::CookieJar;
+use flub::Error;
 use serde::{
    Deserialize,
    Serialize,
@@ -28,7 +31,6 @@ pub struct Prefs {
    pub square_avatars:       bool,
    pub use_twemoji:          bool,
    pub sticky_nav:           bool,
-   pub proxy_media:          bool,
    pub font_size:            String,
    pub replace_twitter:      String,
    pub replace_youtube:      String,
@@ -55,7 +57,6 @@ impl Prefs {
          square_avatars:       true,
          use_twemoji:          true,
          sticky_nav:           true,
-         proxy_media:          true,
          font_size:            String::new(),
          replace_twitter:      config.preferences.replace_twitter.clone(),
          replace_youtube:      config.preferences.replace_youtube.clone(),
@@ -66,87 +67,187 @@ impl Prefs {
 
    /// Extract preferences from cookies, falling back to config defaults.
    pub fn from_cookies(jar: &CookieJar, config: &Config) -> Self {
-      let defaults = Self::with_defaults(config);
-      let bool_pref = |name: &str, default: bool| {
-         jar.get(name)
-            .map_or(default, |cookie| cookie.value() == "on")
-      };
-      let str_pref = |name: &str, default: String| {
-         jar.get(name)
-            .map_or(default, |cookie| cookie.value().to_owned())
-      };
-
-      Self {
-         theme:                str_pref("theme", defaults.theme),
-         infinite_scroll:      bool_pref("infiniteScroll", defaults.infinite_scroll),
-         sticky_profile:       bool_pref("stickyProfile", defaults.sticky_profile),
-         bidi_support:         bool_pref("bidiSupport", defaults.bidi_support),
-         mp4_playback:         bool_pref("mp4Playback", defaults.mp4_playback),
-         autoplay_gifs:        bool_pref("autoplayGifs", defaults.autoplay_gifs),
-         mute_videos:          bool_pref("muteVideos", defaults.mute_videos),
-         hide_tweet_stats:     bool_pref("hideTweetStats", defaults.hide_tweet_stats),
-         hide_banner:          bool_pref("hideBanner", defaults.hide_banner),
-         hide_pins:            bool_pref("hidePins", defaults.hide_pins),
-         hide_replies:         bool_pref("hideReplies", defaults.hide_replies),
-         hide_community_notes: bool_pref("hideCommunityNotes", defaults.hide_community_notes),
-         square_avatars:       bool_pref("squareAvatars", defaults.square_avatars),
-         use_twemoji:          bool_pref("useTwemoji", defaults.use_twemoji),
-         sticky_nav:           bool_pref("stickyNav", defaults.sticky_nav),
-         proxy_media:          bool_pref("proxyMedia", defaults.proxy_media),
-         font_size:            str_pref("fontSize", defaults.font_size),
-         replace_twitter:      str_pref("replaceTwitter", defaults.replace_twitter),
-         replace_youtube:      str_pref("replaceYouTube", defaults.replace_youtube),
-         replace_reddit:       str_pref("replaceReddit", defaults.replace_reddit),
-         kagi_token:           str_pref("kagiToken", defaults.kagi_token),
+      let mut prefs = Self::with_defaults(config);
+      for toggle in Toggle::ALL {
+         if let Some(cookie) = jar.get(toggle.name()) {
+            *toggle.field_mut(&mut prefs) = cookie.value() == "on";
+         }
       }
+      for text in Text::ALL {
+         if let Some(cookie) = jar.get(text.name()) {
+            cookie.value().clone_into(text.field_mut(&mut prefs));
+         }
+      }
+      prefs
    }
 
    /// Cookie names for all preference fields.
-   pub const COOKIE_NAMES: &[&str] = &[
-      "theme",
-      "infiniteScroll",
-      "stickyProfile",
-      "bidiSupport",
-      "mp4Playback",
-      "autoplayGifs",
-      "muteVideos",
-      "hideTweetStats",
-      "hideBanner",
-      "hidePins",
-      "hideReplies",
-      "hideCommunityNotes",
-      "squareAvatars",
-      "useTwemoji",
-      "stickyNav",
-      "proxyMedia",
-      "fontSize",
-      "replaceTwitter",
-      "replaceYouTube",
-      "replaceReddit",
-      "kagiToken",
-   ];
+   pub fn cookie_names() -> impl Iterator<Item = &'static str> {
+      Toggle::ALL
+         .iter()
+         .map(|toggle| toggle.name())
+         .chain(Text::ALL.iter().map(|text| text.name()))
+   }
 
    /// Preference names accepted from shareable URL preference imports.
-   pub const URL_PREF_NAMES: &[&str] = &[
-      "theme",
-      "infiniteScroll",
-      "stickyProfile",
-      "bidiSupport",
-      "mp4Playback",
-      "autoplayGifs",
-      "muteVideos",
-      "hideTweetStats",
-      "hideBanner",
-      "hidePins",
-      "hideReplies",
-      "hideCommunityNotes",
-      "squareAvatars",
-      "useTwemoji",
-      "stickyNav",
-      "proxyMedia",
-      "fontSize",
-      "replaceTwitter",
-      "replaceYouTube",
-      "replaceReddit",
-   ];
+   pub fn is_url_pref(name: &str) -> bool {
+      Toggle::ALL.iter().any(|toggle| toggle.name() == name)
+         || Text::ALL
+            .iter()
+            .any(|text| text.shareable() && text.name() == name)
+   }
+}
+
+#[derive(Debug, Error)]
+#[error("unknown preference {0:?}")]
+pub struct UnknownPref(String);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+   Display,
+   Media,
+}
+
+macro_rules! toggles {
+   ($($variant:ident => $field:ident, $name:literal, $section:ident, $label:literal;)+) => {
+      #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+      pub enum Toggle {
+         $($variant,)+
+      }
+
+      impl Toggle {
+         pub const ALL: &[Self] = &[$(Self::$variant,)+];
+
+         pub fn in_section(section: Section) -> impl Iterator<Item = Self> {
+            Self::ALL
+               .iter()
+               .copied()
+               .filter(move |toggle| toggle.section() == section)
+         }
+
+         pub const fn name(self) -> &'static str {
+            match self {
+               $(Self::$variant => $name,)+
+            }
+         }
+
+         pub const fn label(self) -> &'static str {
+            match self {
+               $(Self::$variant => $label,)+
+            }
+         }
+
+         pub const fn section(self) -> Section {
+            match self {
+               $(Self::$variant => Section::$section,)+
+            }
+         }
+
+         pub const fn field(self, prefs: &Prefs) -> bool {
+            match self {
+               $(Self::$variant => prefs.$field,)+
+            }
+         }
+
+         pub const fn field_mut(self, prefs: &mut Prefs) -> &mut bool {
+            match self {
+               $(Self::$variant => &mut prefs.$field,)+
+            }
+         }
+      }
+
+      impl FromStr for Toggle {
+         type Err = UnknownPref;
+
+         fn from_str(name: &str) -> Result<Self, Self::Err> {
+            match name {
+               $($name => Ok(Self::$variant),)+
+               _ => Err(UnknownPref(name.to_owned())),
+            }
+         }
+      }
+   };
+}
+
+macro_rules! texts {
+   ($($variant:ident => $field:ident, $name:literal, $shareable:literal;)+) => {
+      #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+      pub enum Text {
+         $($variant,)+
+      }
+
+      impl Text {
+         pub const ALL: &[Self] = &[$(Self::$variant,)+];
+
+         pub const fn name(self) -> &'static str {
+            match self {
+               $(Self::$variant => $name,)+
+            }
+         }
+
+         pub fn accepts(value: &str) -> bool {
+            value.len() <= 512
+               && value
+                  .chars()
+                  .all(|ch| (' '..='~').contains(&ch) && !matches!(ch, '"' | ',' | ';' | '\\'))
+         }
+
+         pub const fn shareable(self) -> bool {
+            match self {
+               $(Self::$variant => $shareable,)+
+            }
+         }
+
+         pub fn field(self, prefs: &Prefs) -> &str {
+            match self {
+               $(Self::$variant => &prefs.$field,)+
+            }
+         }
+
+         pub const fn field_mut(self, prefs: &mut Prefs) -> &mut String {
+            match self {
+               $(Self::$variant => &mut prefs.$field,)+
+            }
+         }
+      }
+
+      impl FromStr for Text {
+         type Err = UnknownPref;
+
+         fn from_str(name: &str) -> Result<Self, Self::Err> {
+            match name {
+               $($name => Ok(Self::$variant),)+
+               _ => Err(UnknownPref(name.to_owned())),
+            }
+         }
+      }
+   };
+}
+
+toggles! {
+   InfiniteScroll => infinite_scroll, "infiniteScroll", Display,
+      "Infinite scrolling (experimental, requires JavaScript)";
+   StickyProfile => sticky_profile, "stickyProfile", Display, "Make profile sidebar stick to top";
+   StickyNav => sticky_nav, "stickyNav", Display, "Keep navbar fixed to top";
+   BidiSupport => bidi_support, "bidiSupport", Display, "Support bidirectional text";
+   HideTweetStats => hide_tweet_stats, "hideTweetStats", Display, "Hide tweet stats";
+   HideBanner => hide_banner, "hideBanner", Display, "Hide profile banner";
+   HidePins => hide_pins, "hidePins", Display, "Hide pinned tweets";
+   HideReplies => hide_replies, "hideReplies", Display, "Hide tweet replies";
+   HideCommunityNotes => hide_community_notes, "hideCommunityNotes", Display,
+      "Hide community notes";
+   SquareAvatars => square_avatars, "squareAvatars", Display, "Square profile pictures";
+   UseTwemoji => use_twemoji, "useTwemoji", Display, "Use Twitter emoji (Twemoji)";
+   Mp4Playback => mp4_playback, "mp4Playback", Media, "Enable mp4 video playback";
+   MuteVideos => mute_videos, "muteVideos", Media, "Mute videos by default";
+   AutoplayGifs => autoplay_gifs, "autoplayGifs", Media, "Autoplay gifs";
+}
+
+texts! {
+   Theme => theme, "theme", true;
+   FontSize => font_size, "fontSize", true;
+   ReplaceTwitter => replace_twitter, "replaceTwitter", true;
+   ReplaceYouTube => replace_youtube, "replaceYouTube", true;
+   ReplaceReddit => replace_reddit, "replaceReddit", true;
+   KagiToken => kagi_token, "kagiToken", false;
 }

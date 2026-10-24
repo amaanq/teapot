@@ -1,30 +1,25 @@
-use std::{
-   fs,
-   path::Path,
-};
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
 
 use axum::{
    Form,
    Router,
-   extract::{
-      Query,
-      State,
-   },
+   extract::State,
    http::{
       HeaderMap,
       header::REFERER,
    },
    middleware,
    response::{
-      Html,
       IntoResponse as _,
       Redirect,
       Response,
    },
-   routing::{
-      get,
-      post,
-   },
+   routing::post,
 };
 use axum_extra::extract::cookie::{
    Cookie,
@@ -37,119 +32,96 @@ use percent_encoding::{
    utf8_percent_encode,
 };
 use serde::Deserialize;
+use topcoat::{
+   context::{
+      Cx,
+      app_context,
+   },
+   cookie::{
+      Cookies as _,
+      cookies,
+   },
+   router::{
+      error::RouterErrorExt as _,
+      page,
+      query_params,
+      request::headers,
+   },
+   runtime::procedure,
+   view::{
+      View,
+      view,
+   },
+};
 
 use crate::{
    AppState,
    config::Config,
    error::Result,
    routes::middleware::same_origin_guard,
-   types::prefs::Prefs,
+   types::prefs::{
+      Prefs,
+      Text,
+      Toggle,
+   },
    views::{
-      layout,
-      preferences as pref_view,
+      document::{
+         LivePrefs,
+         document,
+         themes,
+      },
+      preferences::preferences_form,
    },
 };
 
 /// Convert preferences to HTTP cookies for storage.
-fn prefs_to_cookies(prefs: &Prefs, config: &Config) -> Vec<Cookie<'static>> {
-   let max_age = Duration::days(365);
+fn prefs_to_cookies<'a>(
+   prefs: &'a Prefs,
+   config: &Config,
+) -> impl Iterator<Item = Cookie<'static>> + 'a {
    let secure = config.server.https;
-   let bool_cookie =
-      |name: &str, val: bool| make_cookie(name, if val { "on" } else { "" }, max_age, secure, true);
-   let str_cookie = |name: &str, val: &str| make_cookie(name, val, max_age, secure, true);
+   let toggles = Toggle::ALL
+      .iter()
+      .map(move |&toggle| toggle_cookie(toggle, toggle.field(prefs), secure));
+   let texts = Text::ALL
+      .iter()
+      .map(move |&text| text_cookie(text, text.field(prefs), secure));
+   toggles.chain(texts)
+}
 
-   vec![
-      make_cookie("theme", &prefs.theme, max_age, secure, false),
-      bool_cookie("infiniteScroll", prefs.infinite_scroll),
-      bool_cookie("stickyProfile", prefs.sticky_profile),
-      bool_cookie("bidiSupport", prefs.bidi_support),
-      bool_cookie("mp4Playback", prefs.mp4_playback),
-      bool_cookie("autoplayGifs", prefs.autoplay_gifs),
-      bool_cookie("muteVideos", prefs.mute_videos),
-      bool_cookie("hideTweetStats", prefs.hide_tweet_stats),
-      bool_cookie("hideBanner", prefs.hide_banner),
-      bool_cookie("hidePins", prefs.hide_pins),
-      bool_cookie("hideReplies", prefs.hide_replies),
-      bool_cookie("hideCommunityNotes", prefs.hide_community_notes),
-      bool_cookie("squareAvatars", prefs.square_avatars),
-      bool_cookie("useTwemoji", prefs.use_twemoji),
-      bool_cookie("stickyNav", prefs.sticky_nav),
-      bool_cookie("proxyMedia", prefs.proxy_media),
-      str_cookie("fontSize", &prefs.font_size),
-      str_cookie("replaceTwitter", &prefs.replace_twitter),
-      str_cookie("replaceYouTube", &prefs.replace_youtube),
-      str_cookie("replaceReddit", &prefs.replace_reddit),
-      str_cookie("kagiToken", &prefs.kagi_token),
-   ]
+fn toggle_cookie(toggle: Toggle, on: bool, secure: bool) -> Cookie<'static> {
+   make_cookie(toggle.name(), if on { "on" } else { "" }, secure, true)
+}
+
+fn text_cookie(text: Text, value: &str, secure: bool) -> Cookie<'static> {
+   make_cookie(text.name(), value, secure, text != Text::Theme)
 }
 
 /// Encode non-default prefs as a comma-separated string for URL sharing.
-#[expect(
-   clippy::cognitive_complexity,
-   reason = "macro-driven repetition, not actual complexity"
-)]
 fn encode_prefs(prefs: &Prefs, config: &Config) -> String {
    let defaults = Prefs::with_defaults(config);
-   let mut pairs = Vec::new();
-
-   macro_rules! enc_checkbox {
-      ($name:expr, $field:ident) => {
-         if prefs.$field != defaults.$field {
-            if prefs.$field {
-               pairs.push(format!("{}=on", $name));
-            } else {
-               pairs.push(format!("{}=", $name));
-            }
-         }
-      };
-   }
-   macro_rules! enc_string {
-      ($name:expr, $field:ident) => {
-         if prefs.$field != defaults.$field {
-            pairs.push(format!("{}={}", $name, prefs.$field));
-         }
-      };
-   }
-
-   enc_string!("theme", theme);
-   enc_checkbox!("infiniteScroll", infinite_scroll);
-   enc_checkbox!("stickyProfile", sticky_profile);
-   enc_checkbox!("stickyNav", sticky_nav);
-   enc_checkbox!("bidiSupport", bidi_support);
-   enc_checkbox!("hideTweetStats", hide_tweet_stats);
-   enc_checkbox!("hideBanner", hide_banner);
-   enc_checkbox!("hidePins", hide_pins);
-   enc_checkbox!("hideReplies", hide_replies);
-   enc_checkbox!("hideCommunityNotes", hide_community_notes);
-   enc_checkbox!("squareAvatars", square_avatars);
-   enc_checkbox!("useTwemoji", use_twemoji);
-   enc_checkbox!("proxyMedia", proxy_media);
-   enc_string!("fontSize", font_size);
-   enc_checkbox!("mp4Playback", mp4_playback);
-   enc_checkbox!("muteVideos", mute_videos);
-   enc_checkbox!("autoplayGifs", autoplay_gifs);
-   enc_string!("replaceTwitter", replace_twitter);
-   enc_string!("replaceYouTube", replace_youtube);
-   enc_string!("replaceReddit", replace_reddit);
-   pairs.join(",")
+   let toggles = Toggle::ALL
+      .iter()
+      .filter(|toggle| toggle.field(prefs) != toggle.field(&defaults))
+      .map(|toggle| {
+         let value = if toggle.field(prefs) { "on" } else { "" };
+         format!("{}={value}", toggle.name())
+      });
+   let texts = Text::ALL
+      .iter()
+      .filter(|text| text.shareable() && text.field(prefs) != text.field(&defaults))
+      .map(|text| format!("{}={}", text.name(), text.field(prefs)));
+   toggles.chain(texts).collect::<Vec<_>>().join(",")
 }
 
-fn make_cookie(
-   name: &str,
-   value: &str,
-   max_age: Duration,
-   secure: bool,
-   http_only: bool,
-) -> Cookie<'static> {
-   let mut builder = Cookie::build((name.to_owned(), value.to_owned()))
+fn make_cookie(name: &str, value: &str, secure: bool, http_only: bool) -> Cookie<'static> {
+   Cookie::build((name.to_owned(), value.to_owned()))
       .path("/")
-      .max_age(max_age)
+      .max_age(Duration::days(365))
       .http_only(http_only)
-      .same_site(SameSite::Lax);
-   if secure {
-      builder = builder.secure(true);
-   }
-   builder.build()
+      .same_site(SameSite::Lax)
+      .secure(secure)
+      .build()
 }
 
 pub fn router() -> Router<AppState> {
@@ -158,129 +130,91 @@ pub fn router() -> Router<AppState> {
       .route("/resetprefs", post(reset_prefs))
       .route("/enablemp4", post(enable_mp4))
       .route_layer(middleware::from_fn(same_origin_guard))
-      .route("/settings", get(settings))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct PrefsForm {
-   pub referer:              Option<String>,
-   pub theme:                Option<String>,
-   #[serde(rename = "infiniteScroll")]
-   pub infinite_scroll:      Option<String>,
-   #[serde(rename = "stickyProfile")]
-   pub sticky_profile:       Option<String>,
-   #[serde(rename = "bidiSupport")]
-   pub bidi_support:         Option<String>,
-   #[serde(rename = "mp4Playback")]
-   pub mp4_playback:         Option<String>,
-   #[serde(rename = "autoplayGifs")]
-   pub autoplay_gifs:        Option<String>,
-   #[serde(rename = "muteVideos")]
-   pub mute_videos:          Option<String>,
-   #[serde(rename = "hideTweetStats")]
-   pub hide_tweet_stats:     Option<String>,
-   #[serde(rename = "hideBanner")]
-   pub hide_banner:          Option<String>,
-   #[serde(rename = "hidePins")]
-   pub hide_pins:            Option<String>,
-   #[serde(rename = "hideReplies")]
-   pub hide_replies:         Option<String>,
-   #[serde(rename = "hideCommunityNotes")]
-   pub hide_community_notes: Option<String>,
-   #[serde(rename = "squareAvatars")]
-   pub square_avatars:       Option<String>,
-   #[serde(rename = "useTwemoji")]
-   pub use_twemoji:          Option<String>,
-   #[serde(rename = "stickyNav")]
-   pub sticky_nav:           Option<String>,
-   #[serde(rename = "proxyMedia")]
-   pub proxy_media:          Option<String>,
-   #[serde(rename = "fontSize")]
-   pub font_size:            Option<String>,
-   #[serde(rename = "replaceTwitter")]
-   pub replace_twitter:      Option<String>,
-   #[serde(rename = "replaceYouTube")]
-   pub replace_youtube:      Option<String>,
-   #[serde(rename = "replaceReddit")]
-   pub replace_reddit:       Option<String>,
-   #[serde(rename = "kagiToken")]
-   pub kagi_token:           Option<String>,
+#[query_params(error = bad_request)]
+struct SettingsQuery {
+   referer: Option<String>,
 }
 
-impl PrefsForm {
-   fn to_prefs(&self, config: &Config) -> Prefs {
-      let defaults = Prefs::with_defaults(config);
-      // Unchecked checkboxes are absent from form data and therefore false.
-      let parse_bool = |field: &Option<String>| field.as_ref().is_some_and(|val| val == "on");
-      let parse_str = |field: &Option<String>, default: String| field.clone().unwrap_or(default);
+#[page("/settings")]
+pub async fn settings(cx: &Cx) -> topcoat::Result<impl View> {
+   let config = &app_context::<AppState>(cx).config;
+   let prefs = Prefs::from_cookies(&CookieJar::from_headers(headers(cx)), config);
+   let themes = themes(&config.server.static_dir);
+   let live = LivePrefs::new(cx, &prefs, &themes);
 
-      Prefs {
-         theme:                parse_str(&self.theme, defaults.theme),
-         infinite_scroll:      parse_bool(&self.infinite_scroll),
-         sticky_profile:       parse_bool(&self.sticky_profile),
-         bidi_support:         parse_bool(&self.bidi_support),
-         mp4_playback:         parse_bool(&self.mp4_playback),
-         autoplay_gifs:        parse_bool(&self.autoplay_gifs),
-         mute_videos:          parse_bool(&self.mute_videos),
-         hide_tweet_stats:     parse_bool(&self.hide_tweet_stats),
-         hide_banner:          parse_bool(&self.hide_banner),
-         hide_pins:            parse_bool(&self.hide_pins),
-         hide_replies:         parse_bool(&self.hide_replies),
-         hide_community_notes: parse_bool(&self.hide_community_notes),
-         square_avatars:       parse_bool(&self.square_avatars),
-         use_twemoji:          parse_bool(&self.use_twemoji),
-         sticky_nav:           parse_bool(&self.sticky_nav),
-         proxy_media:          parse_bool(&self.proxy_media),
-         font_size:            parse_str(&self.font_size, defaults.font_size),
-         replace_twitter:      parse_str(&self.replace_twitter, defaults.replace_twitter),
-         replace_youtube:      parse_str(&self.replace_youtube, defaults.replace_youtube),
-         replace_reddit:       parse_str(&self.replace_reddit, defaults.replace_reddit),
-         kagi_token:           parse_str(&self.kagi_token, defaults.kagi_token),
-      }
-   }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SettingsQuery {
-   pub referer: Option<String>,
-}
-
-async fn settings(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Query(query): Query<SettingsQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let themes = find_themes(&state.config.server.static_dir);
-
+   let query = query_params::<SettingsQuery>(cx)?;
    let referer = local_redirect_target(query.referer.as_deref(), "/");
-   let prefs_code = encode_prefs(&prefs, &state.config);
+   let prefs_code = encode_prefs(&prefs, config);
    let encoded_prefs = utf8_percent_encode(&prefs_code, NON_ALPHANUMERIC).to_string();
-   let prefs_url = format!("{}/?prefs={encoded_prefs}", state.config.url_prefix());
-   let content = pref_view::render_preferences_form(&prefs, &themes, &referer, &prefs_url);
-   let markup = layout::PageLayout::new(&state.config, "Settings", content)
-      .description("Customize your teapot experience")
-      .prefs(&prefs)
-      .render();
+   let prefs_url = format!("{}/?prefs={encoded_prefs}", config.url_prefix());
 
-   Ok(Html(markup.into_string()).into_response())
+   Ok(view! {
+      document(
+         title: "Settings",
+         description: "Customize your teapot experience",
+         live: &live,
+         themes: &themes,
+         preferences_form(
+            prefs: &prefs,
+            themes: &themes,
+            live: &live,
+            referer: &referer,
+            prefs_url: &prefs_url,
+         )
+      )
+   })
+}
+
+#[procedure("/_topcoat/settings/toggle")]
+pub async fn save_toggle(cx: &Cx, name: String, on: bool) -> topcoat::Result<()> {
+   let toggle = name
+      .parse::<Toggle>()
+      .ok_or_bad_request("unknown preference")?;
+   let secure = app_context::<AppState>(cx).config.server.https;
+   cookies(cx).add(toggle_cookie(toggle, on, secure));
+   Ok(())
+}
+
+#[procedure("/_topcoat/settings/text")]
+pub async fn save_text(cx: &Cx, name: String, value: String) -> topcoat::Result<()> {
+   let text = name
+      .parse::<Text>()
+      .ok_or_bad_request("unknown preference")?;
+   Text::accepts(&value)
+      .then_some(())
+      .ok_or_bad_request("invalid preference value")?;
+   let secure = app_context::<AppState>(cx).config.server.https;
+   cookies(cx).add(text_cookie(text, &value, secure));
+   Ok(())
 }
 
 async fn save_prefs(
    State(state): State<AppState>,
    jar: CookieJar,
-   Form(form): Form<PrefsForm>,
+   Form(fields): Form<Vec<(String, String)>>,
 ) -> Result<Response> {
-   let prefs = form.to_prefs(&state.config);
-   let cookies = prefs_to_cookies(&prefs, &state.config);
+   let field = |name: &str| {
+      fields
+         .iter()
+         .find(|pair| pair.0 == name)
+         .map(|pair| pair.1.as_str())
+   };
 
-   let mut updated_jar = jar;
-   for cookie in cookies {
-      updated_jar = updated_jar.add(cookie);
+   let mut prefs = Prefs::from_cookies(&jar, &state.config);
+   // Unchecked checkboxes are absent from form data and therefore false.
+   for &toggle in Toggle::ALL {
+      *toggle.field_mut(&mut prefs) = field(toggle.name()) == Some("on");
+   }
+   for text in Text::ALL {
+      if let Some(value) = field(text.name()).filter(|value| Text::accepts(value)) {
+         value.clone_into(text.field_mut(&mut prefs));
+      }
    }
 
-   let redirect_to = local_redirect_target(form.referer.as_deref(), "/settings");
-
+   let updated_jar = prefs_to_cookies(&prefs, &state.config).fold(jar, CookieJar::add);
+   let redirect_to = local_redirect_target(field("referer"), "/settings");
    Ok((updated_jar, Redirect::to(&redirect_to)).into_response())
 }
 
@@ -291,8 +225,8 @@ pub struct ResetPrefsForm {
 
 async fn reset_prefs(jar: CookieJar, Form(form): Form<ResetPrefsForm>) -> Result<Response> {
    let mut updated_jar = jar;
-   for name in Prefs::COOKIE_NAMES {
-      let removal = Cookie::build(name.to_string())
+   for name in Prefs::cookie_names() {
+      let removal = Cookie::build(name)
          .path("/")
          .max_age(Duration::seconds(0))
          .build();
@@ -331,56 +265,4 @@ fn is_local_path(value: &str) -> bool {
    value.starts_with('/')
       && !value.starts_with("//")
       && !value.chars().any(|ch| matches!(ch, '\r' | '\n'))
-}
-
-/// Discover available themes from CSS files in the static directory.
-#[expect(
-   clippy::absolute_paths,
-   reason = "crate's Result type shadows std::result::Result"
-)]
-fn find_themes(static_dir: &str) -> Vec<String> {
-   let themes_dir = format!("{static_dir}/css/themes");
-
-   fs::read_dir(&themes_dir).map_or_else(
-      |_| {
-         vec![
-            "Auto".to_owned(),
-            "Black".to_owned(),
-            "Dracula".to_owned(),
-            "Mastodon".to_owned(),
-            "teapot".to_owned(),
-            "Pleroma".to_owned(),
-            "Twitter".to_owned(),
-            "Twitter Dark".to_owned(),
-         ]
-      },
-      |entries| {
-         let mut themes = entries
-            .filter_map(std::result::Result::ok)
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .filter(|name| {
-               Path::new(name)
-                  .extension()
-                  .is_some_and(|ext| ext.eq_ignore_ascii_case("css"))
-            })
-            .map(|name| {
-               name
-                  .trim_end_matches(".css")
-                  .replace('_', " ")
-                  .split_whitespace()
-                  .map(|word| {
-                     let mut chars = word.chars();
-                     chars.next().map_or_else(String::new, |first| {
-                        first.to_uppercase().chain(chars).collect()
-                     })
-                  })
-                  .collect::<Vec<_>>()
-                  .join(" ")
-            })
-            .collect::<Vec<_>>();
-
-         themes.sort();
-         themes
-      },
-   )
 }

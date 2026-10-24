@@ -6,6 +6,7 @@
   makeWrapper,
   ffmpeg-headless,
   buildPackages,
+  topcoat-cli,
 }:
 let
   inherit (buildPackages) clang wild;
@@ -28,11 +29,15 @@ rustPlatform.buildRustPackage {
     ];
   };
 
-  cargoLock.lockFile = ../Cargo.lock;
+  cargoLock = {
+    lockFile = ../Cargo.lock;
+    allowBuiltinFetchGit = true;
+  };
 
   nativeBuildInputs = [
     pkg-config
     makeWrapper
+    topcoat-cli
   ]
   ++ lib.optionals hasWild [
     wild
@@ -43,6 +48,11 @@ rustPlatform.buildRustPackage {
     RUSTFLAGS = "-Clinker=${clang}/bin/${clang.targetPrefix}clang -Clink-arg=--ld-path=wild";
   };
 
+  postBuild = ''
+    CARGO_BUILD_TARGET=${stdenv.hostPlatform.rust.rustcTarget} \
+      topcoat asset bundle --release --out topcoat-assets
+  '';
+
   doCheck = true;
   stripAllList = [ "bin" ];
 
@@ -51,8 +61,10 @@ rustPlatform.buildRustPackage {
     cp -r public $out/share/teapot/
     mkdir -p $out/share/teapot/config
     cp config/teapot.example.toml $out/share/teapot/config/
+    cp -r topcoat-assets $out/share/teapot/assets
     wrapProgram $out/bin/teapot \
-      --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]}
+      --prefix PATH : ${lib.makeBinPath [ ffmpeg-headless ]} \
+      --set-default TEAPOT_ASSETS_DIR $out/share/teapot/assets
   '';
 
   meta = {

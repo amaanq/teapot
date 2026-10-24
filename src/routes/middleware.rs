@@ -108,8 +108,6 @@ pub async fn prefs_middleware(mut request: Request, next: Next) -> Response {
 
    if let Some(prefs_value) = prefs_param {
       let mut jar = CookieJar::new();
-      let pref_names = Prefs::URL_PREF_NAMES;
-
       for pair in prefs_value.split(',') {
          let (key, value) = match pair.split_once('=') {
             Some((pkey, pval)) => (pkey, pval),
@@ -117,7 +115,7 @@ pub async fn prefs_middleware(mut request: Request, next: Next) -> Response {
             _ => continue,
          };
 
-         if pref_names.contains(&key) {
+         if Prefs::is_url_pref(key) {
             let cookie = Cookie::build((key.to_owned(), value.to_owned()))
                .path("/")
                .max_age(Duration::days(365))
@@ -153,9 +151,7 @@ pub async fn prefs_middleware(mut request: Request, next: Next) -> Response {
    // request's Cookie header so every existing CookieJar extractor sees the
    // override, without emitting Set-Cookie or changing the URL.
    let overrides = form_urlencoded::parse(query_string.as_bytes())
-      .filter(|&(ref key, ref value)| {
-         Prefs::URL_PREF_NAMES.contains(&key.as_ref()) && valid_cookie_value(value)
-      })
+      .filter(|&(ref key, ref value)| Prefs::is_url_pref(key) && valid_cookie_value(value))
       .map(|(key, value)| (key.into_owned(), value.into_owned()))
       .collect::<Vec<_>>();
    if !overrides.is_empty() {

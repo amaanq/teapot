@@ -42,3 +42,4 @@
 !flake.nix
 !nix/
 !nix/package.nix
+!nix/topcoat-cli.nix
