@@ -72,9 +72,7 @@ tower = { features = [ "limit", "util" ], version = "0.5.3" }
 tower-http = {
   features = [
     "fs",
-    "cors",
     "normalize-path",
-    "compression-gzip",
     "set-header",
     "timeout",
   ],
