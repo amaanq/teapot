@@ -1,30 +1,30 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
+
 use std::cmp;
 
-use axum::{
-   Router,
-   extract::{
-      Path,
-      Query,
-      State,
-   },
-   response::{
-      Html,
-      IntoResponse as _,
-      Response,
-   },
-   routing::get,
+use percent_encoding::{
+   NON_ALPHANUMERIC,
+   utf8_percent_encode,
 };
-use axum_extra::extract::CookieJar;
-use maud::html;
-use serde::Deserialize;
+use topcoat::{
+   context::Cx,
+   router::{
+      page,
+      path_param,
+      query_params,
+   },
+   view::{
+      View,
+      ViewExt as _,
+      view,
+   },
+};
 
-use super::{
-   helpers,
-   helpers::{
-      extract_timeline,
-      get_cached_user,
-   },
-};
 use crate::{
    AppState,
    api::budget,
@@ -36,8 +36,16 @@ use crate::{
       Error,
       Result,
    },
+   routes::helpers::{
+      apply_account_context,
+      enrich_tweet_groups,
+      extract_timeline,
+      get_cached_user,
+      request_prefs,
+      state,
+      swr_take,
+   },
    types::{
-      prefs::Prefs,
       query::SearchProduct,
       timeline::{
          Profile,
@@ -48,10 +56,13 @@ use crate::{
    },
    utils::formatters,
    views::{
-      layout,
-      profile,
-      search::render_search_panel_with_action,
-      timeline,
+      document::document,
+      profile::profile_page,
+      search::search_panel,
+      timeline::{
+         tab_to_kind,
+         timeline,
+      },
    },
 };
 
@@ -114,367 +125,290 @@ fn parse_usernames(name: &str) -> Option<Vec<String>> {
    Some(names)
 }
 
-#[derive(Debug, Deserialize)]
-pub struct TimelineQuery {
-   pub tab:    Option<String>,
-   pub cursor: Option<String>,
+#[query_params(error = bad_request)]
+struct TimelineQuery {
+   tab:    Option<String>,
+   cursor: Option<String>,
    /// For AJAX infinite scroll requests - returns only tweet HTML.
-   pub scroll: Option<String>,
+   scroll: Option<String>,
 }
 
-pub fn router() -> Router<AppState> {
-   Router::new()
-      .route("/{username}", get(user_timeline))
-      .route("/{username}/", get(user_timeline))
-      .route("/{username}/with_replies", get(user_replies))
-      .route("/{username}/media", get(user_media))
-      .route("/{username}/search", get(user_search))
+#[query_params(error = bad_request)]
+struct UserSearchQuery {
+   #[serde(rename = "q")]
+   query:  Option<String>,
+   cursor: Option<String>,
 }
 
-async fn user_timeline(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(username): Path<String>,
-   Query(query): Query<TimelineQuery>,
-) -> Result<Response> {
-   if is_reserved_path(&username) {
-      return Err(Error::InvalidUrl(format!(
-         "'{username}' is a reserved path",
-      )));
+path_param!(username);
+
+#[page("/{username}")]
+pub async fn user_timeline(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let query = query_params::<TimelineQuery>(cx)?;
+
+   if is_reserved_path(username) {
+      return Err(Error::InvalidUrl(format!("'{username}' is a reserved path")).into());
    }
-
    if username.contains(',') {
-      return multi_user_timeline(state, jar, username, query).await;
+      return Ok(multi_user_timeline(cx, username).await?.boxed());
    }
-
-   if !is_valid_username(&username) {
-      return Err(Error::InvalidUrl("Invalid username format".into()));
+   if !is_valid_username(username) {
+      return Err(Error::InvalidUrl("Invalid username format".into()).into());
    }
 
    let tab = query.tab.as_deref().unwrap_or("tweets");
    if !["tweets", "with_replies", "media", "search", ""].contains(&tab) {
-      return Err(Error::InvalidUrl("Invalid tab parameter".into()));
+      return Err(Error::InvalidUrl("Invalid tab parameter".into()).into());
    }
 
-   let is_scroll = query.scroll.as_ref().is_some_and(|val| val == "true");
+   let prefs = request_prefs(cx);
+   let mut profile = fetch_profile(state, username, query.cursor.as_deref()).await?;
+   apply_account_context(state, &mut profile.user).await;
+   let base_url = format!("/{}", profile.user.username);
 
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-
-   let cache_key = cache_keys::profile(&username);
-   let profile_result = if query.cursor.is_none() {
-      let refresh = {
-         let username = username.clone();
-         let cache_key = cache_key.clone();
-         move |app: AppState| {
-            async move {
-               if let Ok(profile) = app.api.get_profile(&username, None).await {
-                  app.cache
-                     .set_swr(&cache_key, &profile, ttl::DEFAULT, ttl::DEFAULT_STALE);
-               }
-            }
-         }
-      };
-      if let Some(cached) = helpers::swr_take::<Profile, _, _>(&state, &cache_key, refresh) {
-         tracing::debug!("Cache hit for profile: {username}");
-         Ok(cached)
-      } else {
-         let result = state.api.get_profile(&username, None).await;
-         if let Ok(ref profile_data) = result {
-            state
-               .cache
-               .set_swr(&cache_key, profile_data, ttl::DEFAULT, ttl::DEFAULT_STALE);
-         }
-         result
+   if query.scroll.as_deref() == Some("true") {
+      let (mut tweets, cursor) = extract_timeline(profile.tweets);
+      enrich_tweet_groups(state, &mut tweets).await;
+      return Ok(view! {
+         timeline(groups: &tweets, prefs: &prefs, cursor: cursor.as_deref(), base_url: &base_url)
       }
-   } else {
-      state
-         .api
-         .get_profile(&username, query.cursor.as_deref())
-         .await
-   };
-
-   match profile_result {
-      Ok(mut profile_data) => {
-         helpers::apply_account_context(&state, &mut profile_data.user).await;
-         if is_scroll {
-            let (mut tweets, cursor) = extract_timeline(profile_data.tweets);
-            helpers::enrich_tweet_groups(&state, &mut tweets).await;
-            let base_url = format!("/{}", profile_data.user.username);
-            let content = timeline::render_timeline(
-               &tweets,
-               &state.config,
-               cursor.as_deref(),
-               Some(&base_url),
-               None,
-               &prefs,
-               None,
-            );
-            return Ok(Html(content.into_string()).into_response());
-         }
-
-         let title = format!(
-            "{} (@{})",
-            profile_data.user.fullname, profile_data.user.username
-         );
-         let desc = format!("The latest tweets from {}", profile_data.user.fullname);
-         let canonical = format!("https://x.com/{}", profile_data.user.username);
-         let rss_url = format!("/{}/rss", profile_data.user.username);
-         let referer = format!("/{}", profile_data.user.username);
-         let og_image = format!(
-            "{}{}",
-            state.config.url_prefix(),
-            formatters::get_pic_url(
-               &profile_data.user.user_pic.replace("_normal", "_400x400"),
-               state.config.config.base64_media,
-            )
-         );
-         let newer = query
-            .cursor
-            .is_some()
-            .then(|| format!("/{}", profile_data.user.username));
-         let content = profile::render_profile(
-            &profile_data,
-            &state.config,
-            timeline::tab_to_kind(tab),
-            &prefs,
-            newer.as_deref(),
-         );
-         let markup = layout::PageLayout::new(&state.config, &title, content)
-            .description(&desc)
-            .prefs(&prefs)
-            .rss(&rss_url)
-            .canonical(&canonical)
-            .referer(&referer)
-            .og_image(&og_image)
-            .og_type("object")
-            .render();
-
-         Ok(Html(markup.into_string()).into_response())
-      },
-      Err(err) => Ok(helpers::api_error_titled(&state.config, &err, "Error")),
+      .boxed());
    }
+
+   let kind = tab_to_kind(tab);
+   let user = &profile.user;
+   let title = format!("{} (@{})", user.fullname, user.username);
+   let description = format!("The latest tweets from {}", user.fullname);
+   let canonical = format!("https://x.com/{}", user.username);
+   let rss_url = format!("/{}/rss", user.username);
+   let og_image = format!(
+      "{}{}",
+      state.config.url_prefix(),
+      formatters::get_pic_url(
+         &user.user_pic.replace("_normal", "_400x400"),
+         state.config.config.base64_media,
+      )
+   );
+   let has_cursor = query.cursor.is_some();
+
+   Ok(view! {
+      let pinned = profile.pinned.as_ref().filter(|_| kind == TimelineKind::Tweets);
+      document(
+         title: &title,
+         prefs: &prefs,
+         description: &description,
+         rss: &rss_url,
+         canonical: &canonical,
+         referer: &base_url,
+         og_image: &og_image,
+         og_type: "object",
+         profile_page(
+            user: &profile.user,
+            photo_rail: &profile.photo_rail,
+            prefs: &prefs,
+            tab: kind,
+            timeline(
+               groups: &profile.tweets.content,
+               prefs: &prefs,
+               cursor: profile.tweets.bottom.as_deref(),
+               base_url: &base_url,
+               pinned: pinned,
+               newer_url: has_cursor.then_some(base_url.as_str()),
+            )
+         )
+      )
+   }
+   .boxed())
 }
 
-/// Shared handler for user sub-tab timelines (replies, media).
-async fn user_tab_handler(
+async fn fetch_profile(state: &AppState, username: &str, cursor: Option<&str>) -> Result<Profile> {
+   if cursor.is_some() {
+      return state.api.get_profile(username, cursor).await;
+   }
+
+   let cache_key = cache_keys::profile(username);
+   let refresh = {
+      let username = username.to_owned();
+      let cache_key = cache_key.clone();
+      move |app: AppState| {
+         async move {
+            if let Ok(profile) = app.api.get_profile(&username, None).await {
+               app.cache
+                  .set_swr(&cache_key, &profile, ttl::DEFAULT, ttl::DEFAULT_STALE);
+            }
+         }
+      }
+   };
+   if let Some(cached) = swr_take::<Profile, _, _>(state, &cache_key, refresh) {
+      tracing::debug!("Cache hit for profile: {username}");
+      return Ok(cached);
+   }
+
+   let profile = state.api.get_profile(username, None).await?;
+   state
+      .cache
+      .set_swr(&cache_key, &profile, ttl::DEFAULT, ttl::DEFAULT_STALE);
+   Ok(profile)
+}
+
+async fn fetch_tab(
    state: &AppState,
-   prefs: &Prefs,
+   user_id: &str,
    username: &str,
    cursor: Option<&str>,
    tab: TimelineKind,
-   include_photo_rail: bool,
-) -> Result<Response> {
-   let user = get_cached_user(state, username).await?;
-
-   let (tab_str, title_prefix) = match tab {
-      TimelineKind::Replies => ("with_replies", "Tweets & replies from"),
-      TimelineKind::Media => ("media", "Media from"),
-      _ => unreachable!(),
-   };
-
-   let fetch_timeline = async {
-      let cache_key = cache_keys::timeline(username, tab);
-      if cursor.is_none() {
-         if let Some(cached) = state.cache.get::<Timeline>(&cache_key) {
-            return Ok(cached);
-         }
-         let result = match tab {
-            TimelineKind::Replies => state.api.get_user_tweets_and_replies(&user.id, None).await,
-            TimelineKind::Media => state.api.get_user_media(&user.id, None).await,
-            _ => unreachable!(),
-         };
-         if let Ok(ref data) = result {
-            state.cache.set(&cache_key, data, ttl::DEFAULT);
-         }
-         result
-      } else {
-         match tab {
-            TimelineKind::Replies => {
-               state
-                  .api
-                  .get_user_tweets_and_replies(&user.id, cursor)
-                  .await
-            },
-            TimelineKind::Media => state.api.get_user_media(&user.id, cursor).await,
-            _ => unreachable!(),
+) -> Result<Timeline> {
+   let fetch = |cursor| {
+      async move {
+         if tab == TimelineKind::Media {
+            state.api.get_user_media(user_id, cursor).await
+         } else {
+            state.api.get_user_tweets_and_replies(user_id, cursor).await
          }
       }
    };
-
-   let (timeline_result, photo_rail) = if include_photo_rail {
-      let (tl, rail) = tokio::join!(fetch_timeline, fetch_photo_rail(state, &user.id));
-      (tl, rail)
-   } else {
-      (fetch_timeline.await, vec![])
-   };
-
-   let has_request_cursor = cursor.is_some();
-
-   match timeline_result {
-      Ok(data) => {
-         let (mut tweets, next_cursor) = extract_timeline(data);
-         helpers::enrich_tweet_groups(state, &mut tweets).await;
-         let base_url = format!("/{username}/{tab_str}");
-         let newer = has_request_cursor.then_some(base_url.as_str());
-
-         let timeline_content = timeline::render_timeline(
-            &tweets,
-            &state.config,
-            next_cursor.as_deref(),
-            Some(&base_url),
-            None,
-            prefs,
-            newer,
-         );
-         let content = profile::render_profile_page(
-            &user,
-            &photo_rail,
-            &state.config,
-            prefs,
-            tab,
-            &timeline_content,
-         );
-
-         let title = format!("{title_prefix} @{}", user.username);
-         let canonical = format!("https://x.com/{username}/{tab_str}");
-         let rss_url = format!("/{username}/{tab_str}/rss");
-         let referer = format!("/{username}/{tab_str}");
-         let markup = layout::PageLayout::new(&state.config, &title, content)
-            .prefs(prefs)
-            .rss(&rss_url)
-            .canonical(&canonical)
-            .referer(&referer)
-            .render();
-         Ok(Html(markup.into_string()).into_response())
-      },
-      Err(err) => Ok(helpers::api_error(&state.config, &err)),
+   if cursor.is_some() {
+      return fetch(cursor).await;
    }
+
+   let cache_key = cache_keys::timeline(username, tab);
+   if let Some(cached) = state.cache.get::<Timeline>(&cache_key) {
+      return Ok(cached);
+   }
+   let fetched = fetch(None).await?;
+   state.cache.set(&cache_key, &fetched, ttl::DEFAULT);
+   Ok(fetched)
 }
 
-async fn user_replies(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(username): Path<String>,
-   Query(query): Query<TimelineQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   user_tab_handler(
-      &state,
-      &prefs,
-      &username,
-      query.cursor.as_deref(),
-      TimelineKind::Replies,
-      true,
-   )
-   .await
+/// Shared page for the replies and media tabs.
+async fn user_tab(cx: &Cx, tab: TimelineKind) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let cursor = query_params::<TimelineQuery>(cx)?.cursor.as_deref();
+   let prefs = request_prefs(cx);
+   let user = get_cached_user(state, username).await?;
+
+   let (tab_path, title_prefix) = if tab == TimelineKind::Media {
+      ("media", "Media from")
+   } else {
+      ("with_replies", "Tweets & replies from")
+   };
+   let fetch_timeline = fetch_tab(state, &user.id, username, cursor, tab);
+   let (timeline_result, photo_rail) = if tab == TimelineKind::Media {
+      (fetch_timeline.await, Vec::new())
+   } else {
+      tokio::join!(fetch_timeline, fetch_photo_rail(state, &user.id))
+   };
+   let (mut tweets, next_cursor) = extract_timeline(timeline_result?);
+   enrich_tweet_groups(state, &mut tweets).await;
+
+   let base_url = format!("/{username}/{tab_path}");
+   let title = format!("{title_prefix} @{}", user.username);
+   let canonical = format!("https://x.com/{username}/{tab_path}");
+   let rss_url = format!("/{username}/{tab_path}/rss");
+   let has_cursor = cursor.is_some();
+
+   Ok(view! { cx =>
+      document(
+         title: &title,
+         prefs: &prefs,
+         rss: &rss_url,
+         canonical: &canonical,
+         referer: &base_url,
+         profile_page(
+            user: &user,
+            photo_rail: &photo_rail,
+            prefs: &prefs,
+            tab: tab,
+            timeline(
+               groups: &tweets,
+               prefs: &prefs,
+               cursor: next_cursor.as_deref(),
+               base_url: &base_url,
+               newer_url: has_cursor.then_some(base_url.as_str()),
+            )
+         )
+      )
+   })
 }
 
-async fn user_media(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(username): Path<String>,
-   Query(query): Query<TimelineQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   user_tab_handler(
-      &state,
-      &prefs,
-      &username,
-      query.cursor.as_deref(),
-      TimelineKind::Media,
-      false,
-   )
-   .await
+#[page("/{username}/with_replies")]
+pub async fn user_replies(cx: &Cx) -> topcoat::Result<impl View> {
+   user_tab(cx, TimelineKind::Replies).await
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct UserSearchQuery {
-   #[serde(rename = "q")]
-   pub query:  Option<String>,
-   pub cursor: Option<String>,
+#[page("/{username}/media")]
+pub async fn user_media(cx: &Cx) -> topcoat::Result<impl View> {
+   user_tab(cx, TimelineKind::Media).await
 }
 
-async fn user_search(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(username): Path<String>,
-   Query(query): Query<UserSearchQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let user = get_cached_user(&state, &username).await?;
-
+#[page("/{username}/search")]
+pub async fn user_search(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let query = query_params::<UserSearchQuery>(cx)?;
    let search_query = query.query.as_deref().unwrap_or("");
-   let search_action = format!("/{username}/search");
+   let cursor = query.cursor.as_deref();
+   let prefs = request_prefs(cx);
+   let user = get_cached_user(state, username).await?;
 
    let api_query = if search_query.is_empty() {
       format!("from:{username} include:nativeretweets")
    } else {
       format!("from:{username} {search_query}")
    };
-   let (photo_rail, search_result) = tokio::join!(
-      fetch_photo_rail(&state, &user.id),
-      state
-         .api
-         .search(&api_query, query.cursor.as_deref(), SearchProduct::Latest),
+   let (photo_rail, results) = tokio::join!(
+      fetch_photo_rail(state, &user.id),
+      state.api.search(&api_query, cursor, SearchProduct::Latest),
    );
+   let (mut tweets, next_cursor) = extract_timeline(results?);
+   enrich_tweet_groups(state, &mut tweets).await;
 
-   match search_result {
-      Ok(results) => {
-         let (mut tweets, cursor) = extract_timeline(results);
-         helpers::enrich_tweet_groups(&state, &mut tweets).await;
-         let base_url = if search_query.is_empty() {
-            format!("/{username}/search")
-         } else {
-            format!(
-               "/{}/search?q={}",
-               username,
-               percent_encoding::utf8_percent_encode(
-                  search_query,
-                  percent_encoding::NON_ALPHANUMERIC,
-               )
+   let action = format!("/{username}/search");
+   let base_url = if search_query.is_empty() {
+      action.clone()
+   } else {
+      format!(
+         "{action}?q={}",
+         utf8_percent_encode(search_query, NON_ALPHANUMERIC)
+      )
+   };
+   let title = if search_query.is_empty() {
+      format!("Search @{username}")
+   } else {
+      format!("Search @{username}: {search_query}")
+   };
+   let canonical = format!("https://x.com/{username}");
+   let rss_url = format!("/{username}/search/rss?f=tweets");
+   let has_cursor = cursor.is_some();
+
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         rss: &rss_url,
+         canonical: &canonical,
+         referer: &action,
+         profile_page(
+            user: &user,
+            photo_rail: &photo_rail,
+            prefs: &prefs,
+            tab: TimelineKind::Search,
+            <div class="timeline-header">
+               search_panel(query: search_query, action: &action)
+            </div>
+            timeline(
+               groups: &tweets,
+               prefs: &prefs,
+               cursor: next_cursor.as_deref(),
+               base_url: &base_url,
+               newer_url: has_cursor.then_some(base_url.as_str()),
             )
-         };
-
-         let newer = query.cursor.is_some().then_some(base_url.as_str());
-         let timeline_content = html! {
-             div class="timeline-header" {
-                 (render_search_panel_with_action(search_query, None, &search_action))
-             }
-             (timeline::render_timeline(&tweets, &state.config, cursor.as_deref(), Some(&base_url), None, &prefs, newer))
-         };
-         let content = profile::render_profile_page(
-            &user,
-            &photo_rail,
-            &state.config,
-            &prefs,
-            TimelineKind::Search,
-            &timeline_content,
-         );
-
-         let title = if search_query.is_empty() {
-            format!("Search @{username}")
-         } else {
-            format!("Search @{username}: {search_query}")
-         };
-         let canonical = format!("https://x.com/{username}");
-         let rss_url = format!("/{username}/search/rss?f=tweets");
-         let referer = format!("/{username}/search");
-         let markup = layout::PageLayout::new(&state.config, &title, content)
-            .prefs(&prefs)
-            .rss(&rss_url)
-            .canonical(&canonical)
-            .referer(&referer)
-            .render();
-         Ok(Html(markup.into_string()).into_response())
-      },
-      Err(err) => {
-         Ok(helpers::api_error_titled(
-            &state.config,
-            &err,
-            "Search Error",
-         ))
-      },
-   }
+         )
+      )
+   })
 }
 
 /// Fetch photo rail for a user, returning empty vec on error.
@@ -483,32 +417,20 @@ async fn fetch_photo_rail(state: &AppState, user_id: &str) -> Vec<GalleryPhoto> 
 }
 
 /// Handle multi-user timeline (comma-separated usernames).
-async fn multi_user_timeline(
-   state: AppState,
-   jar: CookieJar,
-   usernames_str: String,
-   query: TimelineQuery,
-) -> Result<Response> {
+async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<impl View> {
    const PAGE_SIZE: usize = 20;
 
-   let prefs = Prefs::from_cookies(&jar, &state.config);
+   let state = state(cx);
+   let cursor = query_params::<TimelineQuery>(cx)?.cursor.as_deref();
+   let prefs = request_prefs(cx);
 
-   let Some(usernames) = parse_usernames(&usernames_str) else {
-      return Err(Error::InvalidUrl(
-         "Invalid username format in multi-user search".into(),
-      ));
+   let Some(usernames) = parse_usernames(usernames_str) else {
+      return Err(Error::InvalidUrl("Invalid username format in multi-user search".into()).into());
    };
 
    if usernames.len() > 10 {
-      return Err(Error::InvalidUrl(
-         "Maximum 10 users allowed in multi-user search".into(),
-      ));
+      return Err(Error::InvalidUrl("Maximum 10 users allowed in multi-user search".into()).into());
    }
-
-   let cursor_id = query
-      .cursor
-      .as_ref()
-      .and_then(|val| val.parse::<i64>().ok());
 
    let mut all_tweets = Vec::new();
    let handles = usernames
@@ -520,8 +442,8 @@ async fn multi_user_timeline(
          // has to be carried over or these fan-out calls go unbilled.
          tokio::spawn(budget::scoped(async move {
             let user = get_cached_user(&state, &username).await.ok()?;
-            let timeline = state.api.get_user_tweets(&user.id, None).await.ok()?;
-            Some(timeline.content.into_iter().flatten().collect::<Vec<_>>())
+            let tweets = state.api.get_user_tweets(&user.id, None).await.ok()?;
+            Some(tweets.content.into_iter().flatten().collect::<Vec<_>>())
          }))
       })
       .collect::<Vec<_>>();
@@ -534,7 +456,7 @@ async fn multi_user_timeline(
 
    all_tweets.sort_by_key(|tweet| cmp::Reverse(tweet.time));
 
-   if let Some(cursor) = cursor_id {
+   if let Some(cursor) = cursor.and_then(|val| val.parse::<i64>().ok()) {
       all_tweets.retain(|tweet| tweet.id < cursor);
    }
 
@@ -548,23 +470,33 @@ async fn multi_user_timeline(
    };
 
    let title = format!("Tweets from {}", usernames.join(", "));
+   let handles = usernames
+      .iter()
+      .map(|name| format!("@{name}"))
+      .collect::<Vec<_>>()
+      .join(", ");
    let base_url = format!("/{usernames_str}");
-
-   let newer = query.cursor.is_some().then_some(base_url.as_str());
+   let has_cursor = cursor.is_some();
    let mut groups = all_tweets
       .into_iter()
       .map(|tweet| vec![tweet])
       .collect::<Vec<Vec<_>>>();
-   helpers::enrich_tweet_groups(&state, &mut groups).await;
-   let content = html! {
-       div class="multi-user-timeline" {
-           h2 { "Combined timeline: " (usernames.iter().map(|name| format!("@{name}")).collect::<Vec<_>>().join(", ")) }
-           (timeline::render_timeline(&groups, &state.config, next_cursor.as_deref(), Some(&base_url), None, &prefs, newer))
-       }
-   };
+   enrich_tweet_groups(state, &mut groups).await;
 
-   let markup = layout::PageLayout::new(&state.config, &title, content)
-      .prefs(&prefs)
-      .render();
-   Ok(Html(markup.into_string()).into_response())
+   Ok(view! { cx =>
+      document(
+         title: &title,
+         prefs: &prefs,
+         <div class="multi-user-timeline">
+            <h2>"Combined timeline: " (handles)</h2>
+            timeline(
+               groups: &groups,
+               prefs: &prefs,
+               cursor: next_cursor.as_deref(),
+               base_url: &base_url,
+               newer_url: has_cursor.then_some(base_url.as_str()),
+            )
+         </div>
+      )
+   })
 }

@@ -1,7 +1,20 @@
-use maud::{
-   Markup,
-   PreEscaped,
-   html,
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[component] and view! expansions"
+)]
+
+use topcoat::{
+   Result,
+   context::Cx,
+   view::{
+      Child,
+      View,
+      class,
+      component,
+      view,
+   },
 };
 
 use crate::{
@@ -13,6 +26,7 @@ use crate::{
          Card,
          CardKind,
          Entity,
+         Gif,
          Photo,
          Poll,
          Tweet,
@@ -26,39 +40,47 @@ use crate::{
       entity_expander::{
          expand_entities,
          expand_with_regex,
+         html_escape,
       },
       formatters,
    },
-   views::renderutils::{
-      button_referer,
-      gen_img,
-      get_avatar_class,
-      get_small_pic,
-      icon,
-      link_user,
-      parse_location,
-      render_community_note,
-      verified_icon,
+   views::{
+      document::strip_html,
+      renderutils::{
+         community_note,
+         config,
+         get_avatar_class,
+         get_small_pic,
+         icon,
+         link_user,
+         parse_location,
+         proxied_image,
+         trusted,
+         tweet_link,
+         verified_icon,
+      },
    },
 };
 
-/// Get the link to a tweet (with `#m` anchor for scroll target).
-fn get_link(tweet: &Tweet) -> String {
-   let link = super::renderutils::tweet_link(tweet);
-   if link.is_empty() {
-      link
-   } else {
-      format!("{link}#m")
-   }
-}
-
 /// Thread context for visual thread line rendering.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThreadContext {
+   #[default]
    None,
    Start,
    Middle,
    End,
+}
+
+impl ThreadContext {
+   const fn classes(self) -> Option<&'static str> {
+      match self {
+         Self::None => None,
+         Self::Start => Some("thread thread-first"),
+         Self::Middle => Some("thread thread-middle"),
+         Self::End => Some("thread thread-last"),
+      }
+   }
 }
 
 /// Determine thread context based on position in a chain.
@@ -78,736 +100,593 @@ pub const fn thread_context(index: usize, total: usize, is_definite_end: bool) -
    }
 }
 
-/// Builder for rendering a tweet with configurable options.
-#[expect(
-   clippy::module_name_repetitions,
-   reason = "TweetRenderer is the canonical name used across the codebase"
-)]
-pub struct TweetRenderer<'a> {
-   tweet:       &'a Tweet,
-   config:      &'a Config,
-   is_main:     bool,
-   pinned:      bool,
-   prefs:       &'a Prefs,
-   thread_ctx:  ThreadContext,
-   extra_class: &'a str,
-   index:       usize,
-   sort_toggle: Option<&'a Markup>,
-}
+/// Render one tweet, or its retweeted original under a retweet header.
+#[component]
+pub async fn tweet_item<'a>(
+   cx: &Cx,
+   tweet: &'a Tweet,
+   prefs: &'a Prefs,
+   #[default] main: bool,
+   #[default] pinned: bool,
+   #[default] thread: ThreadContext,
+   #[default] extra_class: &'a str,
+   #[default] index: usize,
+   #[default] sort_toggle: Option<Child<'a>>,
+) -> Result<impl View> {
+   let config = config(cx);
+   let (shown, retweeter) = tweet
+      .retweet
+      .as_deref()
+      .map_or((tweet, None), |original| (original, Some(&tweet.user)));
 
-impl<'a> TweetRenderer<'a> {
-   pub const fn new(tweet: &'a Tweet, config: &'a Config, prefs: &'a Prefs, is_main: bool) -> Self {
-      Self {
-         tweet,
-         config,
-         is_main,
-         pinned: false,
-         prefs,
-         thread_ctx: ThreadContext::None,
-         extra_class: "",
-         index: 0,
-         sort_toggle: None,
-      }
-   }
+   let status_link = format!("/{}/status/{}#m", shown.user.username, shown.id);
+   let text_html = tweet_text_html(&shown.text, &shown.entities, &shown.location, config);
+   let show_reply = !main
+      && index == 0
+      && thread == ThreadContext::None
+      && !shown.reply.is_empty()
+      && !is_reply_to_self(shown, pinned);
+   let disclosures = [
+      shown
+         .paid_promotion
+         .then(|| format!("{} Paid partnership", config.config.paid_emoji)),
+      shown
+         .ai_generated
+         .then(|| format!("{} Made with AI", config.config.ai_emoji)),
+   ]
+   .into_iter()
+   .flatten()
+   .collect::<Vec<_>>();
+   let latest_id = shown.history.iter().copied().max().unwrap_or(0);
+   let has_edits = shown.history.len() > 1;
 
-   pub const fn pinned(mut self, pinned: bool) -> Self {
-      self.pinned = pinned;
-      self
-   }
-
-   pub const fn thread_ctx(mut self, ctx: ThreadContext) -> Self {
-      self.thread_ctx = ctx;
-      self
-   }
-
-   pub const fn extra_class(mut self, class: &'a str) -> Self {
-      self.extra_class = class;
-      self
-   }
-
-   pub const fn index(mut self, index: usize) -> Self {
-      self.index = index;
-      self
-   }
-
-   pub const fn sort_toggle(mut self, toggle: Option<&'a Markup>) -> Self {
-      self.sort_toggle = toggle;
-      self
-   }
-
-   #[expect(
-      clippy::cognitive_complexity,
-      reason = "maud HTML template with many conditional branches"
-   )]
-   pub fn render(&self) -> Markup {
-      let tweet = self.tweet;
-      let config = self.config;
-      let is_main = self.is_main;
-      let pinned = self.pinned;
-      let prefs = self.prefs;
-      let thread_ctx = self.thread_ctx;
-      let extra_class = self.extra_class;
-      let index = self.index;
-
+   Ok(view! {
       if !tweet.available {
-         let link = get_link(tweet);
-         let text = if !tweet.tombstone.is_empty() {
-            &tweet.tombstone
-         } else if !tweet.text.is_empty() {
-            &tweet.text
-         } else {
-            "This tweet is unavailable"
-         };
-         return html! {
-             div class="timeline-item unavailable" data-username=(tweet.user.username) {
-                 a class="unavailable-box" href=(link) { (text) }
-                 @if let Some(ref quote) = tweet.quote {
-                     (render_quote(quote, config, prefs))
-                 }
-             }
-         };
-      }
-
-      let (display_tweet, retweet_by) = tweet
-         .retweet
-         .as_ref()
-         .map_or((tweet, None), |rt| (rt.as_ref(), Some(&tweet.user)));
-
-      // Includes .author-{user} and .retweet-{user} for adblock filtering.
-      let author_class = format!("author-{}", display_tweet.user.username);
-      let retweet_class = retweet_by.map(|rt_user| format!("retweet-{}", rt_user.username));
-      let mut classes = vec!["timeline-item", &author_class];
-      if let Some(ref rc) = retweet_class {
-         classes.push(rc);
-      }
-      if !extra_class.is_empty() {
-         classes.push(extra_class);
-      }
-      match thread_ctx {
-         ThreadContext::Start => classes.extend(["thread", "thread-first"]),
-         ThreadContext::Middle => classes.extend(["thread", "thread-middle"]),
-         ThreadContext::End => classes.extend(["thread", "thread-last"]),
-         ThreadContext::None => {},
-      }
-      let class = classes.join(" ");
-
-      let tweet_link = format!(
-         "/{}/status/{}#m",
-         display_tweet.user.username, display_tweet.id
-      );
-
-      let content_class = if prefs.bidi_support {
-         "tweet-content media-body tweet-bidi"
+         <div class="timeline-item unavailable" data-username=(&tweet.user.username)>
+            <a class="unavailable-box" href=(format!("{}#m", tweet_link(tweet)))>
+               (unavailable_text(tweet))
+            </a>
+            if let Some(quote) = tweet.quote.as_deref() {
+               quote_item(quote: quote, prefs: prefs)
+            }
+         </div>
       } else {
-         "tweet-content media-body"
-      };
-
-      // Pre-render tweet text + location as HTML string for verbatim output
-      let text_html = render_tweet_text_html(
-         &display_tweet.text,
-         &display_tweet.entities,
-         &display_tweet.location,
-         config,
-      );
-
-      html! {
-          div class=(class) data-username=(display_tweet.user.username) {
-              @if !is_main {
-                  a class="tweet-link" href=(&tweet_link) {}
-              }
-
-              div class="tweet-body" {
-                  // Wrapper div around pinned/retweet + header
-                  div {
-                      @if pinned {
-                          div class="pinned" {
-                              span { (icon("pin", "Pinned Tweet", "", "", "")) }
-                          }
-                      }
-
-                      @if let Some(rt_user) = retweet_by {
-                          div class="retweet-header" {
-                              span { (icon("retweet", &format!("{} retweeted", rt_user.fullname), "", "", "")) }
-                          }
-                      }
-
-                      div class="tweet-header" {
-                          a class="tweet-avatar" href=(format!("/{}", display_tweet.user.username)) {
-                              (render_user_avatar(&display_tweet.user, config, prefs))
-                          }
-
-                          div class="tweet-name-row" {
-                              div class="fullname-and-username" {
-                                  (link_user(&display_tweet.user, "fullname"))
-                                  (verified_icon(&display_tweet.user))
-                                  (link_user(&display_tweet.user, "username"))
-                                  (render_tweet_account_signal(&display_tweet.user))
-                              }
-
-                              span class="tweet-date" {
-                                  @if let Some(time) = display_tweet.time {
-                                      a href=(&tweet_link) title=(formatters::format_tweet_time(time)) {
-                                          (formatters::format_relative_time(time))
-                                      }
-                                  }
-                              }
-                          }
-                      }
+         <div
+            class=(class!(
+               "timeline-item",
+               format!("author-{}", shown.user.username),
+               retweeter.map(|user| format!("retweet-{}", user.username)),
+               extra_class,
+               thread.classes(),
+            ))
+            data-username=(&shown.user.username)
+         >
+            if !main {
+               <a class="tweet-link" href=(&status_link)></a>
+            }
+            <div class="tweet-body">
+               <div>
+                  if pinned {
+                     <div class="pinned">
+                        <span>icon(name: "pin", text: "Pinned Tweet")</span>
+                     </div>
                   }
-
-                  @if !is_main && index == 0 && thread_ctx == ThreadContext::None && !display_tweet.reply.is_empty() && !is_reply_to_self(display_tweet, pinned) {
-                      (render_reply(display_tweet))
+                  if let Some(user) = retweeter {
+                     let retweet_label = format!("{} retweeted", user.fullname);
+                     <div class="retweet-header">
+                        <span>icon(name: "retweet", text: &retweet_label)</span>
+                     </div>
                   }
-
-                  div class=(content_class) dir="auto" {
-                      (PreEscaped(&text_html))
+                  <div class="tweet-header">
+                     <a class="tweet-avatar" href=(format!("/{}", shown.user.username))>
+                        <img
+                           src=(formatters::get_pic_url(
+                              &shown.user.user_pic,
+                              config.config.base64_media,
+                           ))
+                           class=(get_avatar_class(prefs))
+                           alt=""
+                           loading="lazy"
+                        >
+                     </a>
+                     <div class="tweet-name-row">
+                        <div class="fullname-and-username">
+                           link_user(user: &shown.user, class: "fullname")
+                           verified_icon(user: &shown.user)
+                           link_user(user: &shown.user, class: "username")
+                           account_signal(user: &shown.user)
+                        </div>
+                        <span class="tweet-date">
+                           if let Some(time) = shown.time {
+                              <a href=(&status_link) title=(formatters::format_tweet_time(time))>
+                                 (formatters::format_relative_time(time))
+                              </a>
+                           }
+                        </span>
+                     </div>
+                  </div>
+               </div>
+               if show_reply {
+                  replying_to(tweet: shown)
+               }
+               <div
+                  class=(class!("tweet-content media-body", "tweet-bidi" if prefs.bidi_support))
+                  dir="auto"
+               >
+                  (trusted(text_html))
+               </div>
+               if shown.is_translatable {
+                  translate_button(id: shown.id)
+               }
+               if main {
+                  for label in &disclosures {
+                     <div class="disclosure-label">(label)</div>
                   }
-
-                  @if display_tweet.is_translatable {
-                      button class="translate-btn"
-                          hx-get=(format!("/translate/{}", display_tweet.id))
-                          hx-swap="outerHTML"
-                          hx-indicator="closest .translate-btn" {
-                          "Translate post"
-                      }
+               } else if !disclosures.is_empty() {
+                  <div class="disclosure-label">(disclosures.join(" · "))</div>
+               }
+               if let Some(user) = shown.attribution.as_ref() {
+                  <a class="attribution" href=(format!("/{}", user.username))>
+                     mini_avatar(user: user, prefs: prefs)
+                     <strong>(&user.fullname)</strong>
+                     verified_icon(user: user)
+                  </a>
+               }
+               if let Some(card) = shown.card.as_ref() {
+                  card_preview(card: card, prefs: prefs)
+               }
+               if !shown.photos.is_empty() {
+                  photo_gallery(photos: &shown.photos)
+               }
+               for video in shown.video.iter().chain(&shown.additional_videos) {
+                  video_player(video: video, prefs: prefs)
+               }
+               for gif in &shown.gifs {
+                  gif_player(gif: gif, autoplay: prefs.autoplay_gifs, poster: true)
+               }
+               if let Some(poll) = shown.poll.as_ref() {
+                  poll_result(poll: poll)
+               }
+               if let Some(quote) = shown.quote.as_deref() {
+                  quote_item(quote: quote, prefs: prefs)
+               }
+               community_note(note: shown.note.as_ref(), hidden: prefs.hide_community_notes)
+               if main {
+                  if let Some(time) = shown.time {
+                     <p class="tweet-published">
+                        if has_edits && shown.id == latest_id {
+                           <a href=(format!("/{}/status/{}/history", shown.user.username, shown.id))>
+                              "Last edited " (formatters::format_tweet_time(time))
+                           </a>
+                        } else {
+                           (formatters::format_tweet_time(time))
+                        }
+                     </p>
                   }
-
-                  @if display_tweet.paid_promotion || display_tweet.ai_generated {
-                      @let paid_label = format!("{} Paid partnership", config.config.paid_emoji);
-                      @let ai_label = format!("{} Made with AI", config.config.ai_emoji);
-                      @if is_main {
-                          @if display_tweet.paid_promotion {
-                              div class="disclosure-label" { (paid_label) }
-                          }
-                          @if display_tweet.ai_generated {
-                              div class="disclosure-label" { (ai_label) }
-                          }
-                      } @else {
-                          @let labels = [
-                              display_tweet.paid_promotion.then_some(paid_label.as_str()),
-                              display_tweet.ai_generated.then_some(ai_label.as_str()),
-                          ].into_iter().flatten().collect::<Vec<&str>>();
-                          div class="disclosure-label" { (labels.join(" · ")) }
-                      }
+                  if has_edits && shown.id != latest_id {
+                     <div class="latest-post-version">
+                        "There's a new version of this post. "
+                        <a href=(format!("/{}/status/{latest_id}#m", shown.user.username))>
+                           "See the latest post"
+                        </a>
+                     </div>
                   }
-
-                  @if let Some(ref attr_user) = display_tweet.attribution {
-                      a class="attribution" href=(format!("/{}", attr_user.username)) {
-                          (render_mini_avatar(attr_user, config, prefs))
-                          strong { (attr_user.fullname) }
-                          (verified_icon(attr_user))
-                      }
-                  }
-
-                  @if let Some(ref card) = display_tweet.card {
-                      (render_card(card, config, prefs))
-                  }
-
-                  @if !display_tweet.photos.is_empty() {
-                      (render_photos(&display_tweet.photos, config))
-                  }
-
-                  @if let Some(ref video) = display_tweet.video {
-                      (render_video(video, config, prefs))
-                  }
-                  @for video in &display_tweet.additional_videos {
-                      (render_video(video, config, prefs))
-                  }
-
-                  @for gif in &display_tweet.gifs {
-                      @let autoplay_gifs = prefs.autoplay_gifs;
-                      @let poster = get_small_pic(&gif.thumb, config);
-                      @let gif_src = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
-                      div class="attachments media-gif" {
-                          div class="gallery-gif" style="max-height: unset" {
-                              div class="attachment" {
-                                  video class="gif" poster=(poster) autoplay[autoplay_gifs] controls="" muted="" loop="" {
-                                      source src=(gif_src) type="video/mp4";
-                                  }
-                              }
-                          }
-                      }
-                  }
-
-                  @if let Some(ref poll) = display_tweet.poll {
-                      (render_poll(poll, config))
-                  }
-
-                  @if let Some(ref quote) = display_tweet.quote {
-                      (render_quote(quote, config, prefs))
-                  }
-
-                  (render_community_note(display_tweet.note.as_ref(), prefs.hide_community_notes))
-
-                  // Published time for main tweet
-                  @if is_main {
-                      @let has_edits = display_tweet.history.len() > 1;
-                      @let is_latest = has_edits && display_tweet.id == display_tweet.history.iter().copied().max().unwrap_or(0);
-                      @if let Some(time) = display_tweet.time {
-                          p class="tweet-published" {
-                              @if has_edits && is_latest {
-                                  a href=(format!("/{}/status/{}/history", display_tweet.user.username, display_tweet.id)) {
-                                      "Last edited " (formatters::format_tweet_time(time))
-                                  }
-                              } @else {
-                                  (formatters::format_tweet_time(time))
-                              }
-                          }
-                      }
-                      @if has_edits && !is_latest {
-                          @let latest_id = display_tweet.history.iter().copied().max().unwrap_or(0);
-                          div class="latest-post-version" {
-                              "There's a new version of this post. "
-                              a href=(format!("/{}/status/{latest_id}#m", display_tweet.user.username)) {
-                                  "See the latest post"
-                              }
-                          }
-                      }
-                  }
-
-                  @if !display_tweet.media_tags.is_empty() {
-                      div class="media-tag-block" {
-                          (icon("user", "", "", "", ""))
-                          @for (i, user) in display_tweet.media_tags.iter().enumerate() {
-                              a class="media-tag" href=(format!("/{}", user.username)) title=(user.username) {
-                                  (user.fullname)
-                              }
-                              @if i < display_tweet.media_tags.len() - 1 {
-                                  ", "
-                              }
-                          }
-                      }
-                  }
-
-                  @if !prefs.hide_tweet_stats {
-                      (render_stats(&display_tweet.stats, &display_tweet.user.username, display_tweet.id, self.sort_toggle))
-                  } @else if let Some(toggle) = self.sort_toggle {
-                      div class="tweet-stats" { (toggle) }
-                  }
-              }
-          }
+               }
+               if !shown.media_tags.is_empty() {
+                  <div class="media-tag-block">
+                     icon(name: "user")
+                     for (position, user) in shown.media_tags.iter().enumerate() {
+                        if position > 0 {
+                           ", "
+                        }
+                        <a class="media-tag" href=(format!("/{}", user.username)) title=(&user.username)>
+                           (&user.fullname)
+                        </a>
+                     }
+                  </div>
+               }
+               if !prefs.hide_tweet_stats {
+                  tweet_stats(stats: &shown.stats, username: &shown.user.username, id: shown.id, extra: sort_toggle)
+               } else if let Some(toggle) = sort_toggle {
+                  <div class="tweet-stats">(toggle)</div>
+               }
+            </div>
+         </div>
       }
+   })
+}
+
+fn unavailable_text(tweet: &Tweet) -> &str {
+   if !tweet.tombstone.is_empty() {
+      &tweet.tombstone
+   } else if !tweet.text.is_empty() {
+      &tweet.text
+   } else {
+      "This tweet is unavailable"
    }
 }
 
-/// Render photos in attachments gallery with row distribution.
-///
-/// Photos are grouped into rows:
-/// - 1-2 photos: single row
-/// - 3+ photos: distributed into 2 rows (e.g. 3 → [2, 1], 4 → [2, 2])
-fn render_photos(photos: &[Photo], config: &Config) -> Markup {
-   let groups = if photos.len() < 3 {
+#[component]
+async fn translate_button(id: i64) -> Result<impl View> {
+   Ok(view! {
+      <button
+         class="translate-btn"
+         hx-get=(format!("/translate/{id}"))
+         hx-swap="outerHTML"
+         hx-indicator="closest .translate-btn"
+      >
+         "Translate post"
+      </button>
+   })
+}
+
+/// Lay photos out in one row, or two rows once there are three or more.
+#[component]
+async fn photo_gallery(cx: &Cx, photos: &[Photo]) -> Result<impl View> {
+   let config = config(cx);
+   let rows = if photos.len() < 3 {
       vec![photos]
    } else {
-      let mid = photos.len() / 2 + photos.len() % 2;
-      let (top, bottom) = photos.split_at(mid);
+      let (top, bottom) = photos.split_at(photos.len().div_ceil(2));
       vec![top, bottom]
    };
 
-   html! {
-       div class="attachments" {
-           @for (i, group) in groups.iter().enumerate() {
-               @let margin = if i > 0 { "margin-top: .25em" } else { "" };
-               div class="gallery-row" style=(margin) {
-                   @for photo in *group {
-                       @let named = photo.url.contains("name=");
-                       @let small = if named {
-                           formatters::get_pic_url(&photo.url, config.config.base64_media)
-                       } else {
-                           get_small_pic(&photo.url, config)
-                       };
-                       @let orig_url = formatters::get_orig_pic_url(&photo.url, config.config.base64_media);
-                       div class="attachment image" {
-                           a class="still-image" href=(orig_url) target="_blank" {
-                               img src=(small) alt=(photo.alt_text) loading="lazy";
-                           }
-                           @if !photo.alt_text.is_empty() {
-                               p class="alt-text" { "ALT  " (photo.alt_text) }
-                           }
-                       }
-                   }
+   Ok(view! {
+      <div class="attachments">
+         for (row_index, row) in rows.into_iter().enumerate() {
+            <div class="gallery-row" style=((row_index > 0).then_some("margin-top: .25em"))>
+               for photo in row {
+                  let small = if photo.url.contains("name=") {
+                     formatters::get_pic_url(&photo.url, config.config.base64_media)
+                  } else {
+                     get_small_pic(&photo.url, config)
+                  };
+                  <div class="attachment image">
+                     <a
+                        class="still-image"
+                        href=(formatters::get_orig_pic_url(&photo.url, config.config.base64_media))
+                        target="_blank"
+                     >
+                        <img src=(small) alt=(&photo.alt_text) loading="lazy">
+                     </a>
+                     if !photo.alt_text.is_empty() {
+                        <p class="alt-text">"ALT  " (&photo.alt_text)</p>
+                     }
+                  </div>
                }
-           }
-       }
-   }
-}
-
-/// Check if tweet is replying only to self (unless pinned).
-fn is_reply_to_self(tweet: &Tweet, pinned: bool) -> bool {
-   !pinned
-      && tweet.reply.len() == 1
-      && tweet.reply[0].to_lowercase() == tweet.user.username.to_lowercase()
-}
-
-/// Render reply indicator showing who the tweet is replying to.
-/// Uses class "replying-to".
-fn render_reply(tweet: &Tweet) -> Markup {
-   html! {
-       div class="replying-to" {
-           "Replying to "
-           @for (i, username) in tweet.reply.iter().enumerate() {
-               @if i > 0 {
-                   " "
-               }
-               a href=(format!("/{username}")) { "@" (username) }
-           }
-       }
-   }
-}
-
-/// Render a mini avatar image for quote tweets.
-fn render_mini_avatar(user: &User, config: &Config, prefs: &Prefs) -> Markup {
-   let avatar_class = if prefs.square_avatars {
-      "avatar mini"
-   } else {
-      "avatar round mini"
-   };
-   let pic = formatters::get_user_pic(&user.user_pic, "_mini");
-   let pic_url = formatters::get_pic_url(&pic, config.config.base64_media);
-   html! {
-       img src=(pic_url) class=(avatar_class) alt="" loading="lazy";
-   }
-}
-
-/// Render a quote tweet with dedicated structure.
-fn render_quote(quote: &Tweet, config: &Config, prefs: &Prefs) -> Markup {
-   if !quote.available {
-      let has_id = quote.id != 0;
-      let user = if quote.user.username.is_empty() {
-         "i"
-      } else {
-         &quote.user.username
-      };
-      return html! {
-          div class="quote unavailable" {
-              div class="unavailable-quote" {
-                  @if !quote.tombstone.is_empty() {
-                      (quote.tombstone)
-                  } @else if !quote.text.is_empty() {
-                      (quote.text)
-                  } @else {
-                      "This quoted post is unavailable."
-                  }
-                  @if has_id {
-                      div class="unavailable-actions" {
-                          a href=(format!("/{user}/status/{}", quote.id)) { "Try viewing anyway" }
-                          " · "
-                          a href=(format!("https://x.com/{user}/status/{}", quote.id)) { "View on X" }
-                      }
-                  }
-              }
-          }
-      };
-   }
-
-   let quote_link = format!("/{}/status/{}", quote.user.username, quote.id);
-   let text_html = render_tweet_text_html(&quote.text, &quote.entities, "", config);
-
-   html! {
-       div class="quote quote-big" {
-           a class="quote-link" href=(&quote_link) {}
-
-           div class="tweet-name-row" {
-               div class="fullname-and-username" {
-                   (render_mini_avatar(&quote.user, config, prefs))
-                   (link_user(&quote.user, "fullname"))
-                   (verified_icon(&quote.user))
-                   (link_user(&quote.user, "username"))
-                   (render_tweet_account_signal(&quote.user))
-               }
-
-               span class="tweet-date" {
-                   @if let Some(time) = quote.time {
-                       a href=(&quote_link) title=(formatters::format_tweet_time(time)) {
-                           (formatters::format_relative_time(time))
-                       }
-                   }
-               }
-           }
-
-           @if !quote.reply.is_empty() {
-               (render_reply(quote))
-           }
-
-           @if !quote.text.is_empty() {
-               div class="quote-text" dir="auto" {
-                   (PreEscaped(&text_html))
-               }
-
-               @if quote.is_translatable {
-                   button class="translate-btn"
-                       hx-get=(format!("/translate/{}", quote.id))
-                       hx-swap="outerHTML"
-                       hx-indicator="closest .translate-btn" {
-                       "Translate post"
-                   }
-               }
-           }
-
-           @if let Some(ref card) = quote.card {
-               (render_card(card, config, prefs))
-           }
-
-           @if !quote.photos.is_empty() {
-               (render_photos(&quote.photos, config))
-           }
-           @if let Some(ref video) = quote.video {
-               (render_video(video, config, prefs))
-           }
-           @for video in &quote.additional_videos {
-               (render_video(video, config, prefs))
-           }
-           @for gif in &quote.gifs {
-               @let gif_url = formatters::get_vid_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
-               div class="attachments media-gif" {
-                   div class="gallery-gif" style="max-height: unset" {
-                       div class="attachment" {
-                           video autoplay="" loop="" muted="" playsinline="" {
-                               source src=(gif_url) type="video/mp4";
-                           }
-                       }
-                   }
-               }
-           }
-
-           @if let Some(ref poll) = quote.poll {
-               (render_poll(poll, config))
-           }
-
-           // Community note for quoted tweet
-           (render_community_note(quote.note.as_ref(), prefs.hide_community_notes))
-
-           @if quote.has_thread {
-               a class="show-thread" href=(&quote_link) {
-                   "Show this thread"
-               }
-           }
-
-           // "There's a new version of this post" for edited quotes
-           @if quote.history.len() > 1 {
-               @let max_id = quote.history.iter().copied().max().unwrap_or(0);
-               @if quote.id != max_id {
-                   div class="quote-latest" {
-                       "There's a new version of this post"
-                   }
-               }
-           }
-       }
-   }
-}
-
-/// Render poll with options and vote percentages.
-#[expect(
-   clippy::cast_precision_loss,
-   clippy::cast_sign_loss,
-   clippy::cast_possible_truncation,
-   reason = "poll vote counts fit in f64, leader index is always 0-3"
-)]
-fn render_poll(poll: &Poll, config: &Config) -> Markup {
-   let total_votes = poll.votes.max(1); // Avoid division by zero
-   let leader_idx = poll.leader as usize;
-   let percentages = poll
-      .values
-      .iter()
-      .map(|&val| {
-         if val > 0 {
-            val as f64 / total_votes as f64 * 100.0
-         } else {
-            0.0
+            </div>
          }
-      })
-      .collect::<Vec<_>>();
-   let has_images = !poll.choice_images.is_empty();
-
-   html! {
-       div class="poll" {
-           @if has_images {
-               div class="poll-choice-images" {
-                   @for img in &poll.choice_images {
-                       (gen_img(img, "poll-choice-img", config))
-                   }
-               }
-           }
-           @for (idx, option) in poll.options.iter().enumerate() {
-               @let perc = percentages.get(idx).copied().unwrap_or(0.0);
-               @let perc_str = format!("{perc:.0}%");
-               @let is_leader = idx == leader_idx;
-               @let class = if is_leader { "poll-meter leader" } else { "poll-meter" };
-
-               div class=(class) {
-                   span class="poll-choice-bar" style=(format!("width: {perc_str}")) {}
-                   span class="poll-choice-value" { (&perc_str) }
-                   span class="poll-choice-option" { (option) }
-               }
-           }
-
-           span class="poll-info" {
-               (format!("{} votes \u{2022} {}", formatters::format_with_commas(poll.votes), poll.status_text()))
-           }
-       }
-   }
+      </div>
+   })
 }
 
-/// Render card image container.
-fn render_card_image(card: &Card, config: &Config) -> Markup {
-   html! {
-       div class="card-image-container" {
-           div class="card-image" {
-               (gen_img(&card.image, "", config))
-               @if matches!(card.kind, CardKind::Player) {
-                   div class="card-overlay" {
-                       div class="overlay-circle" {
-                           span class="overlay-triangle" {}
-                       }
-                   }
-               }
-           }
-       }
-   }
+/// A tweet stays unlabelled when it only replies to its own author.
+fn is_reply_to_self(tweet: &Tweet, pinned: bool) -> bool {
+   !pinned && tweet.reply.len() == 1 && tweet.reply[0].eq_ignore_ascii_case(&tweet.user.username)
 }
 
-/// Render card content.
-fn render_card_content(card: &Card) -> Markup {
-   html! {
-       div class="card-content" {
-           h2 class="card-title" { (card.title) }
-           @if !card.text.is_empty() {
-               p class="card-description" { (card.text) }
-           }
-           @if card.member_count > 0 && !card.dest.is_empty() {
-               span class="card-destination" {
-                   (format!("{} · {} Members", card.dest, card.member_count))
-               }
-           } @else if !card.dest.is_empty() {
-               span class="card-destination" { (card.dest) }
-           }
-       }
-   }
+#[component]
+async fn replying_to(tweet: &Tweet) -> Result<impl View> {
+   Ok(view! {
+      <div class="replying-to">
+         "Replying to "
+         for (position, username) in tweet.reply.iter().enumerate() {
+            if position > 0 {
+               " "
+            }
+            <a href=(format!("/{username}"))>"@" (username)</a>
+         }
+      </div>
+   })
 }
 
-/// Render card preview for links.
-///
-/// App, Player, Summary, and `StoreLink` use small cards.
-/// All other variants, including `SummaryLarge` and `PromoWebsite`, use large
-/// cards.
-fn render_card(card: &Card, config: &Config, prefs: &Prefs) -> Markup {
-   if matches!(card.kind, CardKind::Hidden | CardKind::Unknown) {
-      return html! {};
-   }
+#[component]
+async fn mini_avatar(cx: &Cx, user: &User, prefs: &Prefs) -> Result<impl View> {
+   let pic = formatters::get_user_pic(&user.user_pic, "_mini");
+   Ok(view! {
+      <img
+         src=(formatters::get_pic_url(&pic, config(cx).config.base64_media))
+         class=(class!("avatar", "round" if !prefs.square_avatars, "mini"))
+         alt=""
+         loading="lazy"
+      >
+   })
+}
 
-   let is_small = matches!(
+#[component]
+async fn gif_player(cx: &Cx, gif: &Gif, autoplay: bool, poster: bool) -> Result<impl View> {
+   let config = config(cx);
+   let src = formatters::get_vid_url(
+      &gif.url,
+      &config.config.hmac_key,
+      config.config.base64_media,
+   );
+   Ok(view! {
+      <div class="attachments media-gif">
+         <div class="gallery-gif" style="max-height: unset">
+            <div class="attachment">
+               if poster {
+                  <video
+                     class="gif"
+                     poster=(get_small_pic(&gif.thumb, config))
+                     autoplay=(autoplay)
+                     controls=""
+                     muted=""
+                     loop=""
+                  >
+                     <source src=(src) type="video/mp4">
+                  </video>
+               } else {
+                  <video autoplay="" loop="" muted="" playsinline="">
+                     <source src=(src) type="video/mp4">
+                  </video>
+               }
+            </div>
+         </div>
+      </div>
+   })
+}
+
+#[component]
+async fn quote_item(cx: &Cx, quote: &Tweet, prefs: &Prefs) -> Result<impl View> {
+   let config = config(cx);
+   let user = if quote.user.username.is_empty() {
+      "i"
+   } else {
+      &quote.user.username
+   };
+   let quote_link = format!("/{}/status/{}", quote.user.username, quote.id);
+   let text_html = tweet_text_html(&quote.text, &quote.entities, "", config);
+   let outdated =
+      quote.history.len() > 1 && quote.id != quote.history.iter().copied().max().unwrap_or(0);
+
+   Ok(view! {
+      if !quote.available {
+         <div class="quote unavailable">
+            <div class="unavailable-quote">
+               if quote.tombstone.is_empty() && quote.text.is_empty() {
+                  "This quoted post is unavailable."
+               } else {
+                  (unavailable_text(quote))
+               }
+               if quote.id != 0 {
+                  <div class="unavailable-actions">
+                     <a href=(format!("/{user}/status/{}", quote.id))>"Try viewing anyway"</a>
+                     " · "
+                     <a href=(format!("https://x.com/{user}/status/{}", quote.id))>"View on X"</a>
+                  </div>
+               }
+            </div>
+         </div>
+      } else {
+         <div class="quote quote-big">
+            <a class="quote-link" href=(&quote_link)></a>
+            <div class="tweet-name-row">
+               <div class="fullname-and-username">
+                  mini_avatar(user: &quote.user, prefs: prefs)
+                  link_user(user: &quote.user, class: "fullname")
+                  verified_icon(user: &quote.user)
+                  link_user(user: &quote.user, class: "username")
+                  account_signal(user: &quote.user)
+               </div>
+               <span class="tweet-date">
+                  if let Some(time) = quote.time {
+                     <a href=(&quote_link) title=(formatters::format_tweet_time(time))>
+                        (formatters::format_relative_time(time))
+                     </a>
+                  }
+               </span>
+            </div>
+            if !quote.reply.is_empty() {
+               replying_to(tweet: quote)
+            }
+            if !quote.text.is_empty() {
+               <div class="quote-text" dir="auto">(trusted(text_html))</div>
+               if quote.is_translatable {
+                  translate_button(id: quote.id)
+               }
+            }
+            if let Some(card) = quote.card.as_ref() {
+               card_preview(card: card, prefs: prefs)
+            }
+            if !quote.photos.is_empty() {
+               photo_gallery(photos: &quote.photos)
+            }
+            for video in quote.video.iter().chain(&quote.additional_videos) {
+               video_player(video: video, prefs: prefs)
+            }
+            for gif in &quote.gifs {
+               gif_player(gif: gif, autoplay: true, poster: false)
+            }
+            if let Some(poll) = quote.poll.as_ref() {
+               poll_result(poll: poll)
+            }
+            community_note(note: quote.note.as_ref(), hidden: prefs.hide_community_notes)
+            if quote.has_thread {
+               <a class="show-thread" href=(&quote_link)>"Show this thread"</a>
+            }
+            if outdated {
+               <div class="quote-latest">"There's a new version of this post"</div>
+            }
+         </div>
+      }
+   })
+}
+
+#[component]
+async fn poll_result(poll: &Poll) -> Result<impl View> {
+   #[expect(clippy::cast_precision_loss, reason = "poll vote counts fit in f64")]
+   let total_votes = poll.votes.max(1) as f64;
+   let leader = usize::try_from(poll.leader).ok();
+   let options = poll
+      .options
+      .iter()
+      .enumerate()
+      .map(move |(position, option)| {
+         #[expect(clippy::cast_precision_loss, reason = "poll vote counts fit in f64")]
+         let votes = poll.values.get(position).copied().unwrap_or(0).max(0) as f64;
+         let percent = format!("{:.0}%", votes / total_votes * 100.0);
+         (option, percent, leader == Some(position))
+      });
+
+   Ok(view! {
+      <div class="poll">
+         if !poll.choice_images.is_empty() {
+            <div class="poll-choice-images">
+               for image in &poll.choice_images {
+                  proxied_image(url: image, class: "poll-choice-img")
+               }
+            </div>
+         }
+         for (option, percent, is_leader) in options {
+            <div class=(class!("poll-meter", "leader" if is_leader))>
+               <span class="poll-choice-bar" style=(format!("width: {percent}"))></span>
+               <span class="poll-choice-value">(&percent)</span>
+               <span class="poll-choice-option">(option)</span>
+            </div>
+         }
+         <span class="poll-info">
+            (formatters::format_with_commas(poll.votes)) " votes \u{2022} " (poll.status_text())
+         </span>
+      </div>
+   })
+}
+
+#[component]
+async fn card_content(card: &Card) -> Result<impl View> {
+   Ok(view! {
+      <div class="card-content">
+         <h2 class="card-title">(&card.title)</h2>
+         if !card.text.is_empty() {
+            <p class="card-description">(&card.text)</p>
+         }
+         if card.member_count > 0 && !card.dest.is_empty() {
+            <span class="card-destination">
+               (format!("{} · {} Members", card.dest, card.member_count))
+            </span>
+         } else if !card.dest.is_empty() {
+            <span class="card-destination">(&card.dest)</span>
+         }
+      </div>
+   })
+}
+
+/// Render a link preview. App, Player, Summary and `StoreLink` cards are
+/// small, every other kind is large.
+#[component]
+async fn card_preview(card: &Card, prefs: &Prefs) -> Result<impl View> {
+   let hidden = matches!(card.kind, CardKind::Hidden | CardKind::Unknown);
+   let large = !matches!(
       card.kind,
       CardKind::App | CardKind::Player | CardKind::Summary | CardKind::StoreLink
    );
-   let large = if is_small { "" } else { " large" };
-   let class = format!("card{large}");
 
-   html! {
-       div class=(class) {
-           @if let Some(ref video) = card.video {
-               div class="card-container" {
-                   (render_video(video, config, prefs))
-                   a class="card-content-container" href=(card.url) {
-                       (render_card_content(card))
-                   }
-               }
-           } @else {
-               a class="card-container" href=(card.url) {
-                   @if !card.image.is_empty() {
-                       (render_card_image(card, config))
-                   }
-                   div class="card-content-container" {
-                       (render_card_content(card))
-                   }
-               }
-           }
-       }
-   }
-}
-
-/// Render user avatar image with proper class from prefs.
-fn render_user_avatar(user: &User, config: &Config, prefs: &Prefs) -> Markup {
-   let avatar_url = formatters::get_pic_url(&user.user_pic, config.config.base64_media);
-   let avatar_class = get_avatar_class(prefs);
-   html! {
-       img src=(avatar_url) class=(avatar_class) alt="" loading="lazy";
-   }
+   Ok(view! {
+      if !hidden {
+         <div class=(class!("card", "large" if large))>
+            if let Some(video) = card.video.as_ref() {
+               <div class="card-container">
+                  video_player(video: video, prefs: prefs)
+                  <a class="card-content-container" href=(&card.url)>
+                     card_content(card: card)
+                  </a>
+               </div>
+            } else {
+               <a class="card-container" href=(&card.url)>
+                  if !card.image.is_empty() {
+                     <div class="card-image-container">
+                        <div class="card-image">
+                           proxied_image(url: &card.image)
+                           if matches!(card.kind, CardKind::Player) {
+                              <div class="card-overlay">
+                                 <div class="overlay-circle">
+                                    <span class="overlay-triangle"></span>
+                                 </div>
+                              </div>
+                           }
+                        </div>
+                     </div>
+                  }
+                  <div class="card-content-container">card_content(card: card)</div>
+               </a>
+            }
+         </div>
+      }
+   })
 }
 
 /// Sticky reminder of the post the visible replies belong to, revealed by
 /// `threadContext.js` once the opening thread scrolls past.
-pub fn render_thread_context(tweet: &Tweet, config: &Config) -> Markup {
-   let display_tweet = tweet.retweet.as_deref().unwrap_or(tweet);
-   if display_tweet.text.trim().is_empty() {
-      return Markup::default();
-   }
+#[component]
+pub async fn thread_context_bar(cx: &Cx, tweet: &Tweet) -> Result<impl View> {
+   let config = config(cx);
+   let shown = tweet.retweet.as_deref().unwrap_or(tweet);
+   let text = strip_html(&tweet_text_html(&shown.text, &shown.entities, "", config));
+   let avatar_url = formatters::get_pic_url(&shown.user.user_pic, config.config.base64_media);
 
-   let text_html = render_tweet_text_html(&display_tweet.text, &display_tweet.entities, "", config);
-   let text = super::layout::strip_html(&text_html);
-   let avatar_url =
-      formatters::get_pic_url(&display_tweet.user.user_pic, config.config.base64_media);
-
-   html! {
-       aside class="thread-context-bar" aria-label="Original post context" {
-           a class="thread-context-link" href="#m" title="Back to the original post" {
-               span class="sr-only" { "Back to the original post: " }
-               img class="thread-context-avatar" src=(avatar_url) alt="" loading="lazy";
-               span class="thread-context-copy" {
-                   strong class="thread-context-author" { (&display_tweet.user.fullname) }
-                   span class="thread-context-text" dir="auto" { (text) }
-               }
-           }
-       }
-   }
+   Ok(view! {
+      if !shown.text.trim().is_empty() {
+         <aside class="thread-context-bar" aria-label="Original post context">
+            <a class="thread-context-link" href="#m" title="Back to the original post">
+               <span class="sr-only">"Back to the original post: "</span>
+               <img class="thread-context-avatar" src=(avatar_url) alt="" loading="lazy">
+               <span class="thread-context-copy">
+                  <strong class="thread-context-author">(&shown.user.fullname)</strong>
+                  <span class="thread-context-text" dir="auto">(text)</span>
+               </span>
+            </a>
+         </aside>
+      }
+   })
 }
 
 /// Inline country marker beside a poster's name, expanding to the same detail
 /// the profile panel shows.
-fn render_tweet_account_signal(user: &User) -> Markup {
-   if user.account_based_in.is_empty() {
-      return Markup::default();
-   }
+#[component]
+async fn account_signal(user: &User) -> Result<impl View> {
    let country = country::display_name(&user.account_based_in);
+   let maybe_proxied = user.location_accurate == Some(false);
 
-   html! {
-       details class="tweet-account-trigger" {
-           summary class="tweet-account-location"
-                   title=(format!("Show X-reported account information: {country}")) {
-               @if let Some(flag) = country::flag(country) {
-                   span class="account-signal-flag" role="img" aria-label=(country) { (flag) }
-               } @else {
-                   span class="icon-location" role="img" aria-label=(country) {}
+   Ok(view! {
+      if !user.account_based_in.is_empty() {
+         <details class="tweet-account-trigger">
+            <summary
+               class="tweet-account-location"
+               title=(format!("Show X-reported account information: {country}"))
+            >
+               if let Some(flag) = country::flag(country) {
+                  <span class="account-signal-flag" role="img" aria-label=(country)>(flag.to_string())</span>
+               } else {
+                  <span class="icon-location" role="img" aria-label=(country)></span>
                }
-               @if user.location_accurate == Some(false) {
-                   span class="tweet-account-warning"
-                        title="X says this location may be affected by a proxy or VPN" { "!" }
+               if maybe_proxied {
+                  <span
+                     class="tweet-account-warning"
+                     title="X says this location may be affected by a proxy or VPN"
+                  >
+                     "!"
+                  </span>
                }
-           }
-           div class="tweet-account-popover" {
-               strong { (country) }
-               @if !user.connection_source.is_empty() {
-                   span { "Connected via " (user.connection_source) }
+            </summary>
+            <div class="tweet-account-popover">
+               <strong>(country)</strong>
+               if !user.connection_source.is_empty() {
+                  <span>"Connected via " (&user.connection_source)</span>
                }
-               @if user.location_accurate == Some(false) {
-                   span class="tweet-account-popover-warning" {
-                       "Location may be affected by a proxy or VPN."
-                   }
+               if maybe_proxied {
+                  <span class="tweet-account-popover-warning">
+                     "Location may be affected by a proxy or VPN."
+                  </span>
                }
-               small { "Account-level information, not a live location or per-post device." }
-           }
-       }
-   }
+               <small>"Account-level information, not a live location or per-post device."</small>
+            </div>
+         </details>
+      }
+   })
 }
 
-/// Render tweet text and location as a single HTML string (for verbatim
-/// output). This avoids wrapping in an extra `<p>` tag. The original version
-/// uses `verbatim` directly inside the content div.
-fn render_tweet_text_html(
-   text: &str,
-   entities: &[Entity],
-   location: &str,
-   config: &Config,
-) -> String {
+/// Expand a tweet's entities and append its location, as trusted HTML.
+fn tweet_text_html(text: &str, entities: &[Entity], location: &str, config: &Config) -> String {
    let processed = if entities.is_empty() {
       expand_with_regex(text)
    } else {
@@ -815,118 +694,116 @@ fn render_tweet_text_html(
    };
 
    let mut result = formatters::replace_urls(&processed, config);
-
    if !location.is_empty() {
-      result.push_str(&render_location_html(location));
+      result.push_str(&location_html(location));
    }
-
    result
 }
 
-/// Render video player.
-///
-/// Structure: `attachments card` > `gallery-video [card-container]` >
-///   `attachment video-container` > video/img + overlay.
-fn render_video(video: &Video, config: &Config, prefs: &Prefs) -> Markup {
+#[component]
+async fn video_player(cx: &Cx, video: &Video, prefs: &Prefs) -> Result<impl View> {
+   let config = config(cx);
    let has_card_content = !video.description.is_empty() || !video.title.is_empty();
-   let container = if has_card_content {
-      " card-container"
-   } else {
-      ""
-   };
-
    let thumb = if video.thumb.is_empty() {
       String::new()
    } else {
       get_small_pic(&video.thumb, config)
    };
+   let mp4_src = video
+      .best_mp4_url()
+      .map(|url| formatters::get_vid_url(url, &config.config.hmac_key, config.config.base64_media));
 
-   let duration = formatters::format_duration(video.duration_ms);
-
-   let playback_enabled = prefs.mp4_playback;
-
-   let mute_videos = prefs.mute_videos;
-
-   html! {
-       div class="attachments card" {
-           div class=(format!("gallery-video{container}")) {
-               div class="attachment video-container" {
-                   @if !video.available {
-                       img src=(thumb) loading="lazy";
-                       div class="video-overlay" {
-                           @if video.reason == "dmcaed" {
-                               p { "This media has been disabled in response to a report by the copyright owner" }
-                           } @else {
-                               p { "This media is unavailable" }
-                           }
-                       }
-                   } @else if !playback_enabled {
-                       // Playback disabled in preferences
-                       img src=(thumb) loading="lazy";
-                       div class="video-overlay" {
-                           (button_referer("/enablemp4", "Enable mp4 playback", "", "", ""))
-                       }
-                   } @else if let Some(mp4_url) = video.best_mp4_url() {
-                       @let video_src = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
-                       video poster=(thumb) controls="" muted=[mute_videos.then_some("")] {
-                           source src=(video_src) type="video/mp4";
-                       }
-                   } @else {
-                       // No MP4 URL available - show thumbnail with duration
-                       img src=(thumb) loading="lazy";
-                       div class="video-overlay" {
-                           div class="overlay-duration" { (duration) }
-                       }
-                   }
+   Ok(view! {
+      <div class="attachments card">
+         <div class=(class!("gallery-video", "card-container" if has_card_content))>
+            <div class="attachment video-container">
+               if !video.available {
+                  <img src=(&thumb) loading="lazy">
+                  <div class="video-overlay">
+                     if video.reason == "dmcaed" {
+                        <p>"This media has been disabled in response to a report by the copyright owner"</p>
+                     } else {
+                        <p>"This media is unavailable"</p>
+                     }
+                  </div>
+               } else if !prefs.mp4_playback {
+                  <img src=(&thumb) loading="lazy">
+                  <div class="video-overlay">
+                     <form method="post" action="/enablemp4">
+                        <button type="submit">"Enable mp4 playback"</button>
+                     </form>
+                  </div>
+               } else if let Some(src) = mp4_src {
+                  <video poster=(&thumb) controls="" muted=(prefs.mute_videos)>
+                     <source src=(src) type="video/mp4">
+                  </video>
+               } else {
+                  <img src=(&thumb) loading="lazy">
+                  <div class="video-overlay">
+                     <div class="overlay-duration">(formatters::format_duration(video.duration_ms))</div>
+                  </div>
                }
-               @if has_card_content {
-                   div class="card-content" {
-                       h2 class="card-title" { (video.title) }
-                       @if !video.description.is_empty() {
-                           p class="card-description" { (video.description) }
-                       }
-                   }
-               }
-           }
-       }
-   }
+            </div>
+            if has_card_content {
+               <div class="card-content">
+                  <h2 class="card-title">(&video.title)</h2>
+                  if !video.description.is_empty() {
+                     <p class="card-description">(&video.description)</p>
+                  }
+               </div>
+            }
+         </div>
+      </div>
+   })
 }
 
-/// Render tweet stats using `icon()` helper from renderutils.
-/// Retweet counts link to the retweeters page. Quote counts link to search.
-/// Optional `extra` markup is appended after the stat icons (used for the
-/// reply-sort toggle on the main tweet).
-fn render_stats(stats: &TweetStats, username: &str, id: i64, extra: Option<&Markup>) -> Markup {
-   let fmt = |n: i64| {
-      if n > 0 {
-         formatters::format_with_commas(n)
+/// Retweet counts link to the retweeters page and quote counts to their
+/// search. `extra` lands after the counts, for the main tweet's reply sort.
+#[component]
+async fn tweet_stats<'a>(
+   stats: &'a TweetStats,
+   username: &'a str,
+   id: i64,
+   extra: Option<Child<'a>>,
+) -> Result<impl View> {
+   let count = |value: i64| {
+      if value > 0 {
+         formatters::format_with_commas(value)
       } else {
          String::new()
       }
    };
-   html! {
-       div class="tweet-stats" {
-           span class="tweet-stat" { (icon("comment", &fmt(stats.replies), "", "", "")) }
-           a class="tweet-stat" href=(format!("/{username}/status/{id}/retweets")) title="Retweets" {
-               (icon("retweet", &fmt(stats.retweets), "", "", ""))
-           }
-           @if stats.quotes > 0 {
-               a class="tweet-stat" href=(format!("/{username}/status/{id}/quotes")) title="Quotes" {
-                   (icon("quote", &fmt(stats.quotes), "", "", ""))
-               }
-           }
-           span class="tweet-stat" { (icon("heart", &fmt(stats.likes), "", "", "")) }
-           span class="tweet-stat" { (icon("views", &fmt(stats.views), "", "", "")) }
-           @if let Some(extra) = extra {
-               (extra)
-           }
-       }
-   }
+
+   let [replies, retweets, quotes, likes, views] = [
+      stats.replies,
+      stats.retweets,
+      stats.quotes,
+      stats.likes,
+      stats.views,
+   ]
+   .map(count);
+
+   Ok(view! {
+      <div class="tweet-stats">
+         <span class="tweet-stat">icon(name: "comment", text: &replies)</span>
+         <a class="tweet-stat" href=(format!("/{username}/status/{id}/retweets")) title="Retweets">
+            icon(name: "retweet", text: &retweets)
+         </a>
+         if stats.quotes > 0 {
+            <a class="tweet-stat" href=(format!("/{username}/status/{id}/quotes")) title="Quotes">
+               icon(name: "quote", text: &quotes)
+            </a>
+         }
+         <span class="tweet-stat">icon(name: "heart", text: &likes)</span>
+         <span class="tweet-stat">icon(name: "views", text: &views)</span>
+         if let Some(extra) = extra {
+            (extra)
+         }
+      </div>
+   })
 }
 
-/// Render tweet location as HTML string (for concatenation with tweet text).
-fn render_location_html(location: &str) -> String {
-   use crate::utils::entity_expander::html_escape;
+fn location_html(location: &str) -> String {
    let (place, url) = parse_location(location);
    let place = html_escape(&place);
    if url.is_empty() {
@@ -937,49 +814,49 @@ fn render_location_html(location: &str) -> String {
    }
 }
 
-/// Render reply chains with thread context and optional "Load more" link.
-/// Shared between AJAX scroll and full-page rendering in status.rs.
-pub fn render_reply_chains(
-   chains: &[Chain],
-   bottom_cursor: &str,
-   username: &str,
-   id: &str,
-   config: &Config,
-   prefs: &Prefs,
-) -> Markup {
-   html! {
-       @for chain in chains {
-           @if !chain.content.is_empty() {
-               div class="reply thread thread-line" {
-                   @let chain_len = chain.content.len();
-                   @let chain_has_more = chain.has_more;
-                   @for (idx, tweet) in chain.content.iter().enumerate() {
-                       @let is_last = idx == chain_len - 1 && !chain_has_more;
-                       @let ctx = thread_context(idx, chain_len, is_last);
-                       (TweetRenderer::new(tweet, config, prefs, false).thread_ctx(ctx).render())
-                   }
-                   @if chain_has_more {
-                       @if let Some(last_in_chain) = chain.content.last() {
-                           div class="timeline-item more-replies" {
-                               @if last_in_chain.available {
-                                   a class="more-replies-text" href=(format!("/{}/status/{}#m", last_in_chain.user.username, last_in_chain.id)) {
-                                       "View more replies"
-                                   }
-                               } @else {
-                                   a class="more-replies-text" { "View more replies" }
-                               }
-                           }
-                       }
-                   }
+/// Render reply chains with thread lines and a "Load more replies" link.
+#[component]
+pub async fn reply_chains<'a>(
+   chains: &'a [Chain],
+   bottom_cursor: &'a str,
+   username: &'a str,
+   id: &'a str,
+   prefs: &'a Prefs,
+) -> Result<impl View> {
+   let chains = chains.iter().filter(|chain| !chain.content.is_empty());
+
+   Ok(view! {
+      for chain in chains {
+         let total = chain.content.len();
+         <div class="reply thread thread-line">
+            for (position, tweet) in chain.content.iter().enumerate() {
+               let is_last = position == total - 1 && !chain.has_more;
+               tweet_item(
+                  tweet: tweet,
+                  prefs: prefs,
+                  thread: thread_context(position, total, is_last),
+               )
+            }
+            if chain.has_more {
+               if let Some(last) = chain.content.last() {
+                  <div class="timeline-item more-replies">
+                     <a
+                        class="more-replies-text"
+                        href=(last.available.then(|| format!("/{}/status/{}#m", last.user.username, last.id)))
+                     >
+                        "View more replies"
+                     </a>
+                  </div>
                }
-           }
-       }
-       @if !bottom_cursor.is_empty() {
-           div class="show-more" {
-               a href=(format!("{}#r", formatters::cursor_url(&format!("/{username}/status/{id}"), bottom_cursor))) {
-                   "Load more replies"
-               }
-           }
-       }
-   }
+            }
+         </div>
+      }
+      if !bottom_cursor.is_empty() {
+         <div class="show-more">
+            <a href=(format!("{}#r", formatters::cursor_url(&format!("/{username}/status/{id}"), bottom_cursor)))>
+               "Load more replies"
+            </a>
+         </div>
+      }
+   })
 }

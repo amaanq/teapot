@@ -1,3 +1,10 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[layout] and view! expansions"
+)]
+
 use std::{
    any::Any,
    collections::BTreeMap,
@@ -12,9 +19,25 @@ use axum::{
       header,
    },
    response::{
-      Html,
       IntoResponse as _,
       Response,
+   },
+};
+use axum_extra::extract::CookieJar;
+use topcoat::{
+   context::{
+      Cx,
+      app_context,
+   },
+   router::{
+      Slot,
+      layout,
+      request::headers,
+   },
+   view::{
+      View,
+      error_boundary,
+      view,
    },
 };
 
@@ -25,12 +48,12 @@ use crate::{
       store::Hit,
       ttl,
    },
-   config::Config,
    error::{
       Error,
       Result,
    },
    types::{
+      prefs::Prefs,
       timeline::{
          Conversation,
          Timeline,
@@ -45,7 +68,10 @@ use crate::{
          User,
       },
    },
-   views::layout,
+   views::document::{
+      document,
+      error_panel,
+   },
 };
 
 #[derive(Clone)]
@@ -365,34 +391,56 @@ pub fn extract_timeline(timeline: Timeline) -> (Vec<Tweets>, Option<String>) {
    (timeline.content, timeline.bottom)
 }
 
-/// Render a failed API request.
+/// The shared app state, registered on the page router's app context.
+pub fn state(cx: &Cx) -> &AppState {
+   app_context::<AppState>(cx)
+}
+
+/// Preferences from this request's cookies, after `?prefs` overrides.
+pub fn request_prefs(cx: &Cx) -> Prefs {
+   Prefs::from_cookies(&CookieJar::from_headers(headers(cx)), &state(cx).config)
+}
+
+pub fn user_agent(cx: &Cx) -> &str {
+   headers(cx)
+      .get(header::USER_AGENT)
+      .and_then(|value| value.to_str().ok())
+      .unwrap_or_default()
+}
+
+/// Turns a failed page into teapot's error page.
 ///
 /// Running out of this caller's budget, running out of the instance's upstream
 /// quota, and an actual fault are three different things to the reader, so they
 /// get distinct statuses and messages rather than one generic error page.
-pub fn api_error(config: &Config, err: &Error) -> Response {
-   api_error_titled(config, err, "Error")
-}
-
-/// [`api_error`] with the title used when the failure has no better one.
-pub fn api_error_titled(config: &Config, err: &Error, generic: &str) -> Response {
-   let (status, title, message) = classify_error(err, generic);
-
-   if status.is_server_error() {
-      tracing::error!(error = ?err, "request failed");
-   } else if status == StatusCode::TOO_MANY_REQUESTS {
-      tracing::debug!(error = ?err, "request refused");
-   }
-
-   let markup = layout::render_error(config, title, message);
-   (status, Html(markup.into_string())).into_response()
-}
-
-fn classify_error<'a>(err: &'a Error, generic: &'a str) -> (StatusCode, &'a str, &'a str) {
-   let (status, title, message) = err.presentation();
-   if status == StatusCode::INTERNAL_SERVER_ERROR {
-      (status, generic, message)
-   } else {
-      (status, title, message)
-   }
+#[layout("/")]
+pub async fn error_layout(cx: &Cx, slot: Slot<'_>) -> topcoat::Result<impl View> {
+   let prefs = request_prefs(cx);
+   Ok(view! {
+      error_boundary(
+         fallback: |error| {
+            let Some(err) = error.downcast_ref::<Error>() else {
+               return Err(error);
+            };
+            let (status, title, message) = err.presentation();
+            if status.is_server_error() {
+               tracing::error!(error = ?err, "request failed");
+            } else if status == StatusCode::TOO_MANY_REQUESTS {
+               tracing::debug!(error = ?err, "request refused");
+            }
+            let title = if status == StatusCode::INTERNAL_SERVER_ERROR { "Error" } else { title };
+            let message = message.to_owned();
+            Ok(view! {
+               (status)
+               document(
+                  title: title,
+                  prefs: &prefs,
+                  description: &message,
+                  error_panel(message: &message)
+               )
+            })
+         },
+         (slot)
+      )
+   })
 }

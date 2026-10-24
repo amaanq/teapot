@@ -1,3 +1,17 @@
+use std::sync::Arc;
+
+use topcoat::{
+   context::{
+      Cx,
+      CxTestBuilder,
+   },
+   view::{
+      BoxView,
+      ViewExt as _,
+      view,
+   },
+};
+
 use super::*;
 use crate::{
    api::schema::{
@@ -21,11 +35,24 @@ use crate::{
       },
       user::User,
    },
-   views::embed_activity::{
-      build_activity_pub,
-      build_activity_pub_with_reply,
+   views::{
+      embed_activity::{
+         build_activity_pub,
+         build_activity_pub_with_reply,
+      },
+      tweet::tweet_item,
    },
 };
+
+fn test_cx() -> Cx {
+   CxTestBuilder::new()
+      .app_context(Arc::new(test_config()))
+      .build()
+}
+
+async fn render(cx: &Cx, view: BoxView<'_>) -> String {
+   view.first().await.unwrap().render(cx)
+}
 
 fn test_config() -> Config {
    Config {
@@ -114,9 +141,15 @@ fn quoted_video_tweet() -> Tweet {
    outer
 }
 
-#[test]
-fn quoted_video_player_uses_quote_tweet_id() {
-   let html = render_tweet_embed(&quoted_video_tweet(), &test_config(), false).into_string();
+#[tokio::test]
+async fn quoted_video_player_uses_quote_tweet_id() {
+   let cx = &test_cx();
+   let tweet = quoted_video_tweet();
+   let html = render(
+      cx,
+      view! { cx => tweet_embed(tweet: &tweet, discord_activity: false) }.boxed(),
+   )
+   .await;
 
    assert!(
       html.contains(r#"name="twitter:player" content="https://teapot.test/i/videos/tweet/200""#)
@@ -128,12 +161,13 @@ fn quoted_video_player_uses_quote_tweet_id() {
    assert!(html.contains("/enc/"));
 }
 
-#[test]
-fn video_embed_uses_signed_proxy_for_quoted_video() {
+#[tokio::test]
+async fn video_embed_uses_signed_proxy_for_quoted_video() {
+   let cx = &test_cx();
    let tweet = quoted_video_tweet();
-   let html = render_video_embed(&tweet, &test_config()).into_string();
-
    assert!(has_playable_video(&tweet));
+   let html = render(cx, view! { cx => video_embed(tweet: &tweet) }.boxed()).await;
+
    assert!(html.contains(r#"poster="/pic/enc/"#));
    assert!(html.contains(r#"<source src="/video/"#));
    assert!(html.contains(r#"name="twitter:player:stream" content="https://teapot.test/video/"#));
@@ -290,8 +324,10 @@ fn activity_payload_renders_audio_space_preview() {
       ));
 }
 
-#[test]
-fn activity_payload_renders_live_broadcast_preview() {
+#[tokio::test]
+async fn activity_payload_renders_live_broadcast_preview() {
+   let cx = &test_cx();
+   let prefs = Prefs::default();
    let mut status = tweet(406, "tbpn", "Going live");
    status.card = Some(Card {
       kind: CardKind::Broadcast,
@@ -304,16 +340,19 @@ fn activity_payload_renders_live_broadcast_preview() {
    });
 
    let activity = build_activity_pub(&status, &test_config());
-   let html = render_status_page(
-      &status,
-      &html! {},
-      &Prefs::default(),
-      &test_config(),
-      "tbpn",
-      "406",
-      Some(ActivityId::new(406, None)),
+   let page_tweet = &status;
+   let html = render(
+      cx,
+      view! { cx => status_page(
+         tweet: page_tweet,
+         prefs: &prefs,
+         username: "tbpn",
+         id: "406",
+         activity: Some(ActivityId::new(406, None)),
+      ) }
+      .boxed(),
    )
-   .into_string();
+   .await;
    let image_url = format!(
       "https://teapot.test{}",
       formatters::get_pic_url("https://video.pscp.tv/latest.jpg", true)
@@ -370,15 +409,20 @@ fn activity_payload_renders_live_broadcast_preview() {
    );
 }
 
-#[test]
-fn oembed_footer_renders_content_disclosures() {
+#[tokio::test]
+async fn oembed_footer_renders_content_disclosures() {
+   let cx = &test_cx();
    let mut status = tweet(405, "creator", "Generated campaign artwork");
    status.paid_promotion = true;
    status.ai_generated = true;
 
    let oembed_url = build_oembed_url(&status, &test_config());
-   let html = render_tweet_embed(&status, &test_config(), true).into_string();
    let activity = build_activity_pub(&status, &test_config());
+   let html = render(
+      cx,
+      view! { cx => tweet_embed(tweet: &status, discord_activity: true) }.boxed(),
+   )
+   .await;
 
    assert!(oembed_url.contains(&format!(
       "&provider={}",
@@ -535,18 +579,21 @@ fn multiple_gifs_survive_parsing_in_order() {
    }
 }
 
-#[test]
-fn posts_and_quotes_render_every_gif() {
+#[tokio::test]
+async fn posts_and_quotes_render_every_gif() {
+   let cx = &test_cx();
+   let prefs = &Prefs::default();
    let status = four_gif_tweet();
    let mut outer = tweet(408, "outer", "quoted GIFs");
    outer.quote = Some(Box::new(status.clone()));
    let config = test_config();
    for post in [&status, &outer] {
       for is_main in [false, true] {
-         let rendered =
-            crate::views::tweet::TweetRenderer::new(post, &config, &Prefs::default(), is_main)
-               .render()
-               .into_string();
+         let rendered = render(
+            cx,
+            view! { cx => tweet_item(tweet: post, prefs: prefs, main: is_main) }.boxed(),
+         )
+         .await;
          assert_eq!(rendered.matches("<video ").count(), 4);
          let mut remaining = rendered.as_str();
          for gif in &status.gifs {
@@ -589,11 +636,16 @@ fn activity_payload_preserves_every_gif_in_all_transcoding_modes() {
    }
 }
 
-#[test]
-fn player_oembed_duplicates_engagement_in_provider() {
+#[tokio::test]
+async fn player_oembed_duplicates_engagement_in_provider() {
+   let cx = &test_cx();
    let mut tweet = quoted_video_tweet();
    tweet.stats.views = 1_200;
-   let html = render_tweet_embed(&tweet, &test_config(), true).into_string();
+   let html = render(
+      cx,
+      view! { cx => tweet_embed(tweet: &tweet, discord_activity: true) }.boxed(),
+   )
+   .await;
 
    assert!(html.contains("&amp;provider="));
    assert!(html.contains(r#"property="twitter:card" content="player""#));
@@ -678,19 +730,23 @@ fn activity_pub_links_to_additional_videos() {
    ));
 }
 
-#[test]
-fn status_page_uses_author_first_embed_metadata() {
+#[tokio::test]
+async fn status_page_uses_author_first_embed_metadata() {
+   let cx = &test_cx();
+   let prefs = Prefs::default();
    let tweet = tweet(400, "G2CSGO", "Trying hard to win/lose/something");
-   let html = render_status_page(
-      &tweet,
-      &html! {},
-      &Prefs::default(),
-      &test_config(),
-      "G2CSGO",
-      "400",
-      None,
+   let html = render(
+      cx,
+      view! { cx => status_page(
+         tweet: &tweet,
+         prefs: &prefs,
+         username: "G2CSGO",
+         id: "400",
+         activity: None,
+      ) }
+      .boxed(),
    )
-   .into_string();
+   .await;
 
    assert!(!html.contains(
          r#"property="og:title" content="G2CSGO (@G2CSGO): &quot;Trying hard to win/lose/something&quot;""#
@@ -708,8 +764,10 @@ fn status_page_uses_author_first_embed_metadata() {
    );
 }
 
-#[test]
-fn discord_activity_page_defers_photo_media_to_mastodon_api() {
+#[tokio::test]
+async fn discord_activity_page_defers_photo_media_to_mastodon_api() {
+   let cx = &test_cx();
+   let prefs = Prefs::default();
    let mut tweet = tweet(401, "photos", "photo text");
    tweet.time = jiff::Timestamp::from_second(1).ok();
    tweet.photos.push(Photo {
@@ -719,16 +777,18 @@ fn discord_activity_page_defers_photo_media_to_mastodon_api() {
       ..Photo::default()
    });
 
-   let html = render_status_page(
-      &tweet,
-      &html! {},
-      &Prefs::default(),
-      &test_config(),
-      "photos",
-      "401",
-      Some(ActivityId::new(401, None)),
+   let html = render(
+      cx,
+      view! { cx => status_page(
+         tweet: &tweet,
+         prefs: &prefs,
+         username: "photos",
+         id: "401",
+         activity: Some(ActivityId::new(401, None)),
+      ) }
+      .boxed(),
    )
-   .into_string();
+   .await;
 
    assert!(html.contains(r##"property="theme-color" content="#005ace""##));
    assert!(html.contains(r##"rel="mask-icon" href="/safari-pinned-tab.svg" color="#005ace""##));
@@ -740,27 +800,33 @@ fn discord_activity_page_defers_photo_media_to_mastodon_api() {
    assert!(!html.contains("article:published_time"));
 }
 
-#[test]
-fn discord_activity_page_uses_avatar_for_text_only_status() {
+#[tokio::test]
+async fn discord_activity_page_uses_avatar_for_text_only_status() {
+   let cx = &test_cx();
+   let prefs = Prefs::default();
    let tweet = tweet(402, "plain", "plain text");
-   let html = render_status_page(
-      &tweet,
-      &html! {},
-      &Prefs::default(),
-      &test_config(),
-      "plain",
-      "402",
-      Some(ActivityId::new(402, None)),
+   let html = render(
+      cx,
+      view! { cx => status_page(
+         tweet: &tweet,
+         prefs: &prefs,
+         username: "plain",
+         id: "402",
+         activity: Some(ActivityId::new(402, None)),
+      ) }
+      .boxed(),
    )
-   .into_string();
+   .await;
 
    assert!(html.contains(r#"property="og:image" content="https://teapot.test/pic/enc/"#));
    assert!(html.contains(r#"property="twitter:image" content="0""#));
    assert!(html.contains(r#"property="twitter:card" content="summary""#));
 }
 
-#[test]
-fn generic_photo_metadata_includes_real_dimensions() {
+#[tokio::test]
+async fn generic_photo_metadata_includes_real_dimensions() {
+   let cx = &test_cx();
+   let prefs = Prefs::default();
    let mut tweet = tweet(403, "photos", "photo text");
    tweet.photos.push(Photo {
       url: "https://pbs.twimg.com/media/photo.jpg".to_owned(),
@@ -769,16 +835,18 @@ fn generic_photo_metadata_includes_real_dimensions() {
       ..Photo::default()
    });
 
-   let html = render_status_page(
-      &tweet,
-      &html! {},
-      &Prefs::default(),
-      &test_config(),
-      "photos",
-      "403",
-      None,
+   let html = render(
+      cx,
+      view! { cx => status_page(
+         tweet: &tweet,
+         prefs: &prefs,
+         username: "photos",
+         id: "403",
+         activity: None,
+      ) }
+      .boxed(),
    )
-   .into_string();
+   .await;
 
    assert!(html.contains(r#"property="og:image:width" content="2048""#));
    assert!(html.contains(r#"property="og:image:height" content="1536""#));

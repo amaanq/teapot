@@ -35,7 +35,6 @@ hyper-rustls = {
 hyper-util = { features = [ "client-legacy", "http1", "tokio" ], version = "0.1.20" }
 indexmap = "2.14.0"
 jiff = { default-features = false, features = [ "serde", "std" ], version = "0.2.38" }
-maud = { features = [ "axum" ], version = "0.27.0" }
 misstep = { features = [ "location", "pretty" ], version = "0.4.1" }
 percent-encoding = "2.3.2"
 regex = "1.13.1"

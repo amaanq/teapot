@@ -1,21 +1,26 @@
-use maud::{
-   Markup,
-   PreEscaped,
-   html,
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[component] and view! expansions"
+)]
+
+use topcoat::{
+   Result,
+   context::Cx,
+   view::{
+      Child,
+      View,
+      class,
+      component,
+      view,
+   },
 };
 
-use super::timeline::{
-   render_timeline,
-   render_timeline_tabs,
-};
 use crate::{
-   config::Config,
    types::{
       prefs::Prefs,
-      timeline::{
-         Profile,
-         TimelineKind,
-      },
+      timeline::TimelineKind,
       tweet::GalleryPhoto,
       user::User,
    },
@@ -26,154 +31,90 @@ use crate::{
       },
       formatters,
    },
-   views::renderutils::{
-      gen_img,
-      get_avatar_class,
-      icon,
-      link_user,
-      parse_location,
-      render_bio_html,
-      short_link,
-      verified_icon,
+   views::{
+      renderutils::{
+         config,
+         get_avatar_class,
+         icon,
+         link_user,
+         parse_location,
+         proxied_image,
+         render_bio_html,
+         short_link,
+         trusted,
+         verified_icon,
+      },
+      timeline::timeline_tabs,
    },
 };
 
-/// Render a user profile page.
-#[expect(
-   clippy::module_name_repetitions,
-   reason = "render_profile is the canonical name"
-)]
-pub fn render_profile(
-   profile: &Profile,
-   config: &Config,
-   timeline_kind: TimelineKind,
-   prefs: &Prefs,
-   newer_url: Option<&str>,
-) -> Markup {
-   let groups = &profile.tweets.content;
-   let cursor = profile.tweets.bottom.as_deref();
-   let base_url = format!("/{}", profile.user.username);
-
-   let pinned = if timeline_kind == TimelineKind::Tweets {
-      profile.pinned.as_ref()
-   } else {
-      None
-   };
-
-   let hide_banner = prefs.hide_banner;
-   let sticky = prefs.sticky_profile;
-   let profile_tab_class = if sticky {
-      "profile-tab sticky"
-   } else {
-      "profile-tab"
-   };
-
-   html! {
-       div class="profile-tabs" {
-           div class=(profile_tab_class) {
-               div class="profile-header" {
-                   @if !hide_banner {
-                       div class="profile-banner" {
-                           (render_banner(&profile.user.banner, config))
-                       }
-                   }
-                   (render_user_card(&profile.user, config, prefs))
-               }
-
-               @if !profile.photo_rail.is_empty() {
-                   (render_photo_rail(&profile.photo_rail, &profile.user, config))
-               }
-           }
-
-           @if profile.user.suspended {
-               div class="timeline-container" {
-                   div class="timeline-header" {
-                       h2 { "@" (profile.user.username) " is suspended" }
-                       p { "X has suspended this account, so its posts are not available here." }
-                   }
-               }
-           } @else if profile.user.protected {
-               div class="timeline-container" {
-                   div class="timeline-header timeline-protected" {
-                       h2 { "@" (profile.user.username) " is protected" }
-                       p { "Only followers this account has approved can see its posts." }
-                   }
-               }
-           } @else {
-               div class="timeline-container" {
-                   (render_timeline_tabs(timeline_kind, &profile.user.username))
-                   (render_timeline(groups, config, cursor, Some(&base_url), pinned, prefs, newer_url))
-               }
-           }
-       }
-   }
-}
-
-/// Render the full profile wrapper (banner + sidebar + photo rail) with custom
-/// timeline content. Used by sub-tab routes (`with_replies`, media, search)
-/// that fetch their own timeline data but need the same profile chrome as the
-/// main Tweets tab.
-pub fn render_profile_page(
-   user: &User,
-   photo_rail: &[GalleryPhoto],
-   config: &Config,
-   prefs: &Prefs,
+/// Profile chrome (banner, card, photo rail and tabs) around a timeline.
+/// Suspended and protected accounts get a notice in place of the timeline.
+#[component]
+pub async fn profile_page<'a>(
+   cx: &Cx,
+   user: &'a User,
+   photo_rail: &'a [GalleryPhoto],
+   prefs: &'a Prefs,
    tab: TimelineKind,
-   timeline_content: &Markup,
-) -> Markup {
-   let hide_banner = prefs.hide_banner;
-   let sticky = prefs.sticky_profile;
-   let profile_tab_class = if sticky {
-      "profile-tab sticky"
-   } else {
-      "profile-tab"
-   };
+   #[default] child: Child<'a>,
+) -> Result<impl View> {
+   let config = config(cx);
+   let banner = &user.banner;
 
-   html! {
-       div class="profile-tabs" {
-           div class=(profile_tab_class) {
-               div class="profile-header" {
-                   @if !hide_banner {
-                       div class="profile-banner" {
-                           (render_banner(&user.banner, config))
-                       }
-                   }
-                   (render_user_card(user, config, prefs))
+   Ok(view! {
+      <div class="profile-tabs">
+         <div class=(class!("profile-tab", "sticky" if prefs.sticky_profile))>
+            <div class="profile-header">
+               if !prefs.hide_banner {
+                  <div class="profile-banner">
+                     if banner.is_empty() {
+                        <a></a>
+                     } else if banner.starts_with('#') {
+                        <a style=(format!("background-color: {banner}"))></a>
+                     } else {
+                        <a href=(formatters::get_pic_url(banner, config.config.base64_media)) target="_blank">
+                           proxied_image(url: banner)
+                        </a>
+                     }
+                  </div>
                }
-
-               @if !photo_rail.is_empty() {
-                   (render_photo_rail(photo_rail, user, config))
-               }
-           }
-
-           div class="timeline-container" {
-               (render_timeline_tabs(tab, &user.username))
-               (timeline_content)
-           }
-       }
-   }
+               user_card(user: user, prefs: prefs)
+            </div>
+            if !photo_rail.is_empty() {
+               photo_rail_card(photos: photo_rail, user: user)
+            }
+         </div>
+         if user.suspended {
+            <div class="timeline-container">
+               <div class="timeline-header">
+                  <h2>"@" (&user.username) " is suspended"</h2>
+                  <p>"X has suspended this account, so its posts are not available here."</p>
+               </div>
+            </div>
+         } else if user.protected {
+            <div class="timeline-container">
+               <div class="timeline-header timeline-protected">
+                  <h2>"@" (&user.username) " is protected"</h2>
+                  <p>"Only followers this account has approved can see its posts."</p>
+               </div>
+            </div>
+         } else {
+            <div class="timeline-container">
+               timeline_tabs(active: tab, username: &user.username)
+               (child)
+            </div>
+         }
+      </div>
+   })
 }
 
-/// Render a single profile stat.
-fn render_stat(num: i64, class: &str, text: &str) -> Markup {
-   let display_text = if text.is_empty() {
-      let mut chars = class.chars();
-      chars.next().map_or_else(String::new, |ch| {
-         format!("{}{}", ch.to_uppercase(), chars.as_str())
-      })
-   } else {
-      text.to_owned()
-   };
-
-   html! {
-       li class=(class) {
-           span class="profile-stat-header" { (display_text) }
-           span class="profile-stat-num" title=(formatters::format_with_commas(num)) {
-               (compact_profile_stat(num))
-           }
-       }
-   }
-}
+const PROFILE_STATS: [(&str, &str); 4] = [
+   ("posts", "Tweets"),
+   ("following", "Following"),
+   ("followers", "Followers"),
+   ("likes", "Likes"),
+];
 
 /// Abbreviate a stat so the sidebar columns stay aligned. The exact figure
 /// stays reachable through the element's title.
@@ -201,210 +142,215 @@ fn compact_profile_stat(num: i64) -> String {
 }
 
 /// X's "About this account" panel, collapsed behind the country it reports.
-fn render_account_context(user: &User) -> Markup {
-   if user.account_based_in.is_empty() && user.connection_source.is_empty() {
-      return Markup::default();
-   }
+#[component]
+async fn account_context(user: &User) -> Result<impl View> {
    let country = country_display_name(&user.account_based_in);
+   let maybe_proxied = user.location_accurate == Some(false);
 
-   html! {
-       details class="account-context-trigger" {
-           summary class="account-signal" title="Show X-reported account information" {
-               @if let Some(flag) = country_flag(country) {
-                   span class="account-signal-flag" role="img" aria-label=(country) { (flag) }
-               } @else {
-                   span class="icon-location" role="img"
-                        aria-label=(if country.is_empty() { "Account information" } else { country }) {}
+   Ok(view! {
+      if !user.account_based_in.is_empty() || !user.connection_source.is_empty() {
+         <details class="account-context-trigger">
+            <summary class="account-signal" title="Show X-reported account information">
+               if let Some(flag) = country_flag(country) {
+                  <span class="account-signal-flag" role="img" aria-label=(country)>(flag.to_string())</span>
+               } else {
+                  <span
+                     class="icon-location"
+                     role="img"
+                     aria-label=(if country.is_empty() { "Account information" } else { country })
+                  ></span>
                }
-               span class="sr-only" { "Account based in" }
-               @if user.location_accurate == Some(false) {
-                   span class="account-signal-warning"
-                        title="X says this location may be affected by a proxy or VPN" { "!" }
+               <span class="sr-only">"Account based in"</span>
+               if maybe_proxied {
+                  <span
+                     class="account-signal-warning"
+                     title="X says this location may be affected by a proxy or VPN"
+                  >
+                     "!"
+                  </span>
                }
-           }
-           section class="account-context" aria-label="About this account" {
-               div class="account-context-header" {
-                   div { h3 { "About this account" } }
-                   span class="account-context-mark" aria-hidden="true" { "i" }
+            </summary>
+            <section class="account-context" aria-label="About this account">
+               <div class="account-context-header">
+                  <div><h3>"About this account"</h3></div>
+                  <span class="account-context-mark" aria-hidden="true">"i"</span>
+               </div>
+               <dl>
+                  if !user.account_based_in.is_empty() {
+                     <div class="account-context-row">
+                        <dt>"Account based in"</dt>
+                        <dd>(country)</dd>
+                     </div>
+                  }
+                  if !user.connection_source.is_empty() {
+                     <div class="account-context-row">
+                        <dt>"Connected via"</dt>
+                        <dd>(&user.connection_source)</dd>
+                     </div>
+                  }
+               </dl>
+               if maybe_proxied {
+                  <p class="account-context-warning">
+                     <span aria-hidden="true">"!"</span>
+                     " X says this location may be affected by a proxy or VPN."
+                  </p>
                }
-               dl {
-                   @if !user.account_based_in.is_empty() {
-                       div class="account-context-row" {
-                           dt { "Account based in" }
-                           dd { (country) }
-                       }
-                   }
-                   @if !user.connection_source.is_empty() {
-                       div class="account-context-row" {
-                           dt { "Connected via" }
-                           dd { (user.connection_source) }
-                       }
-                   }
-               }
-               @if user.location_accurate == Some(false) {
-                   p class="account-context-warning" {
-                       span aria-hidden="true" { "!" }
-                       " X says this location may be affected by a proxy or VPN."
-                   }
-               }
-               p class="account-context-note" {
-                   "Account-level information from X, not a live location or the device used "
-                   "for a specific post."
-               }
-           }
-       }
-   }
+               <p class="account-context-note">
+                  "Account-level information from X, not a live location or the device used "
+                  "for a specific post."
+               </p>
+            </section>
+         </details>
+      }
+   })
 }
 
 /// Render user card.
-fn render_user_card(user: &User, config: &Config, prefs: &Prefs) -> Markup {
-   let avatar_class = get_avatar_class(prefs);
+#[component]
+async fn user_card(cx: &Cx, user: &User, prefs: &Prefs) -> Result<impl View> {
+   let config = config(cx);
 
    // Use _400x400 suffix for avatar, unless it's a gif and autoplay is on.
    // get_user_pic strips any existing size suffix (_normal, _400x400, etc.)
    // and inserts the new one.
-   let autoplay_gifs = prefs.autoplay_gifs;
    let avatar_pic = if user.user_pic.is_empty() {
       String::new()
-   } else if autoplay_gifs && user.user_pic.ends_with("gif") {
+   } else if prefs.autoplay_gifs && user.user_pic.ends_with("gif") {
       formatters::get_user_pic(&user.user_pic, "")
    } else {
       formatters::get_user_pic(&user.user_pic, "_400x400")
    };
-
-   let orig_avatar_url = formatters::get_pic_url(&user.user_pic, config.config.base64_media);
-
-   let bio_html = render_bio_html(&user.bio, config);
-
-   html! {
-       div class="profile-card" {
-           a class="profile-card-avatar" href=(orig_avatar_url) target="_blank" {
-               (gen_img(&avatar_pic, avatar_class, config))
-           }
-
-           div class="profile-card-identity" {
-               div {
-                   (link_user(user, "profile-card-fullname"))
-                   " "
-                   (verified_icon(user))
-               }
-               (link_user(user, "profile-card-username"))
-               (render_account_context(user))
-           }
-
-           div class="profile-card-extra" {
-               @if !user.bio.is_empty() {
-                   div class="profile-bio" {
-                       p dir="auto" { (PreEscaped(&bio_html)) }
-                   }
-               }
-
-               @if !user.location.is_empty() {
-                   div class="profile-location" {
-                       span { (icon("location", "", "", "", "")) }
-                       " "
-                       @let (place, url) = parse_location(&user.location);
-                       @let display_place = if place.chars().count() > 40 {
-                           format!("{}…", place.chars().take(40).collect::<String>())
-                       } else {
-                           place.clone()
-                       };
-                       @if !url.is_empty() {
-                           a href=(url) title=(place) { (display_place) }
-                       } @else if place.contains("://") {
-                           a href=(place) title=(place) { (display_place) }
-                       } @else {
-                           span title=(place) { (display_place) }
-                       }
-                   }
-               }
-
-               @if !user.website.is_empty() {
-                   div class="profile-website" {
-                       span {
-                           @let url = formatters::replace_urls(&user.website, config);
-                           (icon("link", "", "", "", ""))
-                           " "
-                           a rel="me" href=(url) { (short_link(&url)) }
-                       }
-                   }
-               }
-
-               @if let Some(join_date) = user.join_date {
-                   @let full_date = join_date.strftime("%-I:%M %p - %-d %b %Y").to_string();
-                   @let short_date = formatters::format_join_date(join_date);
-                   div class="profile-joindate" {
-                       span title=(full_date) {
-                           (icon("calendar", &short_date, "", "", ""))
-                       }
-                   }
-               }
-
-               div class="profile-card-extra-links" {
-                   ul class="profile-statlist" {
-                       (render_stat(user.tweets, "posts", "Tweets"))
-                       (render_stat(user.following, "following", ""))
-                       (render_stat(user.followers, "followers", ""))
-                       (render_stat(user.likes, "likes", ""))
-                   }
-               }
-           }
-       }
-   }
-}
-
-/// Render banner.
-fn render_banner(banner: &str, config: &Config) -> Markup {
-   if banner.is_empty() {
-      html! { a {} }
-   } else if banner.starts_with('#') {
-      html! { a style=(format!("background-color: {banner}")) {} }
+   let (place, place_url) = parse_location(&user.location);
+   let short_place = if place.chars().count() > 40 {
+      format!("{}…", place.chars().take(40).collect::<String>())
    } else {
-      html! {
-          a href=(formatters::get_pic_url(banner, config.config.base64_media)) target="_blank" {
-              (gen_img(banner, "", config))
-          }
-      }
-   }
+      place.clone()
+   };
+   let place_href = if !place_url.is_empty() {
+      Some(place_url)
+   } else if place.contains("://") {
+      Some(place.clone())
+   } else {
+      None
+   };
+   let website = formatters::replace_urls(&user.website, config);
+   let join_date = user.join_date.map(|date| {
+      (
+         date.strftime("%-I:%M %p - %-d %b %Y").to_string(),
+         formatters::format_join_date(date),
+      )
+   });
+   let stats = [user.tweets, user.following, user.followers, user.likes];
+
+   Ok(view! {
+      <div class="profile-card">
+         <a
+            class="profile-card-avatar"
+            href=(formatters::get_pic_url(&user.user_pic, config.config.base64_media))
+            target="_blank"
+         >
+            proxied_image(url: &avatar_pic, class: get_avatar_class(prefs))
+         </a>
+         <div class="profile-card-identity">
+            <div>
+               link_user(user: user, class: "profile-card-fullname")
+               " "
+               verified_icon(user: user)
+            </div>
+            link_user(user: user, class: "profile-card-username")
+            account_context(user: user)
+         </div>
+         <div class="profile-card-extra">
+            if !user.bio.is_empty() {
+               <div class="profile-bio">
+                  <p dir="auto">(trusted(render_bio_html(&user.bio, config)))</p>
+               </div>
+            }
+            if !user.location.is_empty() {
+               <div class="profile-location">
+                  <span>icon(name: "location")</span>
+                  " "
+                  if let Some(href) = place_href {
+                     <a href=(href) title=(&place)>(short_place)</a>
+                  } else {
+                     <span title=(&place)>(short_place)</span>
+                  }
+               </div>
+            }
+            if !user.website.is_empty() {
+               <div class="profile-website">
+                  <span>
+                     icon(name: "link")
+                     " "
+                     <a rel="me" href=(&website)>(short_link(&website))</a>
+                  </span>
+               </div>
+            }
+            if let Some((full_date, short_date)) = join_date {
+               <div class="profile-joindate">
+                  <span title=(full_date)>icon(name: "calendar", text: &short_date)</span>
+               </div>
+            }
+            <div class="profile-card-extra-links">
+               <ul class="profile-statlist">
+                  for ((class, label), num) in PROFILE_STATS.into_iter().zip(stats) {
+                     <li class=(class)>
+                        <span class="profile-stat-header">(label)</span>
+                        <span class="profile-stat-num" title=(formatters::format_with_commas(num))>
+                           (compact_profile_stat(num))
+                        </span>
+                     </li>
+                  }
+               </ul>
+            </div>
+         </div>
+      </div>
+   })
 }
 
 /// Render photo rail showing recent media.
-fn render_photo_rail(photos: &[GalleryPhoto], user: &User, config: &Config) -> Markup {
+#[component]
+async fn photo_rail_card(photos: &[GalleryPhoto], user: &User) -> Result<impl View> {
    let count = compact_profile_stat(user.media);
    let exact_count = formatters::format_with_commas(user.media);
+   let thumbs = photos.iter().take(15).map(|photo| {
+      let suffix = if photo.url.contains("format") || photo.url.contains("placeholder") {
+         ""
+      } else {
+         ":thumb"
+      };
+      (&photo.tweet_id, format!("{}{suffix}", photo.url))
+   });
 
-   html! {
-       div class="photo-rail-card" {
-           div class="photo-rail-header" {
-               a href=(format!("/{}/media", user.username)) {
-                   span class="photo-rail-icon-wrap" {
-                       span class="icon-picture photo-rail-media-icon" aria-hidden="true" {}
-                       span class="photo-rail-media-badge" title=(exact_count) { (&count) }
-                   }
-                   span class="photo-rail-media-label" { "Media" }
-               }
-           }
-
-           input id="photo-rail-grid-toggle" type="checkbox";
-           label for="photo-rail-grid-toggle" class="photo-rail-header-mobile" {
-               div class="photo-rail-header-mobile-inner" {
-                   span class="photo-rail-icon-wrap" {
-                       span class="icon-picture photo-rail-media-icon" aria-hidden="true" {}
-                       span class="photo-rail-media-badge" title=(exact_count) { (&count) }
-                   }
-                   span { "Media" }
-               }
-               (icon("down", "", "", "", ""))
-           }
-
-           div class="photo-rail-grid" {
-               @for photo in photos.iter().take(15) {
-                   @let photo_suffix = if photo.url.contains("format") || photo.url.contains("placeholder") { "" } else { ":thumb" };
-                   a href=(format!("/{}/status/{}#m", user.username, photo.tweet_id)) {
-                       (gen_img(&format!("{}{}", photo.url, photo_suffix), "", config))
-                   }
-               }
-           }
-       }
-   }
+   Ok(view! {
+      <div class="photo-rail-card">
+         <div class="photo-rail-header">
+            <a href=(format!("/{}/media", user.username))>
+               <span class="photo-rail-icon-wrap">
+                  <span class="icon-picture photo-rail-media-icon" aria-hidden="true"></span>
+                  <span class="photo-rail-media-badge" title=(&exact_count)>(&count)</span>
+               </span>
+               <span class="photo-rail-media-label">"Media"</span>
+            </a>
+         </div>
+         <input id="photo-rail-grid-toggle" type="checkbox">
+         <label for="photo-rail-grid-toggle" class="photo-rail-header-mobile">
+            <div class="photo-rail-header-mobile-inner">
+               <span class="photo-rail-icon-wrap">
+                  <span class="icon-picture photo-rail-media-icon" aria-hidden="true"></span>
+                  <span class="photo-rail-media-badge" title=(&exact_count)>(&count)</span>
+               </span>
+               <span>"Media"</span>
+            </div>
+            icon(name: "down")
+         </label>
+         <div class="photo-rail-grid">
+            for (tweet_id, url) in thumbs {
+               <a href=(format!("/{}/status/{tweet_id}#m", user.username))>
+                  proxied_image(url: &url)
+               </a>
+            }
+         </div>
+      </div>
+   })
 }

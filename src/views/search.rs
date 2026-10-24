@@ -1,194 +1,188 @@
-use maud::{
-   Markup,
-   html,
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[component] and view! expansions"
+)]
+
+use topcoat::{
+   Result,
+   context::Cx,
+   view::{
+      View,
+      class,
+      component,
+      view,
+   },
 };
 
-use super::tweet::TweetRenderer;
 use crate::{
-   config::Config,
    types::{
       prefs::Prefs,
       query::QueryKind,
-      timeline::Tweets,
+      tweet::Tweet,
       user::User,
    },
    utils::formatters,
    views::{
-      renderutils::icon,
-      user_list::render_user,
+      renderutils::{
+         config,
+         icon,
+      },
+      tweet::tweet_item,
+      user_list::user_item,
    },
 };
 
 /// Render the empty search page (home search bar).
-pub fn render_search_page(config: &Config) -> Markup {
-   html! {
-       section class="landing-page" {
-           div class="landing-brand" {
-               img class="landing-logo" src="/logo.svg" alt="";
-               span class="landing-name" { (config.server.title) }
-           }
-           div class="landing-search" {
-               form method="get" action="/search" autocomplete="off" role="search" {
-                   input type="hidden" name="f" value="tweets";
-                   label for="home-search" class="sr-only" { "Search" }
-                   span class="icon-search landing-search-icon" aria-hidden="true" {}
-                   input id="home-search" type="text" name="q" autofocus=""
-                       placeholder="Search" dir="auto";
-                   button type="submit" { "Search" }
-               }
-           }
-       }
-   }
+#[component]
+pub async fn landing_search(cx: &Cx) -> Result<impl View> {
+   Ok(view! {
+      <section class="landing-page">
+         <div class="landing-brand">
+            <img class="landing-logo" src="/logo.svg" alt="">
+            <span class="landing-name">(&config(cx).server.title)</span>
+         </div>
+         <div class="landing-search">
+            <form method="get" action="/search" autocomplete="off" role="search">
+               <input type="hidden" name="f" value="tweets">
+               <label for="home-search" class="sr-only">"Search"</label>
+               <span class="icon-search landing-search-icon" aria-hidden="true"></span>
+               <input
+                  id="home-search"
+                  type="text"
+                  name="q"
+                  autofocus=""
+                  placeholder="Search"
+                  dir="auto"
+               >
+               <button type="submit">"Search"</button>
+            </form>
+         </div>
+      </section>
+   })
 }
 
 /// Render search results page with prefs support.
-#[expect(
-   clippy::too_many_arguments,
-   reason = "search page has many orthogonal display options"
-)]
-pub fn render_search_results(
-   query: &str,
-   tweets: &Tweets,
-   config: &Config,
-   cursor: Option<&str>,
-   prefs: &Prefs,
-   filters: Option<&SearchFilters>,
-   newer_url: Option<&str>,
+#[component]
+pub async fn search_results<'a>(
+   query: &'a str,
+   tweets: &'a [Tweet],
+   prefs: &'a Prefs,
    active_tab: QueryKind,
-) -> Markup {
-   html! {
-       div class="timeline-container search-results" {
-           div class="timeline-header" {
-               (render_search_panel_with_action(query, filters, "/search"))
-           }
-
-           (render_search_tabs(query, active_tab))
-
-           div class="timeline" {
-               // "Load newest" link when viewing paginated results
-               @if let Some(url) = newer_url {
-                   div class="timeline-item show-more" {
-                       a href=(url) { "Load newest" }
-                   }
+   #[default] cursor: Option<&'a str>,
+   #[default] filters: Option<&'a SearchFilters>,
+   #[default] newer_url: Option<&'a str>,
+) -> Result<impl View> {
+   let load_more = cursor.map(|cursor| {
+      format!(
+         "/search?q={}&cursor={cursor}",
+         formatters::url_encode(query)
+      )
+   });
+   Ok(view! {
+      <div class="timeline-container search-results">
+         <div class="timeline-header">
+            search_panel(query: query, filters: filters, action: "/search")
+         </div>
+         search_tabs(query: query, active: active_tab)
+         <div class="timeline">
+            // "Load newest" link when viewing paginated results
+            if let Some(url) = newer_url {
+               <div class="timeline-item show-more"><a href=(url)>"Load newest"</a></div>
+            }
+            if tweets.is_empty() {
+               <div class="search-empty">"No posts found"</div>
+            } else {
+               for tweet in tweets {
+                  tweet_item(tweet: tweet, prefs: prefs)
                }
+               more_or_end(load_more: load_more)
+            }
+         </div>
+      </div>
+   })
+}
 
-               @if tweets.is_empty() {
-                   div class="search-empty" { "No posts found" }
-               } @else {
-                   @for tweet in tweets {
-                       (TweetRenderer::new(tweet, config, prefs, false).render())
-                   }
-
-                   @if let Some(cur) = cursor {
-                       div class="show-more" {
-                           a href=(format!("/search?q={}&cursor={}", formatters::url_encode(query), cur)) {
-                               "Load more"
-                           }
-                       }
-                   } @else {
-                       div class="timeline-footer" {
-                           h2 class="timeline-end" { "No more items" }
-                       }
-                   }
-               }
-           }
-       }
-   }
+#[component]
+async fn more_or_end(load_more: Option<String>) -> Result<impl View> {
+   Ok(view! {
+      if let Some(url) = load_more {
+         <div class="show-more"><a href=(url)>"Load more"</a></div>
+      } else {
+         <div class="timeline-footer"><h2 class="timeline-end">"No more items"</h2></div>
+      }
+   })
 }
 
 /// Render user search results page.
-pub fn render_user_search_results(
-   query: &str,
-   users: &[User],
-   config: &Config,
-   cursor: Option<&str>,
-   newer_url: Option<&str>,
-   prefs: &Prefs,
-) -> Markup {
-   html! {
-       div class="timeline-container search-results" {
-           div class="timeline-header" {
-               form method="get" action="/search" class="search-field user-search-field" autocomplete="off" {
-                   input type="hidden" name="f" value="users";
-                   div class="pref-group pref-input pref-inline" {
-                       input type="text" name="q" value=(query) placeholder="Enter username...";
-                   }
-                   button type="submit" { span class="icon-search" {} }
+#[component]
+pub async fn user_search_results<'a>(
+   query: &'a str,
+   users: &'a [User],
+   prefs: &'a Prefs,
+   #[default] cursor: Option<&'a str>,
+   #[default] newer_url: Option<&'a str>,
+) -> Result<impl View> {
+   let load_more = cursor.map(|cursor| {
+      format!(
+         "/search?q={}&f=users&cursor={cursor}",
+         formatters::url_encode(query)
+      )
+   });
+   Ok(view! {
+      <div class="timeline-container search-results">
+         <div class="timeline-header">
+            <form method="get" action="/search" class="search-field user-search-field" autocomplete="off">
+               <input type="hidden" name="f" value="users">
+               <div class="pref-group pref-input pref-inline">
+                  <input type="text" name="q" value=(query) placeholder="Enter username...">
+               </div>
+               <button type="submit"><span class="icon-search"></span></button>
+            </form>
+         </div>
+         search_tabs(query: query, active: QueryKind::Users)
+         <div class="timeline">
+            // "Load newest" link when viewing paginated results
+            if let Some(url) = newer_url {
+               <div class="timeline-item show-more"><a href=(url)>"Load newest"</a></div>
+            }
+            if users.is_empty() {
+               <div class="search-empty">"No people found"</div>
+            } else {
+               for user in users {
+                  user_item(user: user, prefs: prefs)
                }
-           }
-
-           (render_search_tabs(query, QueryKind::Users))
-
-           div class="timeline" {
-               // "Load newest" link when viewing paginated results
-               @if let Some(url) = newer_url {
-                   div class="timeline-item show-more" {
-                       a href=(url) { "Load newest" }
-                   }
-               }
-
-               @if users.is_empty() {
-                   div class="search-empty" { "No people found" }
-               } @else {
-                   @for user in users {
-                       (render_user(user, config, prefs))
-                   }
-
-                   @if let Some(cur) = cursor {
-                       div class="show-more" {
-                           a href=(format!("/search?q={}&f=users&cursor={}", formatters::url_encode(query), cur)) {
-                               "Load more"
-                           }
-                       }
-                   } @else {
-                       div class="timeline-footer" {
-                           h2 class="timeline-end" { "No more items" }
-                       }
-                   }
-               }
-           }
-       }
-   }
+               more_or_end(load_more: load_more)
+            }
+         </div>
+      </div>
+   })
 }
 
+const SEARCH_TABS: [(QueryKind, &str, &str); 4] = [
+   (QueryKind::Top, "Top", "&f=top"),
+   (QueryKind::Posts, "Latest", ""),
+   (QueryKind::Media, "Media", "&f=media"),
+   (QueryKind::Users, "Users", "&f=users"),
+];
+
 /// Render search tabs (Top / Latest / Media / Users).
-fn render_search_tabs(query: &str, active: QueryKind) -> Markup {
+#[component]
+async fn search_tabs(query: &str, active: QueryKind) -> Result<impl View> {
    let encoded_query = formatters::url_encode(query);
-   let tabs = &[
-      (
-         QueryKind::Top,
-         "Top",
-         &format!("/search?q={encoded_query}&f=top"),
-      ),
-      (
-         QueryKind::Posts,
-         "Latest",
-         &format!("/search?q={encoded_query}"),
-      ),
-      (
-         QueryKind::Media,
-         "Media",
-         &format!("/search?q={encoded_query}&f=media"),
-      ),
-      (
-         QueryKind::Users,
-         "Users",
-         &format!("/search?q={encoded_query}&f=users"),
-      ),
-   ];
-   html! {
-       ul class="tab" {
-           @for &(kind, label, href) in tabs {
-               li class=(if active.tab() == kind { "tab-item active" } else { "tab-item" }) {
-                   a href=(href) { (label) }
-               }
-           }
-       }
-   }
+   Ok(view! {
+      <ul class="tab">
+         for (kind, label, filter) in SEARCH_TABS {
+            <li class=(class!("tab-item", "active" if active.tab() == kind))>
+               <a href=(format!("/search?q={encoded_query}{filter}"))>(label)</a>
+            </li>
+         }
+      </ul>
+   })
 }
 
 /// Search filter state for form rendering.
-#[derive(Default)]
 #[expect(
    clippy::struct_excessive_bools,
    reason = "mirrors HTML form checkboxes"
@@ -212,6 +206,21 @@ pub struct SearchFilters {
    pub min_faves:        String,
 }
 
+static NO_FILTERS: SearchFilters = SearchFilters {
+   media:            false,
+   images:           false,
+   videos:           false,
+   links:            false,
+   news:             false,
+   quote:            false,
+   verified:         false,
+   exclude_replies:  false,
+   exclude_retweets: false,
+   since:            String::new(),
+   until:            String::new(),
+   min_faves:        String::new(),
+};
+
 impl SearchFilters {
    const fn is_panel_open(&self) -> bool {
       self.media
@@ -227,96 +236,120 @@ impl SearchFilters {
          || !self.until.is_empty()
          || !self.min_faves.is_empty()
    }
+
+   /// Whether the checkbox for `filter` starts checked in the include
+   /// (`f`) or exclude (`e`) group.
+   const fn checked(&self, group: char, filter: &str) -> bool {
+      match (group, filter.as_bytes()) {
+         ('f', b"media") => self.media,
+         ('f', b"videos") => self.videos,
+         ('f', b"news") => self.news,
+         ('f', b"links") => self.links,
+         ('f', b"images") => self.images,
+         ('f', b"quote") => self.quote,
+         ('e', b"replies") => self.exclude_replies,
+         _ => false,
+      }
+   }
 }
+
+const FILTER_GROUPS: [(char, &str, &str); 2] = [
+   ('f', "Include", "Only show posts containing:"),
+   ('e', "Exclude", "Hide posts containing:"),
+];
+
+const FILTERS: [(&str, &str); 10] = [
+   ("nativeretweets", "Retweets"),
+   ("media", "Media"),
+   ("videos", "Videos"),
+   ("news", "News"),
+   ("native_video", "Native videos"),
+   ("replies", "Replies"),
+   ("links", "Links"),
+   ("images", "Images"),
+   ("quote", "Quotes"),
+   ("spaces", "Spaces"),
+];
 
 /// Render search panel with advanced filters.
 /// `action` controls the form action URL (default "/search", or
 /// "/{user}/search" for profile search).
-pub fn render_search_panel_with_action(
-   query: &str,
-   filters: Option<&SearchFilters>,
-   action: &str,
-) -> Markup {
-   let default_filters = SearchFilters::default();
-   let filt = filters.unwrap_or(&default_filters);
-   let is_open = filt.is_panel_open();
+#[component]
+pub async fn search_panel<'a>(
+   query: &'a str,
+   action: &'a str,
+   #[default] filters: Option<&'a SearchFilters>,
+) -> Result<impl View> {
+   let filters = filters.unwrap_or(&NO_FILTERS);
 
-   html! {
-       form method="get" action=(action) class="search-field" autocomplete="off" {
-           input type="hidden" name="f" value="tweets";
-           div class="pref-group pref-input pref-inline" {
-               label for="search-query" class="sr-only" { "Search" }
-               input id="search-query" type="text" name="q" value=(query) placeholder="Enter search...";
-           }
-           button type="submit" aria-label="Search" { span class="icon-search" {} }
-
-           input id="search-panel-toggle" type="checkbox" checked[is_open];
-           label for="search-panel-toggle" {
-               (icon("down", "", "", "", ""))
-           }
-
-           div class="search-panel" {
-               div class="search-filter-groups" {
-                   @for prefix in &["filter", "exclude"] {
-                       fieldset class="search-filter-group" {
-                           legend { (if *prefix == "filter" { "Include" } else { "Exclude" }) }
-                           p { (if *prefix == "filter" { "Only show posts containing:" } else { "Hide posts containing:" }) }
-                           div class="search-toggles" {
-                               @let pfx = &prefix[..1];
-                               (gen_search_checkbox(&format!("{pfx}-nativeretweets"), "Retweets", false))
-                               (gen_search_checkbox(&format!("{pfx}-media"), "Media", if *prefix == "filter" { filt.media } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-videos"), "Videos", if *prefix == "filter" { filt.videos } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-news"), "News", if *prefix == "filter" { filt.news } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-native_video"), "Native videos", false))
-                               (gen_search_checkbox(&format!("{pfx}-replies"), "Replies", if *prefix == "exclude" { filt.exclude_replies } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-links"), "Links", if *prefix == "filter" { filt.links } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-images"), "Images", if *prefix == "filter" { filt.images } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-quote"), "Quotes", if *prefix == "filter" { filt.quote } else { false }))
-                               (gen_search_checkbox(&format!("{pfx}-spaces"), "Spaces", false))
-                           }
-                       }
-                   }
+   Ok(view! {
+      <form method="get" action=(action) class="search-field" autocomplete="off">
+         <input type="hidden" name="f" value="tweets">
+         <div class="pref-group pref-input pref-inline">
+            <label for="search-query" class="sr-only">"Search"</label>
+            <input id="search-query" type="text" name="q" value=(query) placeholder="Enter search...">
+         </div>
+         <button type="submit" aria-label="Search"><span class="icon-search"></span></button>
+         <input id="search-panel-toggle" type="checkbox" checked=(filters.is_panel_open())>
+         <label for="search-panel-toggle">icon(name: "down")</label>
+         <div class="search-panel">
+            <div class="search-filter-groups">
+               for (group, legend, hint) in FILTER_GROUPS {
+                  <fieldset class="search-filter-group">
+                     <legend>(legend)</legend>
+                     <p>(hint)</p>
+                     <div class="search-toggles">
+                        for (filter, label) in FILTERS {
+                           let id = format!("search-{group}-{filter}");
+                           <label class="pref-group checkbox-container" for=(&id)>
+                              (label)
+                              <input
+                                 id=(&id)
+                                 type="checkbox"
+                                 name=(format!("{group}-{filter}"))
+                                 value="on"
+                                 checked=(filters.checked(group, filter))
+                              >
+                              <span class="checkbox"></span>
+                           </label>
+                        }
+                     </div>
+                  </fieldset>
                }
-
-               // Date range and min likes
-               div class="search-row" {
-                   div {
-                       span class="search-title" { "Time range" }
-                       div class="date-range" {
-                           span class="date-input" {
-                               label for="search-since" class="sr-only" { "Since date" }
-                               input id="search-since" type="date" name="since" value=(filt.since);
-                               span class="icon-container" { span class="icon-calendar" {} }
-                           }
-                           span class="search-title" { "-" }
-                           span class="date-input" {
-                               label for="search-until" class="sr-only" { "Until date" }
-                               input id="search-until" type="date" name="until" value=(filt.until);
-                               span class="icon-container" { span class="icon-calendar" {} }
-                           }
-                       }
-                   }
-                   div {
-                       span class="search-title" { "Minimum likes" }
-                       div class="pref-group pref-input" {
-                           label for="search-min-faves" class="sr-only" { "Minimum likes" }
-                           input id="search-min-faves" type="number" name="min_faves" value=(filt.min_faves) placeholder="Number...";
-                       }
-                   }
-               }
-           }
-       }
-   }
-}
-
-/// Generate a search checkbox.
-fn gen_search_checkbox(name: &str, label: &str, checked: bool) -> Markup {
-   let id = format!("search-{name}");
-   html! {
-       label class="pref-group checkbox-container" for=(id) {
-           (label)
-           input id=(id) type="checkbox" name=(name) value="on" checked[checked];
-           span class="checkbox" {}
-       }
-   }
+            </div>
+            // Date range and min likes
+            <div class="search-row">
+               <div>
+                  <span class="search-title">"Time range"</span>
+                  <div class="date-range">
+                     <span class="date-input">
+                        <label for="search-since" class="sr-only">"Since date"</label>
+                        <input id="search-since" type="date" name="since" value=(&filters.since)>
+                        <span class="icon-container"><span class="icon-calendar"></span></span>
+                     </span>
+                     <span class="search-title">"-"</span>
+                     <span class="date-input">
+                        <label for="search-until" class="sr-only">"Until date"</label>
+                        <input id="search-until" type="date" name="until" value=(&filters.until)>
+                        <span class="icon-container"><span class="icon-calendar"></span></span>
+                     </span>
+                  </div>
+               </div>
+               <div>
+                  <span class="search-title">"Minimum likes"</span>
+                  <div class="pref-group pref-input">
+                     <label for="search-min-faves" class="sr-only">"Minimum likes"</label>
+                     <input
+                        id="search-min-faves"
+                        type="number"
+                        name="min_faves"
+                        value=(&filters.min_faves)
+                        placeholder="Number..."
+                     >
+                  </div>
+               </div>
+            </div>
+         </div>
+      </form>
+   })
 }

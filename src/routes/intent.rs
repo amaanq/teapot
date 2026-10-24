@@ -1,99 +1,75 @@
-use axum::{
-   Router,
-   extract::{
-      Query,
-      State,
-   },
-   response::{
-      Html,
-      IntoResponse as _,
-      Redirect,
-      Response,
-   },
-   routing::get,
-};
-use maud::html;
-use serde::Deserialize;
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
 
-use super::unsupported::render_unsupported_feature;
+use topcoat::{
+   context::Cx,
+   router::{
+      error::see_other,
+      page,
+      query_params,
+   },
+   view::{
+      View,
+      view,
+   },
+};
+
 use crate::{
-   AppState,
-   error::Result,
-   views::layout,
+   routes::helpers::request_prefs,
+   views::document::document,
 };
 
-pub fn router() -> Router<AppState> {
-   Router::new()
-      .route("/intent/user", get(intent_user))
-      .route("/intent/follow", get(intent_follow))
-      .route("/intent/{*path}", get(intent_unsupported))
-}
-
-/// Catch-all for unsupported intent handlers.
-async fn intent_unsupported(State(state): State<AppState>) -> Response {
-   render_unsupported_feature(&state, "Intent").into_response()
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IntentUserQuery {
-   pub user_id:     Option<String>,
-   pub screen_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IntentFollowQuery {
-   pub screen_name: Option<String>,
+#[query_params(error = bad_request)]
+struct IntentQuery {
+   user_id:     Option<String>,
+   screen_name: Option<String>,
 }
 
 /// Handle `/intent/user` - redirect to user profile.
-async fn intent_user(
-   State(state): State<AppState>,
-   Query(query): Query<IntentUserQuery>,
-) -> Result<Response> {
-   if let Some(ref screen_name) = query.screen_name
-      && !screen_name.is_empty()
-   {
-      return Ok(Redirect::to(&format!("/{screen_name}")).into_response());
+#[page("/intent/user")]
+pub async fn intent_user(cx: &Cx) -> topcoat::Result<impl View> {
+   let query = query_params::<IntentQuery>(cx)?;
+   if let Some(screen_name) = query.screen_name.as_deref() {
+      return Err(see_other(format!("/{screen_name}")).into());
    }
-
-   if let Some(ref user_id) = query.user_id
-      && !user_id.is_empty()
-   {
+   if let Some(user_id) = query.user_id.as_deref() {
       // For now, redirect to /i/user/{id} which should handle the lookup
       // In a full implementation, we'd look up the user by ID
-      return Ok(Redirect::to(&format!("/i/user/{user_id}")).into_response());
+      return Err(see_other(format!("/i/user/{user_id}")).into());
    }
-
-   let content = html! {
-       div class="error-page" {
-           h1 { "Invalid Intent" }
-           p { "Please provide either a screen_name or user_id parameter." }
-       }
-   };
-
-   let markup = layout::PageLayout::new(&state.config, "Invalid Intent", content).render();
-   Ok(Html(markup.into_string()).into_response())
+   Ok(invalid_intent(
+      cx,
+      "Please provide either a screen_name or user_id parameter.",
+   ))
 }
 
 /// Handle `/intent/follow` - redirect to user profile (following requires login
 /// on Twitter).
-async fn intent_follow(
-   State(state): State<AppState>,
-   Query(query): Query<IntentFollowQuery>,
-) -> Result<Response> {
-   if let Some(ref screen_name) = query.screen_name
-      && !screen_name.is_empty()
-   {
-      return Ok(Redirect::to(&format!("/{screen_name}")).into_response());
+#[page("/intent/follow")]
+pub async fn intent_follow(cx: &Cx) -> topcoat::Result<impl View> {
+   if let Some(screen_name) = query_params::<IntentQuery>(cx)?.screen_name.as_deref() {
+      return Err(see_other(format!("/{screen_name}")).into());
    }
+   Ok(invalid_intent(
+      cx,
+      "Please provide a screen_name parameter.",
+   ))
+}
 
-   let content = html! {
-       div class="error-page" {
-           h1 { "Invalid Intent" }
-           p { "Please provide a screen_name parameter." }
-       }
-   };
-
-   let markup = layout::PageLayout::new(&state.config, "Invalid Intent", content).render();
-   Ok(Html(markup.into_string()).into_response())
+fn invalid_intent<'a>(cx: &'a Cx, message: &'static str) -> impl View + 'a {
+   let prefs = request_prefs(cx);
+   view! { cx =>
+      document(
+         title: "Invalid Intent",
+         prefs: &prefs,
+         <div class="error-page">
+            <h1>"Invalid Intent"</h1>
+            <p>(message)</p>
+         </div>
+      )
+   }
 }

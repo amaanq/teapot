@@ -151,7 +151,6 @@ async fn font_size_select(font_size: &Signal<String>) -> Result<impl View> {
 #[component]
 pub async fn preferences_form(
    prefs: &Prefs,
-   themes: &[String],
    live: &LivePrefs,
    referer: &str,
    prefs_url: &str,
@@ -177,7 +176,7 @@ pub async fn preferences_form(
                <div class="pref-section" data-section="display">
                   <legend>"Display"</legend>
                   <div class="pref-grid">
-                     theme_select(theme: live.theme(), themes: themes)
+                     theme_select(theme: live.theme(), themes: live.themes())
                      font_size_select(font_size: live.font_size())
                      for toggle in Toggle::in_section(Section::Display) {
                         checkbox(toggle: toggle, state: &live[toggle])

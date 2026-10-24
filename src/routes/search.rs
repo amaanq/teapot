@@ -1,26 +1,43 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
+
 use std::slice;
 
 use axum::{
    Router,
-   extract::{
-      Path,
-      Query as AxumQuery,
-      RawQuery,
-      State,
-   },
+   extract::State,
    http::header::CONTENT_TYPE,
    response::{
-      Html,
       IntoResponse as _,
-      Redirect,
       Response,
    },
    routing::get,
 };
-use axum_extra::extract::CookieJar;
-use serde::Deserialize;
+use percent_encoding::{
+   NON_ALPHANUMERIC,
+   utf8_percent_encode,
+};
+use topcoat::{
+   context::Cx,
+   router::{
+      error::see_other,
+      page,
+      path_param,
+      query_params,
+      request::uri,
+   },
+   view::{
+      BoxView,
+      View,
+      ViewExt as _,
+      view,
+   },
+};
 
-use super::helpers;
 use crate::{
    AppState,
    cache::{
@@ -28,11 +45,17 @@ use crate::{
       ttl,
    },
    error::Result,
+   routes::helpers::{
+      enrich_tweet_groups,
+      request_prefs,
+      state,
+      swr_take,
+   },
    types::{
-      prefs::Prefs,
       query::{
          Query,
          QueryKind,
+         SearchProduct,
       },
       timeline::{
          PaginatedResult,
@@ -41,12 +64,17 @@ use crate::{
       user::User,
    },
    views::{
-      layout,
-      search as search_view,
+      document::document,
+      search::{
+         SearchFilters,
+         search_results,
+         user_search_results,
+      },
    },
 };
 
-#[derive(Debug, Default, Deserialize)]
+#[query_params(error = bad_request)]
+#[derive(Default)]
 pub struct SearchQuery {
    #[serde(rename = "q")]
    pub query:      Option<String>,
@@ -79,8 +107,8 @@ pub struct SearchQuery {
 
 impl SearchQuery {
    /// Convert URL parameters to `SearchFilters` for form rendering.
-   pub fn to_filters(&self) -> search_view::SearchFilters {
-      search_view::SearchFilters {
+   pub fn to_filters(&self) -> SearchFilters {
+      SearchFilters {
          media:            self.f_media.as_deref() == Some("on"),
          images:           self.f_images.as_deref() == Some("on"),
          videos:           self.f_videos.as_deref() == Some("on"),
@@ -164,19 +192,15 @@ impl SearchQuery {
 }
 
 pub fn router() -> Router<AppState> {
-   Router::new()
-      .route("/search", get(search))
-      .route("/hashtag/{tag}", get(hashtag))
-      .route("/opensearch", get(opensearch))
+   Router::new().route("/opensearch", get(opensearch))
 }
 
-async fn search(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   RawQuery(raw_qs): RawQuery,
-   AxumQuery(params): AxumQuery<SearchQuery>,
-) -> Result<Response> {
-   if let Some(ref qs) = raw_qs {
+path_param!(tag);
+
+#[page("/search")]
+pub async fn search(cx: &Cx) -> topcoat::Result<impl View> {
+   let params = query_params::<SearchQuery>(cx)?;
+   if let Some(qs) = uri(cx).query() {
       let clean = qs
          .split('&')
          .filter(|pair| pair.split_once('=').is_none_or(|(_, val)| !val.is_empty()))
@@ -187,13 +211,29 @@ async fn search(
          } else {
             format!("/search?{}", clean.join("&"))
          };
-         return Ok(Redirect::to(&url).into_response());
+         return Err(see_other(url).into());
       }
    }
+   Box::pin(search_page(cx, params)).await
+}
 
-   let prefs = Prefs::from_cookies(&jar, &state.config);
+#[page("/hashtag/{tag}")]
+pub async fn hashtag(cx: &Cx) -> topcoat::Result<impl View> {
+   let query = query_params::<SearchQuery>(cx)?;
+   let params = SearchQuery {
+      query: Some(format!("#{}", path_param::<Tag>(cx))),
+      filter: query.filter.clone(),
+      cursor: query.cursor.clone(),
+      ..Default::default()
+   };
+   Box::pin(search_page(cx, &params)).await
+}
 
+async fn search_page<'a>(cx: &'a Cx, params: &SearchQuery) -> topcoat::Result<BoxView<'a>> {
+   let state = state(cx);
+   let prefs = request_prefs(cx);
    let raw_q = params.query.clone().unwrap_or_default();
+   let encoded_q = utf8_percent_encode(&raw_q, NON_ALPHANUMERIC).to_string();
 
    if raw_q.contains(',')
       && raw_q.split(',').all(|segment| {
@@ -209,236 +249,168 @@ async fn search(
          .map(|segment| segment.trim().trim_start_matches('@'))
          .collect::<Vec<_>>()
          .join(",");
-      return Ok(Redirect::to(&format!("/{cleaned}")).into_response());
+      return Err(see_other(format!("/{cleaned}")).into());
    }
 
    let is_user_search = params.filter.as_deref() == Some("users");
+   let filters = params.to_filters();
 
    if raw_q.is_empty() && params.from.is_none() {
-      let filters = params.to_filters();
-      if is_user_search {
-         let content =
-            search_view::render_user_search_results(&raw_q, &[], &state.config, None, None, &prefs);
-         let markup = layout::PageLayout::new(&state.config, "Search", content)
-            .prefs(&prefs)
-            .render();
-         return Ok(Html(markup.into_string()).into_response());
+      return Ok(view! { cx =>
+         document(
+            title: "Search",
+            prefs: &prefs,
+            if is_user_search {
+               user_search_results(query: "", users: &[], prefs: &prefs)
+            } else {
+               search_results(
+                  query: "",
+                  tweets: &[],
+                  prefs: &prefs,
+                  active_tab: QueryKind::Posts,
+                  filters: Some(&filters),
+               )
+            }
+         )
       }
-      let empty_tweets = Vec::new();
-      let content = search_view::render_search_results(
-         &raw_q,
-         &empty_tweets,
-         &state.config,
-         None,
-         &prefs,
-         Some(&filters),
-         None,
-         QueryKind::Posts,
-      );
-      let markup = layout::PageLayout::new(&state.config, "Search", content)
-         .prefs(&prefs)
-         .render();
-      return Ok(Html(markup.into_string()).into_response());
+      .boxed());
    }
 
    if is_user_search {
-      let search_result = if params.cursor.is_none() {
-         let cache_key = cache_keys::search_users(&raw_q);
-         let refresh = {
-            let raw_q = raw_q.clone();
-            let cache_key = cache_key.clone();
-            move |app: AppState| {
-               async move {
-                  if let Ok(data) = app.api.search_users(&raw_q, None).await {
-                     app.cache
-                        .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
-                  }
-               }
-            }
-         };
-         if let Some(cached) =
-            helpers::swr_take::<PaginatedResult<User>, _, _>(&state, &cache_key, refresh)
-         {
-            Ok(cached)
-         } else {
-            let result = state.api.search_users(&raw_q, None).await;
-            if let Ok(ref data) = result {
-               state
-                  .cache
-                  .set_swr(&cache_key, data, ttl::SEARCH, ttl::SEARCH_STALE);
-            }
-            result
-         }
-      } else {
-         state
-            .api
-            .search_users(&raw_q, params.cursor.as_deref())
-            .await
-      };
-
-      match search_result {
-         Ok(result) => {
-            let cursor = result.bottom.as_deref();
-
-            let newer_url = params.cursor.is_some().then(|| {
-               format!(
-                  "/search?q={}&f=users",
-                  percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-               )
-            });
-            let content = search_view::render_user_search_results(
-               &raw_q,
-               &result.content,
-               &state.config,
-               cursor,
-               newer_url.as_deref(),
-               &prefs,
-            );
-            let title = format!("Search ({raw_q}) | Users");
-            let canonical = format!(
-               "https://x.com/search?q={}&src=typed_query",
-               percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-            );
-            let referer = format!(
-               "/search?q={}&f=users",
-               percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-            );
-            let markup = layout::PageLayout::new(&state.config, &title, content)
-               .prefs(&prefs)
-               .canonical(&canonical)
-               .referer(&referer)
-               .render();
-            Ok(Html(markup.into_string()).into_response())
-         },
-         Err(err) => {
-            Ok(helpers::api_error_titled(
-               &state.config,
-               &err,
-               "Search Error",
-            ))
-         },
+      let result = search_users(state, &raw_q, params.cursor.as_deref()).await?;
+      let newer_url = params
+         .cursor
+         .is_some()
+         .then(|| format!("/search?q={encoded_q}&f=users"));
+      let title = format!("Search ({raw_q}) | Users");
+      let canonical = format!("https://x.com/search?q={encoded_q}&src=typed_query");
+      let referer = format!("/search?q={encoded_q}&f=users");
+      return Ok(view! { cx =>
+         document(
+            title: &title,
+            prefs: &prefs,
+            canonical: &canonical,
+            referer: &referer,
+            user_search_results(
+               query: &raw_q,
+               users: &result.content,
+               prefs: &prefs,
+               cursor: result.bottom.as_deref(),
+               newer_url: newer_url.as_deref(),
+            )
+         )
       }
-   } else {
-      let query = params.to_query();
-
-      let api_query = query.build();
-
-      let product = query.kind.product();
-
-      let search_result = if params.cursor.is_none() {
-         let cache_key = cache_keys::search_timeline(&api_query, product);
-         let refresh = {
-            let api_query = api_query.clone();
-            let cache_key = cache_key.clone();
-            move |app: AppState| {
-               async move {
-                  if let Ok(data) = app.api.search(&api_query, None, product).await {
-                     app.cache
-                        .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
-                  }
-               }
-            }
-         };
-         if let Some(cached) = helpers::swr_take::<Timeline, _, _>(&state, &cache_key, refresh) {
-            Ok(cached)
-         } else {
-            let result = state.api.search(&api_query, None, product).await;
-            if let Ok(ref data) = result {
-               state
-                  .cache
-                  .set_swr(&cache_key, data, ttl::SEARCH, ttl::SEARCH_STALE);
-            }
-            result
-         }
-      } else {
-         state
-            .api
-            .search(&api_query, params.cursor.as_deref(), product)
-            .await
-      };
-
-      match search_result {
-         Ok(timeline) => {
-            let mut tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
-            helpers::enrich_tweet_groups(&state, slice::from_mut(&mut tweets)).await;
-            let cursor = timeline.bottom.as_deref();
-
-            // Display the original user query, not the API query
-            let display_query = if query.has_filters() {
-               &api_query
-            } else {
-               &raw_q
-            };
-
-            let filters = params.to_filters();
-            let newer_url = params.cursor.is_some().then(|| {
-               format!(
-                  "/search?q={}",
-                  percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-               )
-            });
-            let content = search_view::render_search_results(
-               display_query,
-               &tweets,
-               &state.config,
-               cursor,
-               &prefs,
-               Some(&filters),
-               newer_url.as_deref(),
-               query.kind,
-            );
-            let title = format!("Search ({raw_q})");
-            let canonical = format!(
-               "https://x.com/search?f=live&q={}&src=typed_query",
-               percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-            );
-            let rss_url = format!(
-               "/search/rss?f=tweets&q={}",
-               percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-            );
-            let referer = format!(
-               "/search?q={}",
-               percent_encoding::utf8_percent_encode(&raw_q, percent_encoding::NON_ALPHANUMERIC)
-            );
-            let markup = layout::PageLayout::new(&state.config, &title, content)
-               .prefs(&prefs)
-               .rss(&rss_url)
-               .canonical(&canonical)
-               .referer(&referer)
-               .render();
-            Ok(Html(markup.into_string()).into_response())
-         },
-         Err(err) => {
-            Ok(helpers::api_error_titled(
-               &state.config,
-               &err,
-               "Search Error",
-            ))
-         },
-      }
+      .boxed());
    }
+
+   let query = params.to_query();
+   let api_query = query.build();
+   let timeline = search_tweets(
+      state,
+      &api_query,
+      query.kind.product(),
+      params.cursor.as_deref(),
+   )
+   .await?;
+   let mut tweets = timeline.content.into_iter().flatten().collect::<Vec<_>>();
+   enrich_tweet_groups(state, slice::from_mut(&mut tweets)).await;
+
+   // Display the original user query, not the API query
+   let display_query = if query.has_filters() {
+      api_query
+   } else {
+      raw_q.clone()
+   };
+   let referer = format!("/search?q={encoded_q}");
+   let has_cursor = params.cursor.is_some();
+   let title = format!("Search ({raw_q})");
+   let rss = format!("/search/rss?f=tweets&q={encoded_q}");
+   let canonical = format!("https://x.com/search?f=live&q={encoded_q}&src=typed_query");
+
+   Ok(view! { cx =>
+      document(
+         title: &title,
+         prefs: &prefs,
+         rss: &rss,
+         canonical: &canonical,
+         referer: &referer,
+         search_results(
+            query: &display_query,
+            tweets: &tweets,
+            prefs: &prefs,
+            active_tab: query.kind,
+            cursor: timeline.bottom.as_deref(),
+            filters: Some(&filters),
+            newer_url: has_cursor.then_some(referer.as_str()),
+         )
+      )
+   }
+   .boxed())
 }
 
-async fn hashtag(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(tag): Path<String>,
-   AxumQuery(query): AxumQuery<SearchQuery>,
-) -> Result<Response> {
-   let hashtag_query = format!("#{tag}");
+async fn search_users(
+   state: &AppState,
+   raw_q: &str,
+   cursor: Option<&str>,
+) -> Result<PaginatedResult<User>> {
+   if cursor.is_some() {
+      return state.api.search_users(raw_q, cursor).await;
+   }
 
-   search(
-      State(state),
-      jar,
-      RawQuery(None),
-      AxumQuery(SearchQuery {
-         query: Some(hashtag_query),
-         filter: query.filter,
-         cursor: query.cursor,
-         ..Default::default()
-      }),
-   )
-   .await
+   let cache_key = cache_keys::search_users(raw_q);
+   let refresh = {
+      let raw_q = raw_q.to_owned();
+      let cache_key = cache_key.clone();
+      move |app: AppState| {
+         async move {
+            if let Ok(data) = app.api.search_users(&raw_q, None).await {
+               app.cache
+                  .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
+            }
+         }
+      }
+   };
+   if let Some(cached) = swr_take::<PaginatedResult<User>, _, _>(state, &cache_key, refresh) {
+      return Ok(cached);
+   }
+   let data = state.api.search_users(raw_q, None).await?;
+   state
+      .cache
+      .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
+   Ok(data)
+}
+
+async fn search_tweets(
+   state: &AppState,
+   api_query: &str,
+   product: SearchProduct,
+   cursor: Option<&str>,
+) -> Result<Timeline> {
+   if cursor.is_some() {
+      return state.api.search(api_query, cursor, product).await;
+   }
+
+   let cache_key = cache_keys::search_timeline(api_query, product);
+   let refresh = {
+      let api_query = api_query.to_owned();
+      let cache_key = cache_key.clone();
+      move |app: AppState| {
+         async move {
+            if let Ok(data) = app.api.search(&api_query, None, product).await {
+               app.cache
+                  .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
+            }
+         }
+      }
+   };
+   if let Some(cached) = swr_take::<Timeline, _, _>(state, &cache_key, refresh) {
+      return Ok(cached);
+   }
+   let data = state.api.search(api_query, None, product).await?;
+   state
+      .cache
+      .set_swr(&cache_key, &data, ttl::SEARCH, ttl::SEARCH_STALE);
+   Ok(data)
 }
 
 async fn opensearch(State(state): State<AppState>) -> Response {

@@ -1,17 +1,14 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
+
 use axum::{
    Router,
-   extract::{
-      Path,
-      Query,
-      State,
-   },
-   http::{
-      HeaderMap,
-      StatusCode,
-      header,
-   },
+   extract::Path,
    response::{
-      Html,
       IntoResponse as _,
       Redirect,
       Response,
@@ -19,31 +16,46 @@ use axum::{
    routing::get,
 };
 use axum_extra::extract::CookieJar;
-use maud::html;
 use serde::Deserialize;
-use tweet_view::{
-   TweetRenderer,
-   render_reply_chains,
-   thread_context,
-};
-
-use super::{
-   helpers,
-   helpers::{
-      get_cached_translation,
-      get_cached_tweet,
+use topcoat::{
+   context::Cx,
+   router::{
+      StatusCode,
+      error::see_other,
+      page,
+      path_param,
+      query_params,
+      request::headers,
+   },
+   view::{
+      BoxView,
+      Child,
+      View,
+      ViewExt as _,
+      class,
+      component,
+      view,
    },
 };
+
 use crate::{
    AppState,
    cache::{
       keys as cache_keys,
       ttl,
    },
-   config::Config,
    error::{
       Error,
       Result,
+   },
+   routes::helpers::{
+      enrich_conversation,
+      enrich_tweet_groups,
+      get_cached_translation,
+      get_cached_tweet,
+      request_prefs,
+      state,
+      user_agent,
    },
    types::{
       prefs::Prefs,
@@ -54,23 +66,22 @@ use crate::{
       },
    },
    views::{
-      embed,
+      document::document,
+      embed::status_page,
       embed_activity::ActivityId,
-      layout,
       timeline::{
-         render_timeline,
-         render_to_top_with_focus,
+         timeline,
+         to_top,
       },
-      tweet as tweet_view,
-      user_list,
+      tweet::{
+         reply_chains,
+         thread_context,
+         thread_context_bar,
+         tweet_item,
+      },
+      user_list::user_list,
    },
 };
-
-#[derive(Debug, Deserialize)]
-struct StatusParams {
-   username: String,
-   id:       String,
-}
 
 const PREVIEW_AGENTS: [&str; 6] = [
    "Discordbot/",
@@ -81,535 +92,383 @@ const PREVIEW_AGENTS: [&str; 6] = [
    "Twitterbot/",
 ];
 
-#[derive(Debug, Deserialize)]
-struct PhotoParams {
+const SORT_MODES: [RankingMode; 3] = [
+   RankingMode::Relevance,
+   RankingMode::Recency,
+   RankingMode::Likes,
+];
+
+#[query_params(error = bad_request)]
+struct StatusQuery {
+   cursor: Option<String>,
+   scroll: Option<String>,
+   sort:   Option<String>,
+}
+
+impl StatusQuery {
+   fn is_scroll(&self) -> bool {
+      self.scroll.as_deref() == Some("true")
+   }
+}
+
+#[derive(Deserialize)]
+struct StatusParams {
    username: String,
    id:       String,
-   idx:      usize,
+   rest:     Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct StatusQuery {
-   pub cursor: Option<String>,
-   pub scroll: Option<String>,
-   pub sort:   Option<String>,
-}
+path_param!(username);
+path_param!(id);
+path_param!(idx: usize, error = not_found);
 
 pub fn router() -> Router<AppState> {
-   let mut router = Router::new();
+   Router::new()
+      .route("/{username}/status/{id}/photo", get(status_redirect))
+      .route("/{username}/status/{id}/video", get(status_redirect))
+      .route("/{username}/status/{id}/video/{idx}", get(status_redirect))
+      .route("/{username}/thread/{id}", get(status_redirect))
+      .route("/{username}/statuses/{id}/{*rest}", get(statuses_redirect))
+}
 
-   for prefix in ["status", "statuses"] {
-      router = router
-         .route(&format!("/{{username}}/{prefix}/{{id}}"), get(status))
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/photo"),
-            get(status_media_redirect),
-         )
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/photo/{{idx}}"),
-            get(status_photo),
-         )
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/video"),
-            get(status_media_redirect),
-         )
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/video/{{idx}}"),
-            get(status_media_redirect),
-         )
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/history"),
-            get(edit_history),
-         )
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/retweets"),
-            get(retweets),
-         )
-         .route(
-            &format!("/{{username}}/{prefix}/{{id}}/quotes"),
-            get(quotes),
-         );
+/// Redirect legacy media and thread URLs to the main status page.
+async fn status_redirect(Path(params): Path<StatusParams>) -> Response {
+   Redirect::to(&format!("/{}/status/{}", params.username, params.id)).into_response()
+}
+
+/// Every `statuses` subpage lives under `status`.
+async fn statuses_redirect(Path(params): Path<StatusParams>) -> Response {
+   let rest = params.rest.unwrap_or_default();
+   Redirect::to(&format!("/{}/status/{}/{rest}", params.username, params.id)).into_response()
+}
+
+/// Fetch a conversation, caching the unsorted first page.
+async fn fetch_conversation(
+   state: &AppState,
+   id: &str,
+   cursor: Option<&str>,
+   sort: RankingMode,
+) -> Result<Conversation> {
+   let cacheable = cursor.is_none() && sort == RankingMode::Relevance;
+   let cache_key = cache_keys::conversation(id);
+   if cacheable && let Some(cached) = state.cache.get(&cache_key) {
+      tracing::debug!("Cache hit for conversation: {id}");
+      return Ok(cached);
    }
 
-   router
-      .route("/{username}/thread/{id}", get(thread_redirect))
-      .route("/i/status/{id}", get(status_by_id))
-      .route("/i/web/status/{id}", get(status_by_id))
-      .route("/i/user/{id}", get(user_by_id))
-      .route("/translate/{id}", get(translate))
+   let mut conversation = state.api.get_conversation(id, cursor, sort).await?;
+   state
+      .api
+      .resolve_unavailable_quote(&mut conversation.tweet)
+      .await;
+   if cacheable {
+      state.cache.set(&cache_key, &conversation, ttl::DEFAULT);
+   }
+   Ok(conversation)
 }
 
-async fn thread_redirect(Path((username, id)): Path<(String, String)>) -> Response {
-   Redirect::to(&format!("/{username}/status/{id}")).into_response()
+/// Auto-translate for embeds (OG tags / `ActivityPub` show translated text).
+async fn auto_translate(state: &AppState, conversation: &mut Conversation) {
+   if !conversation.tweet.is_translatable {
+      return;
+   }
+   let kagi = &state.config.config.kagi_token;
+   let token = (!kagi.is_empty()).then_some(kagi.as_str());
+   if let Ok(translation) = get_cached_translation(state, &conversation.tweet, token).await
+      && !translation.text.is_empty()
+   {
+      conversation.tweet.translation = Some(translation);
+   }
 }
 
-/// Redirect legacy media URLs (photo/video/history) to the main status page.
-async fn status_media_redirect(Path(params): Path<StatusParams>) -> Response {
-   Redirect::to(&format!("/{}/status/{}", params.username, params.id)).into_response()
+#[page("/{username}/status/{id}")]
+pub async fn status(cx: &Cx) -> topcoat::Result<impl View> {
+   Box::pin(status_view(cx, None)).await
+}
+
+#[page("/{username}/statuses/{id}")]
+pub async fn statuses(cx: &Cx) -> topcoat::Result<impl View> {
+   Box::pin(status_view(cx, None)).await
 }
 
 /// Link unfurlers get the status page narrowed to the one photo, so the
 /// preview shows that image instead of the whole tweet's media.
-async fn status_photo(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   headers: HeaderMap,
-   Path(params): Path<PhotoParams>,
-   Query(query): Query<StatusQuery>,
-) -> Result<Response> {
-   let user_agent = headers
-      .get(header::USER_AGENT)
-      .and_then(|value| value.to_str().ok())
-      .unwrap_or_default();
-
-   if !PREVIEW_AGENTS
-      .iter()
-      .any(|agent| user_agent.contains(agent))
-   {
-      return Ok(
-         Redirect::to(&format!("/{}/status/{}", params.username, params.id)).into_response(),
-      );
+#[page("/{username}/status/{id}/photo/{idx}")]
+pub async fn status_photo(cx: &Cx) -> topcoat::Result<impl View> {
+   let agent = user_agent(cx);
+   if !PREVIEW_AGENTS.iter().any(|preview| agent.contains(preview)) {
+      let username = path_param::<Username>(cx);
+      let id = path_param::<Id>(cx);
+      return Err(see_other(format!("/{username}/status/{id}")).into());
    }
-
-   Box::pin(render_status(
-      state,
-      &jar,
-      &headers,
-      params.username,
-      params.id,
-      query,
-      params.idx.checked_sub(1),
-   ))
-   .await
+   let photo = path_param::<Idx>(cx)?.checked_sub(1);
+   Box::pin(status_view(cx, photo)).await
 }
 
-async fn status(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   headers: HeaderMap,
-   Path((username, id)): Path<(String, String)>,
-   Query(query): Query<StatusQuery>,
-) -> Result<Response> {
-   Box::pin(render_status(state, &jar, &headers, username, id, query, None)).await
-}
-
-#[expect(
-   clippy::cognitive_complexity,
-   reason = "status handler has many conditional branches for caching, scrolling, pagination, and \
-             translation"
-)]
-async fn render_status(
-   state: AppState,
-   jar: &CookieJar,
-   headers: &HeaderMap,
-   username: String,
-   id: String,
-   query: StatusQuery,
-   photo: Option<usize>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(jar, &state.config);
-   let is_discord = headers
-      .get(header::USER_AGENT)
-      .and_then(|value| value.to_str().ok())
-      .is_some_and(|user_agent| user_agent.contains("Discordbot"));
-
+async fn status_view(cx: &Cx, photo: Option<usize>) -> topcoat::Result<BoxView<'_>> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let id = path_param::<Id>(cx);
+   let query = query_params::<StatusQuery>(cx)?;
+   let prefs = request_prefs(cx);
+   let is_discord = user_agent(cx).contains("Discordbot");
    let sort = RankingMode::from_sort(query.sort.as_deref());
-   let is_sorted = sort != RankingMode::Relevance;
+   let has_cursor = query.cursor.is_some();
 
-   let conv_result = if query.cursor.is_none() && !is_sorted {
-      let cache_key = cache_keys::conversation(&id);
-      if let Some(cached) = state.cache.get(&cache_key) {
-         tracing::debug!("Cache hit for conversation: {id}");
-         Ok(cached)
-      } else {
-         let result = state.api.get_conversation(&id, None, sort).await;
-         if let Ok(mut conv) = result {
-            state.api.resolve_unavailable_quote(&mut conv.tweet).await;
-            state.cache.set(&cache_key, &conv, ttl::DEFAULT);
-            Ok(conv)
-         } else {
-            result
-         }
-      }
-   } else {
-      let result = state
-         .api
-         .get_conversation(&id, query.cursor.as_deref(), sort)
-         .await;
-      if let Ok(mut conv) = result {
-         state.api.resolve_unavailable_quote(&mut conv.tweet).await;
-         Ok(conv)
-      } else {
-         result
-      }
-   };
+   let mut conversation = fetch_conversation(state, id, query.cursor.as_deref(), sort).await?;
+   enrich_conversation(state, &mut conversation).await;
 
-   match conv_result {
-      Ok(mut conversation) => {
-         let is_scroll = query.scroll.as_ref().is_some_and(|val| val == "true");
-         let has_cursor = query.cursor.is_some();
-
-         helpers::enrich_conversation(&state, &mut conversation).await;
-
-         let focused_photo = photo.filter(|&idx| conversation.tweet.keep_only_photo(idx));
-         let activity =
-            is_discord.then(|| ActivityId::new(conversation.tweet.id, focused_photo));
-
-         // Auto-translate for embeds (OG tags / ActivityPub show translated text)
-         if !is_discord && !is_scroll && !has_cursor && conversation.tweet.is_translatable {
-            let kagi = &state.config.config.kagi_token;
-            let token = (!kagi.is_empty()).then_some(kagi.as_str());
-            if let Ok(tl) = get_cached_translation(&state, &conversation.tweet, token).await
-               && !tl.text.is_empty()
-            {
-               conversation.tweet.translation = Some(tl);
-            }
-         }
-
-         // Check this first because paginated responses omit the main tweet.
-         if is_scroll {
-            if conversation.replies.content.is_empty() {
-               return Ok(StatusCode::NO_CONTENT.into_response());
-            }
-            let content = render_reply_chains(
-               &conversation.replies.content,
-               conversation.replies.bottom.as_deref().unwrap_or_default(),
-               &username,
-               &id,
-               &state.config,
-               &prefs,
-            );
-            return Ok(Html(content.into_string()).into_response());
-         }
-
-         // Paginated requests with no replies indicate that the cursor reached a
-         // dead end. Re-fetch the first page and render it without the bottom
-         // cursor so "Load more replies" disappears.
-         if has_cursor && conversation.replies.content.is_empty() {
-            let mut first_page = if is_sorted {
-               state.api.get_conversation(&id, None, sort).await?
-            } else {
-               let cache_key = cache_keys::conversation(&id);
-               if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
-                  cached
-               } else {
-                  let fresh = state.api.get_conversation(&id, None, sort).await?;
-                  state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
-                  fresh
-               }
-            };
-            first_page.replies.bottom = None;
-            return Ok(render_conversation(
-               &first_page,
-               false,
-               &username,
-               &id,
-               &prefs,
-               &state.config,
-               sort,
-               activity,
-            ));
-         }
-
-         // Paginated responses (with cursor) don't include the main tweet.
-         // Recover it from the first-page cache, or re-fetch without cursor.
-         #[expect(clippy::shadow_same, reason = "rebinding as mutable")]
-         let mut conversation = conversation;
-         if conversation.tweet.id == 0 && has_cursor {
-            if is_sorted {
-               if let Ok(fresh) = state.api.get_conversation(&id, None, sort).await {
-                  conversation.tweet = fresh.tweet;
-               }
-            } else {
-               let cache_key = cache_keys::conversation(&id);
-               if let Some(cached) = state.cache.get::<Conversation>(&cache_key) {
-                  conversation.tweet = cached.tweet;
-               } else if let Ok(fresh) = state.api.get_conversation(&id, None, sort).await {
-                  state.cache.set(&cache_key, &fresh, ttl::DEFAULT);
-                  conversation.tweet = fresh.tweet;
-               }
-            }
-         }
-
-         Ok(render_conversation(
-            &conversation,
-            has_cursor,
-            &username,
-            &id,
-            &prefs,
-            &state.config,
-            sort,
-            activity,
-         ))
-      },
-      Err(Error::TweetNotFound(msg)) => {
-         let markup = layout::render_error(&state.config, "Tweet not found", &msg);
-         Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
-      },
-      Err(err) => Ok(helpers::api_error(&state.config, &err)),
+   let focused_photo = photo.filter(|&idx| conversation.tweet.keep_only_photo(idx));
+   let activity = is_discord.then(|| ActivityId::new(conversation.tweet.id, focused_photo));
+   if !is_discord && !query.is_scroll() && !has_cursor {
+      auto_translate(state, &mut conversation).await;
    }
+
+   // Check this first because paginated responses omit the main tweet.
+   if query.is_scroll() {
+      let replies = conversation.replies;
+      return Ok(view! { cx =>
+         if replies.content.is_empty() {
+            (StatusCode::NO_CONTENT)
+         } else {
+            reply_chains(
+               chains: &replies.content,
+               bottom_cursor: replies.bottom.as_deref().unwrap_or_default(),
+               username: username,
+               id: id,
+               prefs: &prefs,
+            )
+         }
+      }
+      .boxed());
+   }
+
+   // Paginated requests with no replies indicate that the cursor reached a
+   // dead end. Re-fetch the first page and render it without the bottom
+   // cursor so "Load more replies" disappears.
+   if has_cursor && conversation.replies.content.is_empty() {
+      let mut first_page = fetch_conversation(state, id, None, sort).await?;
+      first_page.replies.bottom = None;
+      return Ok(view! { cx =>
+         conversation_page(
+            conversation: &first_page,
+            has_cursor: false,
+            username: username,
+            id: id,
+            prefs: &prefs,
+            sort: sort,
+            activity: activity,
+         )
+      }
+      .boxed());
+   }
+
+   // Paginated responses (with cursor) don't include the main tweet.
+   // Recover it from the first-page cache, or re-fetch without cursor.
+   if conversation.tweet.id == 0
+      && has_cursor
+      && let Ok(first_page) = fetch_conversation(state, id, None, sort).await
+   {
+      conversation.tweet = first_page.tweet;
+   }
+
+   Ok(view! { cx =>
+      conversation_page(
+         conversation: &conversation,
+         has_cursor: has_cursor,
+         username: username,
+         id: id,
+         prefs: &prefs,
+         sort: sort,
+         activity: activity,
+      )
+   }
+   .boxed())
+}
+
+#[page("/i/status/{id}")]
+pub async fn status_by_id(cx: &Cx) -> topcoat::Result<impl View> {
+   status_by_id_view(cx).await
+}
+
+#[page("/i/web/status/{id}")]
+pub async fn web_status_by_id(cx: &Cx) -> topcoat::Result<impl View> {
+   status_by_id_view(cx).await
+}
+
+/// Fetch the conversation directly and render the tweet page inline instead of
+/// redirecting, matching X.com behaviour.
+async fn status_by_id_view(cx: &Cx) -> topcoat::Result<impl View + '_> {
+   let state = state(cx);
+   let id = path_param::<Id>(cx);
+   let query = query_params::<StatusQuery>(cx)?;
+   let prefs = request_prefs(cx);
+   let is_discord = user_agent(cx).contains("Discordbot");
+   let sort = RankingMode::from_sort(query.sort.as_deref());
+
+   let mut conversation = fetch_conversation(state, id, query.cursor.as_deref(), sort).await?;
+   if !is_discord {
+      auto_translate(state, &mut conversation).await;
+   }
+   let username = conversation.tweet.user.username.clone();
+   let activity = is_discord.then(|| ActivityId::new(conversation.tweet.id, None));
+   Ok(view! { cx =>
+      conversation_page(
+         conversation: &conversation,
+         has_cursor: query.cursor.is_some(),
+         username: &username,
+         id: id,
+         prefs: &prefs,
+         sort: sort,
+         activity: activity,
+      )
+   })
 }
 
 /// Render a conversation page (first page or paginated replies).
-#[expect(
-   clippy::too_many_arguments,
-   reason = "rendering needs route identity, preferences, sorting, and scraper mode"
-)]
-fn render_conversation(
-   conversation: &Conversation,
+#[component]
+async fn conversation_page<'a>(
+   conversation: &'a Conversation,
    has_cursor: bool,
-   username: &str,
-   id: &str,
-   prefs: &Prefs,
-   config: &Config,
+   username: &'a str,
+   id: &'a str,
+   prefs: &'a Prefs,
    sort: RankingMode,
    activity: Option<ActivityId>,
-) -> Response {
+) -> topcoat::Result<impl View> {
    let tweet = &conversation.tweet;
-
    if !tweet.available && tweet.id == 0 {
-      let msg = if tweet.tombstone.is_empty() {
-         "Tweet is unavailable"
-      } else {
-         &tweet.tombstone
-      };
-      let markup = layout::render_error(config, "Tweet not found", msg);
-      return (StatusCode::NOT_FOUND, Html(markup.into_string())).into_response();
-   }
-
-   let has_replies = !prefs.hide_replies && !conversation.replies.content.is_empty();
-   let sort_toggle = (has_replies && !has_cursor).then(|| {
-      let base = format!("/{username}/status/{id}");
-      html! {
-          div class="reply-sort" {
-              button class="reply-sort-btn" type="button" {
-                  (sort.label()) " \u{25BE}"
-              }
-              div class="reply-sort-menu" {
-                  @for mode in [RankingMode::Relevance, RankingMode::Recency, RankingMode::Likes] {
-                      @if mode == sort {
-                          span class="reply-sort-active" { (mode.label()) }
-                      } @else if let Some(val) = mode.sort_param() {
-                          a href=(format!("{base}?sort={val}")) { (mode.label()) }
-                      } @else {
-                          a href=(base) { (mode.label()) }
-                      }
-                  }
-              }
-          }
-      }
-   });
-
-   let content = html! {
-       div class="conversation" {
-           @if has_cursor {
-               div class="main-thread" {
-                   div class="main-tweet" id="m" {
-                       (TweetRenderer::new(tweet, config, prefs, false).render())
-                   }
-               }
-               div class="timeline-item show-more" {
-                   a href=(format!("/{username}/status/{id}#r")) { "Back to tweet" }
-               }
-               (tweet_view::render_thread_context(tweet, config))
-               div class="replies" id="r" {
-                   (render_reply_chains(
-                       &conversation.replies.content,
-                       conversation.replies.bottom.as_deref().unwrap_or_default(),
-                       username,
-                       id,
-                       config,
-                       prefs,
-                   ))
-               }
-           } @else {
-               div class="main-thread" {
-                   // Before context (parent tweets) with thread line
-                   @if !conversation.before.content.is_empty() {
-                       div class="before-tweet thread-line" {
-                           // "Earlier replies" link when thread doesn't start at root
-                           @let first = &conversation.before.content[0];
-                           @if tweet.thread_id != first.id && (first.reply_id > 0 || !first.available) {
-                               div class="timeline-item more-replies earlier-replies" {
-                                   a class="more-replies-text" href=(format!("/{}/status/{}#m", first.user.username, first.id)) {
-                                       "earlier replies"
-                                   }
-                               }
-                           }
-                           @let before_len = conversation.before.content.len();
-                           @for (idx, tw) in conversation.before.content.iter().enumerate() {
-                               @let ctx = thread_context(idx, before_len, false);
-                               (TweetRenderer::new(tw, config, prefs, false).thread_ctx(ctx).render())
-                           }
-                       }
-                   }
-
-                   @let has_after = !conversation.after.content.is_empty();
-                   @let after_class = if has_after { "thread thread-line" } else { "" };
-                   div class="main-tweet" id="m" {
-                       (TweetRenderer::new(tweet, config, prefs, true)
-                           .extra_class(after_class)
-                           .sort_toggle(sort_toggle.as_ref())
-                           .render())
-                   }
-
-                   // After context (thread continuation) with thread line
-                   @if has_after {
-                       div class="after-tweet thread-line" {
-                           @let after_len = conversation.after.content.len();
-                           @let has_more = conversation.after.has_more;
-                           @for (idx, tw) in conversation.after.content.iter().enumerate() {
-                               @let is_last = idx == after_len - 1 && !has_more;
-                               @let ctx = thread_context(idx, after_len, is_last);
-                               (TweetRenderer::new(tw, config, prefs, false).thread_ctx(ctx).render())
-                           }
-                           @if has_more {
-                               @if let Some(last_after) = conversation.after.content.last() {
-                                   div class="timeline-item more-replies" {
-                                       @if last_after.available {
-                                           a class="more-replies-text" href=(format!("/{}/status/{}#m", last_after.user.username, last_after.id)) {
-                                               "more replies"
-                                           }
-                                       } @else {
-                                           a class="more-replies-text" { "more replies" }
-                                       }
-                                   }
-                               }
-                           }
-                       }
-                   }
-               }
-
-               @if has_replies {
-                   (tweet_view::render_thread_context(tweet, config))
-                   div class="replies" id="r" {
-                       (render_reply_chains(
-                           &conversation.replies.content,
-                           conversation.replies.bottom.as_deref().unwrap_or_default(),
-                           username,
-                           id,
-                           config,
-                           prefs,
-                       ))
-                   }
-               }
-           }
-
-           (render_to_top_with_focus("#m"))
-
-       }
-   };
-
-   let markup = embed::render_status_page(
-      tweet,
-      &content,
-      prefs,
-      config,
-      username,
-      id,
-      activity,
-   );
-   Html(markup.into_string()).into_response()
-}
-
-async fn status_by_id(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   headers: HeaderMap,
-   Path(id): Path<String>,
-   Query(query): Query<StatusQuery>,
-) -> Result<Response> {
-   if id.parse::<u64>().is_err() {
-      return Ok((
-         StatusCode::NOT_FOUND,
-         Html(layout::render_error(&state.config, "Not Found", "Invalid tweet ID").into_string()),
-      )
-         .into_response());
-   }
-
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let discord_activity = headers
-      .get(header::USER_AGENT)
-      .and_then(|value| value.to_str().ok())
-      .is_some_and(|user_agent| user_agent.contains("Discordbot"));
-   let sort = RankingMode::from_sort(query.sort.as_deref());
-
-   // Fetch the conversation directly and render the tweet page inline instead of
-   // redirecting, matching X.com behaviour.
-   let cache_key = cache_keys::conversation(&id);
-   let conv_result = if query.cursor.is_none() && sort == RankingMode::Relevance {
-      if let Some(cached) = state.cache.get(&cache_key) {
-         Ok(cached)
-      } else {
-         let result = state.api.get_conversation(&id, None, sort).await;
-         if let Ok(mut conv) = result {
-            state.api.resolve_unavailable_quote(&mut conv.tweet).await;
-            state.cache.set(&cache_key, &conv, ttl::DEFAULT);
-            Ok(conv)
+      return Err(
+         if tweet.tombstone.is_empty() {
+            Error::TweetNotFound("Tweet is unavailable".to_owned())
          } else {
-            result
+            Error::TweetTombstone(tweet.tombstone.clone())
          }
-      }
-   } else {
-      let result = state
-         .api
-         .get_conversation(&id, query.cursor.as_deref(), sort)
-         .await;
-      if let Ok(mut conv) = result {
-         state.api.resolve_unavailable_quote(&mut conv.tweet).await;
-         Ok(conv)
-      } else {
-         result
-      }
-   };
-
-   match conv_result {
-      Ok(mut conversation) => {
-         // Auto-translate for embeds (OG tags / ActivityPub show translated text)
-         if !discord_activity && conversation.tweet.is_translatable {
-            let kagi = &state.config.config.kagi_token;
-            let token = (!kagi.is_empty()).then_some(kagi.as_str());
-            if let Ok(tl) = get_cached_translation(&state, &conversation.tweet, token).await
-               && !tl.text.is_empty()
-            {
-               conversation.tweet.translation = Some(tl);
-            }
-         }
-
-         let username = conversation.tweet.user.username.clone();
-         let activity = discord_activity.then(|| ActivityId::new(conversation.tweet.id, None));
-         Ok(render_conversation(
-            &conversation,
-            query.cursor.is_some(),
-            &username,
-            &id,
-            &prefs,
-            &state.config,
-            sort,
-            activity,
-         ))
-      },
-      Err(Error::TweetNotFound(msg)) => {
-         let markup = layout::render_error(&state.config, "Tweet not found", &msg);
-         Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
-      },
-      Err(err) => Ok(helpers::api_error(&state.config, &err)),
+         .into(),
+      );
    }
+
+   let base = format!("/{username}/status/{id}");
+   let has_replies = !prefs.hide_replies && !conversation.replies.content.is_empty();
+   let replies_cursor = conversation.replies.bottom.as_deref().unwrap_or_default();
+   let before = &conversation.before.content;
+   let after = &conversation.after.content;
+   let earlier = before
+      .first()
+      .filter(|first| tweet.thread_id != first.id && (first.reply_id > 0 || !first.available));
+   let more_after = after
+      .last()
+      .filter(|_| conversation.after.has_more)
+      .map(|last| {
+         last
+            .available
+            .then(|| format!("/{}/status/{}#m", last.user.username, last.id))
+      });
+
+   Ok(view! {
+      status_page(
+         tweet: tweet,
+         prefs: prefs,
+         username: username,
+         id: id,
+         activity: activity,
+         <div class="conversation">
+            if has_cursor {
+               <div class="main-thread">
+                  <div class="main-tweet" id="m">tweet_item(tweet: tweet, prefs: prefs)</div>
+               </div>
+               <div class="timeline-item show-more"><a href=(format!("{base}#r"))>"Back to tweet"</a></div>
+               thread_context_bar(tweet: tweet)
+               <div class="replies" id="r">
+                  reply_chains(
+                     chains: &conversation.replies.content,
+                     bottom_cursor: replies_cursor,
+                     username: username,
+                     id: id,
+                     prefs: prefs,
+                  )
+               </div>
+            } else {
+               <div class="main-thread">
+                  // Before context (parent tweets) with thread line
+                  if !before.is_empty() {
+                     <div class="before-tweet thread-line">
+                        // "Earlier replies" link when thread doesn't start at root
+                        if let Some(first) = earlier {
+                           <div class="timeline-item more-replies earlier-replies">
+                              <a
+                                 class="more-replies-text"
+                                 href=(format!("/{}/status/{}#m", first.user.username, first.id))
+                              >
+                                 "earlier replies"
+                              </a>
+                           </div>
+                        }
+                        for (position, reply) in before.iter().enumerate() {
+                           tweet_item(
+                              tweet: reply,
+                              prefs: prefs,
+                              thread: thread_context(position, before.len(), false),
+                           )
+                        }
+                     </div>
+                  }
+                  <div class="main-tweet" id="m">
+                     tweet_item(
+                        tweet: tweet,
+                        prefs: prefs,
+                        main: true,
+                        extra_class: if after.is_empty() { "" } else { "thread thread-line" },
+                        sort_toggle: (has_replies && !has_cursor)
+                           .then(|| view! { sort_menu(base: &base, sort: sort) }.into()),
+                     )
+                  </div>
+                  // After context (thread continuation) with thread line
+                  if !after.is_empty() {
+                     <div class="after-tweet thread-line">
+                        for (position, reply) in after.iter().enumerate() {
+                           let is_last = position == after.len() - 1 && !conversation.after.has_more;
+                           tweet_item(
+                              tweet: reply,
+                              prefs: prefs,
+                              thread: thread_context(position, after.len(), is_last),
+                           )
+                        }
+                        if let Some(href) = more_after {
+                           <div class="timeline-item more-replies">
+                              <a class="more-replies-text" href=(href)>"more replies"</a>
+                           </div>
+                        }
+                     </div>
+                  }
+               </div>
+               if has_replies {
+                  thread_context_bar(tweet: tweet)
+                  <div class="replies" id="r">
+                     reply_chains(
+                        chains: &conversation.replies.content,
+                        bottom_cursor: replies_cursor,
+                        username: username,
+                        id: id,
+                        prefs: prefs,
+                     )
+                  </div>
+               }
+            }
+            to_top(focus: "#m")
+         </div>
+      )
+   })
 }
 
 /// Translate a tweet and return an HTML fragment for an htmx swap.
 /// Uses Kagi Translate if the user has a token set, otherwise Twitter's Strato
 /// API.
-async fn translate(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(id): Path<String>,
-) -> Result<Response> {
-   if id.len() > 19 || !id.chars().all(|ch| ch.is_ascii_digit()) {
-      return Ok(StatusCode::BAD_REQUEST.into_response());
-   }
-
-   let kagi_token = jar
+#[page("/translate/{id}")]
+pub async fn translate(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let id = path_param::<Id>(cx);
+   let kagi_token = CookieJar::from_headers(headers(cx))
       .get("kagiToken")
       .map(|cookie| cookie.value().to_owned())
       .filter(|val| !val.is_empty())
@@ -618,233 +477,225 @@ async fn translate(
          (!server_token.is_empty()).then(|| server_token.clone())
       });
 
-   let result = match get_cached_tweet(&state, &id).await {
-      Ok(tweet) => get_cached_translation(&state, &tweet, kagi_token.as_deref()).await,
+   let translation = match get_cached_tweet(state, id).await {
+      Ok(tweet) => get_cached_translation(state, &tweet, kagi_token.as_deref()).await,
       Err(err) => Err(err),
-   };
-
-   match result {
-      Ok(tl) if !tl.text.is_empty() => {
-         let markup = html! {
-            div class="translation" dir="auto" {
-               div class="translation-header" {
-                  "Translated from " (tl.source_lang_display)
-               }
-               div class="translation-text" { (tl.text) }
-            }
-         };
-         Ok(Html(markup.into_string()).into_response())
-      },
-      Ok(_) => Ok(StatusCode::NO_CONTENT.into_response()),
-      Err(err) => {
-         tracing::debug!("Translation failed for {id}: {err}");
-         Ok(StatusCode::NO_CONTENT.into_response())
-      },
    }
+   .inspect_err(|err| tracing::debug!("Translation failed for {id}: {err}"))
+   .ok()
+   .filter(|translation| !translation.text.is_empty());
+
+   Ok(view! {
+      if let Some(translation) = translation {
+         <div class="translation" dir="auto">
+            <div class="translation-header">
+               "Translated from " (translation.source_lang_display)
+            </div>
+            <div class="translation-text">(translation.text)</div>
+         </div>
+      } else {
+         (StatusCode::NO_CONTENT)
+      }
+   })
 }
 
 /// Lookup user by ID and redirect to their profile.
-async fn user_by_id(State(state): State<AppState>, Path(id): Path<String>) -> Result<Response> {
-   let cache_key = cache_keys::user_id(&id);
+#[page("/i/user/{id}")]
+pub async fn user_by_id(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let id = path_param::<Id>(cx);
+   let cache_key = cache_keys::user_id(id);
    if let Some(username) = state.cache.get::<String>(&cache_key) {
       tracing::debug!("Cache hit for user ID: {id} -> {username}");
-      return Ok(Redirect::to(&format!("/{username}")).into_response());
+      return Err(see_other(format!("/{username}")).into());
    }
 
-   match state.api.get_user_by_id(&id).await {
-      Ok(user) => {
-         // Cache the ID -> username mapping (long TTL since IDs don't change)
-         state
-            .cache
-            .set(&cache_key, &user.username, ttl::USER_ID_MAPPING);
-         Ok(Redirect::to(&format!("/{}", user.username)).into_response())
-      },
-      Err(Error::UserNotFound(msg)) => {
-         let content = html! {
-             div class="error-page" {
-                 h1 { "User Not Found" }
-                 p { (msg) }
-                 p class="user-id" { "User ID: " (id) }
-             }
-         };
-         let markup = layout::PageLayout::new(&state.config, "User Not Found", content).render();
-         Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
-      },
-      Err(err) => Ok(helpers::api_error(&state.config, &err)),
-   }
+   let user = state.api.get_user_by_id(id).await?;
+   // Cache the ID -> username mapping (long TTL since IDs don't change)
+   state
+      .cache
+      .set(&cache_key, &user.username, ttl::USER_ID_MAPPING);
+   Err::<(), _>(see_other(format!("/{}", user.username)).into())
 }
 
-/// Render the back-arrow + Retweets/Quotes tab bar.
-fn engagement_tabs(username: &str, id: &str, active: &str) -> maud::Markup {
-   let base = format!("/{username}/status/{id}");
-   let rt_class = if active == "retweets" {
-      "tab-item active"
-   } else {
-      "tab-item"
-   };
-   let qt_class = if active == "quotes" {
-      "tab-item active"
-   } else {
-      "tab-item"
-   };
+#[component]
+async fn sort_menu(base: &str, sort: RankingMode) -> topcoat::Result<impl View> {
+   Ok(view! {
+      <div class="reply-sort">
+         <button class="reply-sort-btn" type="button">(sort.label()) " \u{25BE}"</button>
+         <div class="reply-sort-menu">
+            for mode in SORT_MODES {
+               if mode == sort {
+                  <span class="reply-sort-active">(mode.label())</span>
+               } else if let Some(param) = mode.sort_param() {
+                  <a href=(format!("{base}?sort={param}"))>(mode.label())</a>
+               } else {
+                  <a href=(base)>(mode.label())</a>
+               }
+            }
+         </div>
+      </div>
+   })
+}
 
-   html! {
-       div class="engagement-header" {
-           a class="back-arrow" href=(format!("{base}#m")) { "\u{2190}" }
-           ul class="tab" {
-               li class=(rt_class) { a href=(format!("{base}/retweets")) { "Retweets" } }
-               li class=(qt_class) { a href=(format!("{base}/quotes")) { "Quotes" } }
-           }
-       }
-   }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Engagement {
+   Retweets,
+   Quotes,
+}
+
+/// Render the back-arrow + Retweets/Quotes tab bar above the list, or the
+/// bare list for an infinite scroll request.
+#[component]
+async fn engagement_tabs<'a>(
+   base: &'a str,
+   active: Engagement,
+   scroll: bool,
+   child: Child<'a>,
+) -> topcoat::Result<impl View> {
+   Ok(view! {
+      if scroll {
+         (child)
+      } else {
+         <div class="timeline-container">
+            <div class="engagement-header">
+               <a class="back-arrow" href=(format!("{base}#m"))>"\u{2190}"</a>
+               <ul class="tab">
+                  <li class=(class!("tab-item", "active" if active == Engagement::Retweets))>
+                     <a href=(format!("{base}/retweets"))>"Retweets"</a>
+                  </li>
+                  <li class=(class!("tab-item", "active" if active == Engagement::Quotes))>
+                     <a href=(format!("{base}/quotes"))>"Quotes"</a>
+                  </li>
+               </ul>
+            </div>
+            (child)
+         </div>
+      }
+   })
 }
 
 /// Render users who retweeted with infinite scrolling support.
-async fn retweets(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path((username, id)): Path<(String, String)>,
-   Query(query): Query<StatusQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let is_scroll = query.scroll.as_deref() == Some("true");
+#[page("/{username}/status/{id}/retweets")]
+pub async fn retweets(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let id = path_param::<Id>(cx);
+   let query = query_params::<StatusQuery>(cx)?;
+   let prefs = request_prefs(cx);
 
    let result = state
       .api
-      .get_retweeters(&id, query.cursor.as_deref())
+      .get_retweeters(id, query.cursor.as_deref())
       .await?;
-
-   let cursor = result.bottom.as_deref();
-   let base_url = format!("/{username}/status/{id}/retweets");
-
-   if is_scroll {
-      let fragment = user_list::render_user_list(
-         &result.content,
-         &state.config,
-         cursor,
-         Some(&base_url),
-         &prefs,
-      );
-      return Ok(Html(fragment.into_string()).into_response());
-   }
-
-   let content = html! {
-       div class="timeline-container" {
-           (engagement_tabs(&username, &id, "retweets"))
-           (user_list::render_user_list(&result.content, &state.config, cursor, Some(&base_url), &prefs))
-       }
-   };
-
+   let base = format!("/{username}/status/{id}");
+   let base_url = format!("{base}/retweets");
    let title = format!("Retweets - @{username}/status/{id}");
-   let markup = layout::PageLayout::new(&state.config, &title, content)
-      .prefs(&prefs)
-      .render();
-   Ok(Html(markup.into_string()).into_response())
+
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         fragment: query.is_scroll(),
+         engagement_tabs(
+            base: &base,
+            active: Engagement::Retweets,
+            scroll: query.is_scroll(),
+            user_list(
+               users: &result.content,
+               prefs: &prefs,
+               cursor: result.bottom.as_deref(),
+               base_url: &base_url,
+            )
+         )
+      )
+   })
 }
 
 /// Render tweets that quote this tweet with infinite scrolling support.
-async fn quotes(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path((username, id)): Path<(String, String)>,
-   Query(query): Query<StatusQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let is_scroll = query.scroll.as_deref() == Some("true");
-   let search_query = format!("quoted_tweet_id:{id}");
+#[page("/{username}/status/{id}/quotes")]
+pub async fn quotes(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let id = path_param::<Id>(cx);
+   let query = query_params::<StatusQuery>(cx)?;
+   let prefs = request_prefs(cx);
 
-   let timeline = state
+   let results = state
       .api
       .search(
-         &search_query,
+         &format!("quoted_tweet_id:{id}"),
          query.cursor.as_deref(),
          SearchProduct::Latest,
       )
       .await?;
-
-   let mut groups = timeline.content;
-   helpers::enrich_tweet_groups(&state, &mut groups).await;
-   let cursor = timeline.bottom.as_deref();
-   let base_url = format!("/{username}/status/{id}/quotes");
-
-   if is_scroll {
-      let fragment = render_timeline(
-         &groups,
-         &state.config,
-         cursor,
-         Some(&base_url),
-         None,
-         &prefs,
-         None,
-      );
-      return Ok(Html(fragment.into_string()).into_response());
-   }
-
-   let content = html! {
-       div class="timeline-container" {
-           (engagement_tabs(&username, &id, "quotes"))
-           (render_timeline(&groups, &state.config, cursor, Some(&base_url), None, &prefs, None))
-       }
-   };
-
+   let mut groups = results.content;
+   enrich_tweet_groups(state, &mut groups).await;
+   let base = format!("/{username}/status/{id}");
+   let base_url = format!("{base}/quotes");
    let title = format!("Quotes - @{username}/status/{id}");
-   let markup = layout::PageLayout::new(&state.config, &title, content)
-      .prefs(&prefs)
-      .render();
-   Ok(Html(markup.into_string()).into_response())
+
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         fragment: query.is_scroll(),
+         engagement_tabs(
+            base: &base,
+            active: Engagement::Quotes,
+            scroll: query.is_scroll(),
+            timeline(
+               groups: &groups,
+               prefs: &prefs,
+               cursor: results.bottom.as_deref(),
+               base_url: &base_url,
+            )
+         )
+      )
+   })
 }
 
 /// Edit history page handler.
-async fn edit_history(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path((username, id)): Path<(String, String)>,
-) -> Result<Response> {
-   if id.len() > 19 || !id.chars().all(|ch| ch.is_ascii_digit()) {
-      let markup = layout::render_error(&state.config, "Not Found", "Invalid tweet ID");
-      return Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response());
-   }
+#[page("/{username}/status/{id}/history")]
+pub async fn edit_history(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let id = path_param::<Id>(cx);
+   let prefs = request_prefs(cx);
 
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-
-   if let Ok(edits) = state.api.get_edit_history(&id).await {
-      let title = format!(
-         "Edit History: {} (@{})",
-         edits.latest.text.chars().take(40).collect::<String>(),
-         if edits.latest.user.username.is_empty() {
-            &username
-         } else {
-            &edits.latest.user.username
-         }
-      );
-
-      let content = html! {
-          div class="edit-history" {
-              div class="latest-edit" {
-                  div class="edit-history-header" { "Latest post" }
-                  (TweetRenderer::new(&edits.latest, &state.config, &prefs, false)
-                     .render())
-              }
-              @if !edits.history.is_empty() {
-                  div class="previous-edits" {
-                      div class="edit-history-header" { "Version history" }
-                      @for tweet in &edits.history {
-                          div class="tweet-edit" {
-                              (TweetRenderer::new(tweet, &state.config, &prefs, false)
-                                 .render())
-                          }
-                      }
-                  }
-              }
-          }
-      };
-
-      let markup = layout::PageLayout::new(&state.config, &title, content)
-         .prefs(&prefs)
-         .render();
-      Ok(Html(markup.into_string()).into_response())
+   let edits = state
+      .api
+      .get_edit_history(id)
+      .await
+      .map_err(|_| Error::NotFound("Tweet edit history not found".into()))?;
+   let author = if edits.latest.user.username.is_empty() {
+      username
    } else {
-      let markup = layout::render_error(&state.config, "Not Found", "Tweet edit history not found");
-      Ok((StatusCode::NOT_FOUND, Html(markup.into_string())).into_response())
-   }
+      &edits.latest.user.username
+   };
+   let title = format!(
+      "Edit History: {} (@{author})",
+      edits.latest.text.chars().take(40).collect::<String>(),
+   );
+
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         <div class="edit-history">
+            <div class="latest-edit">
+               <div class="edit-history-header">"Latest post"</div>
+               tweet_item(tweet: &edits.latest, prefs: &prefs)
+            </div>
+            if !edits.history.is_empty() {
+               <div class="previous-edits">
+                  <div class="edit-history-header">"Version history"</div>
+                  for tweet in &edits.history {
+                     <div class="tweet-edit">tweet_item(tweet: tweet, prefs: &prefs)</div>
+                  }
+               </div>
+            }
+         </div>
+      )
+   })
 }

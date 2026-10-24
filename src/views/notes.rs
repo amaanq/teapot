@@ -1,17 +1,26 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[component] and view! expansions"
+)]
+
 use std::{
    collections::HashMap,
-   mem,
+   fmt::Write as _,
 };
 
-use maud::{
-   Markup,
-   PreEscaped,
-   html,
+use topcoat::{
+   Result,
+   context::Cx,
+   view::{
+      View,
+      component,
+      view,
+   },
 };
 
-use super::renderutils;
 use crate::{
-   config::Config,
    types::{
       article::{
          Article,
@@ -24,238 +33,236 @@ use crate::{
       prefs::Prefs,
       tweet::Tweet,
    },
-   utils::formatters,
+   utils::{
+      entity_expander::html_escape,
+      formatters,
+   },
+   views::{
+      renderutils::{
+         config,
+         proxied_image,
+         trusted,
+      },
+      tweet::tweet_item,
+   },
 };
 
-/// Two stacked squares (clipboard copy icon).
-const COPY_ICON_SVG: &str = r#"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>"#;
-
-/// Render a Twitter Article (Notes) page.
-pub fn render_note(
-   article: &Article,
-   tweets: &HashMap<i64, Tweet>,
-   config: &Config,
-   prefs: &Prefs,
-) -> Markup {
-   let cover = if article.cover_image.is_empty() {
-      String::new()
-   } else {
-      formatters::get_pic_url(&article.cover_image, config.config.base64_media)
-   };
-
-   let time_str = article
-      .time
-      .map_or_default(formatters::format_relative_time);
-
-   html! {
-       div class="note" {
-           @if !cover.is_empty() {
-               img class="cover" src=(cover) alt="" loading="lazy";
-           }
-
-           article {
-               h1 { (article.title) }
-
-               div class="author" {
-                   (renderutils::gen_img(&formatters::get_user_pic(&article.user.user_pic, "_mini"), "avatar round mini", config))
-                   " "
-                   a href=(format!("/{}", article.user.username)) class="fullname" {
-                       (article.user.fullname)
-                   }
-                   " "
-                   a href=(format!("/{}", article.user.username)) class="username" {
-                       "@" (article.user.username)
-                   }
-                   " · "
-                   (time_str)
-               }
-
-               (render_paragraphs(article, tweets, config, prefs))
-           }
-       }
-   }
+/// A run of paragraphs rendered under one element.
+enum Block<'a> {
+   List {
+      ordered: bool,
+      items:   Vec<&'a ArticleParagraph>,
+   },
+   Code(Vec<&'a str>),
+   Single(&'a ArticleParagraph),
 }
 
-/// Render all paragraphs, grouping list items into `<ul>`/`<ol>` and
-/// consecutive code-block lines into `<pre><code>`.
-fn render_paragraphs(
-   article: &Article,
-   tweets: &HashMap<i64, Tweet>,
-   config: &Config,
-   prefs: &Prefs,
-) -> Markup {
-   let mut parts = Vec::<Markup>::new();
-   let mut cur_list_type = None::<ArticleBlockType>;
-   let mut list_items = Vec::<Markup>::new();
-   let mut code_lines = Vec::<String>::new();
-
-   let flush_list =
-      |lt: &mut Option<ArticleBlockType>, items: &mut Vec<Markup>, out: &mut Vec<Markup>| {
-         if items.is_empty() {
-            return;
-         }
-         let taken = mem::take(items);
-         let kind = lt.take();
-         out.push(html! {
-             @if kind == Some(ArticleBlockType::OrderedListItem) {
-                 ol {
-                     @for item in &taken {
-                         (item)
-                     }
-                 }
-             } @else {
-                 ul {
-                     @for item in &taken {
-                         (item)
-                     }
-                 }
-             }
-         });
+/// Group list items into one list per type and consecutive code-block lines
+/// into one `<pre>`.
+fn blocks(paragraphs: &[ArticleParagraph]) -> Vec<Block<'_>> {
+   let mut blocks = Vec::<Block<'_>>::new();
+   for para in paragraphs {
+      let ordered = match para.base_type {
+         ArticleBlockType::OrderedListItem => Some(true),
+         ArticleBlockType::UnorderedListItem => Some(false),
+         _ => None,
       };
 
-   let flush_code = |lines: &mut Vec<String>, out: &mut Vec<Markup>| {
-      if lines.is_empty() {
-         return;
+      match (blocks.last_mut(), ordered, para.base_type) {
+         (Some(&mut Block::Code(ref mut lines)), _, ArticleBlockType::CodeBlock) => {
+            lines.push(&para.text);
+         },
+         (_, _, ArticleBlockType::CodeBlock) => blocks.push(Block::Code(vec![&para.text])),
+         (
+            Some(&mut Block::List {
+               ordered: last_ordered,
+               ref mut items,
+            }),
+            Some(this_ordered),
+            _,
+         ) if last_ordered == this_ordered => items.push(para),
+         (_, Some(ordered), _) => {
+            blocks.push(Block::List {
+               ordered,
+               items: vec![para],
+            });
+         },
+         _ => blocks.push(Block::Single(para)),
       }
-      let code = mem::take(lines).join("\n");
-      out.push(html! { pre { code { (code) } } });
-   };
+   }
+   blocks
+}
 
-   for para in &article.paragraphs {
-      let is_list = matches!(
-         para.base_type,
-         ArticleBlockType::OrderedListItem | ArticleBlockType::UnorderedListItem
-      );
+/// Render a Twitter Article (Notes) page.
+#[component]
+pub async fn note<'a>(
+   cx: &Cx,
+   article: &'a Article,
+   tweets: &'a HashMap<i64, Tweet>,
+   prefs: &'a Prefs,
+) -> Result<impl View> {
+   let config = config(cx);
+   let cover = (!article.cover_image.is_empty())
+      .then(|| formatters::get_pic_url(&article.cover_image, config.config.base64_media));
+   let profile = format!("/{}", article.user.username);
+   let avatar = formatters::get_user_pic(&article.user.user_pic, "_mini");
 
-      if para.base_type == ArticleBlockType::CodeBlock {
-         flush_list(&mut cur_list_type, &mut list_items, &mut parts);
-         code_lines.push(para.text.clone());
-      } else if is_list {
-         flush_code(&mut code_lines, &mut parts);
-         if cur_list_type.is_some() && cur_list_type != Some(para.base_type) {
-            flush_list(&mut cur_list_type, &mut list_items, &mut parts);
+   Ok(view! {
+      <div class="note">
+         if let Some(cover) = cover {
+            <img class="cover" src=(cover) alt="" loading="lazy">
          }
-         cur_list_type = Some(para.base_type);
-         list_items.push(render_paragraph(para, article, tweets, config, prefs));
-      } else {
-         flush_code(&mut code_lines, &mut parts);
-         flush_list(&mut cur_list_type, &mut list_items, &mut parts);
-         parts.push(render_paragraph(para, article, tweets, config, prefs));
-      }
-   }
-
-   flush_code(&mut code_lines, &mut parts);
-   flush_list(&mut cur_list_type, &mut list_items, &mut parts);
-
-   html! {
-       @for part in &parts {
-           (part)
-       }
-   }
+         <article>
+            <h1>(&article.title)</h1>
+            <div class="author">
+               proxied_image(
+                  url: &avatar,
+                  class: "avatar round mini",
+               )
+               " "
+               <a href=(&profile) class="fullname">(&article.user.fullname)</a>
+               " "
+               <a href=(&profile) class="username">"@" (&article.user.username)</a>
+               " · "
+               (article.time.map_or_default(formatters::format_relative_time))
+            </div>
+            for block in blocks(&article.paragraphs) {
+               match block {
+                  Block::List { ordered: true, items } => {
+                     <ol>
+                        for item in items {
+                           <li>(trusted(inline_html(item, article)))</li>
+                        }
+                     </ol>
+                  },
+                  Block::List { ordered: false, items } => {
+                     <ul>
+                        for item in items {
+                           <li>(trusted(inline_html(item, article)))</li>
+                        }
+                     </ul>
+                  },
+                  Block::Code(lines) => <pre><code>(lines.join("\n"))</code></pre>,
+                  Block::Single(para) => paragraph(para: para, article: article, tweets: tweets, prefs: prefs),
+               }
+            }
+         </article>
+      </div>
+   })
 }
 
 /// Render a single paragraph.
-fn render_paragraph(
-   para: &ArticleParagraph,
-   article: &Article,
-   tweets: &HashMap<i64, Tweet>,
-   config: &Config,
-   prefs: &Prefs,
-) -> Markup {
-   if para.base_type == ArticleBlockType::Atomic {
-      return render_atomic(para, article, tweets, config, prefs);
-   }
-
-   let inner = render_text_with_entities(para, article);
-
-   match para.base_type {
-      ArticleBlockType::Blockquote => html! { blockquote { (inner) } },
-      ArticleBlockType::HeaderOne => html! { h1 { (inner) } },
-      ArticleBlockType::HeaderTwo => html! { h2 { (inner) } },
-      ArticleBlockType::HeaderThree => html! { h3 { (inner) } },
-      ArticleBlockType::OrderedListItem | ArticleBlockType::UnorderedListItem => {
-         html! { li { (inner) } }
-      },
-      // CodeBlock is handled by grouping in render_paragraphs
-      _ => html! { p { (inner) } },
-   }
+#[component]
+async fn paragraph<'a>(
+   para: &'a ArticleParagraph,
+   article: &'a Article,
+   tweets: &'a HashMap<i64, Tweet>,
+   prefs: &'a Prefs,
+) -> Result<impl View> {
+   Ok(view! {
+      match para.base_type {
+         ArticleBlockType::Atomic => atomic(para: para, article: article, tweets: tweets, prefs: prefs),
+         ArticleBlockType::Blockquote => <blockquote>(trusted(inline_html(para, article)))</blockquote>,
+         ArticleBlockType::HeaderOne => <h1>(trusted(inline_html(para, article)))</h1>,
+         ArticleBlockType::HeaderTwo => <h2>(trusted(inline_html(para, article)))</h2>,
+         ArticleBlockType::HeaderThree => <h3>(trusted(inline_html(para, article)))</h3>,
+         // CodeBlock is handled by grouping in blocks
+         _ => <p>(trusted(inline_html(para, article)))</p>,
+      }
+   })
 }
 
 /// Render an atomic block (media, embedded tweet, markdown code block).
-fn render_atomic(
-   para: &ArticleParagraph,
-   article: &Article,
-   tweets: &HashMap<i64, Tweet>,
-   config: &Config,
-   prefs: &Prefs,
-) -> Markup {
-   let Some(er) = para.entity_ranges.first() else {
-      return html! {};
-   };
-   let Some(entity) = article.entities.get(er.key) else {
-      return html! {};
-   };
+#[component]
+async fn atomic<'a>(
+   cx: &Cx,
+   para: &'a ArticleParagraph,
+   article: &'a Article,
+   tweets: &'a HashMap<i64, Tweet>,
+   prefs: &'a Prefs,
+) -> Result<impl View> {
+   let config = config(cx);
+   let entity = para
+      .entity_ranges
+      .first()
+      .and_then(|range| article.entities.get(range.key));
+   let media = entity.map_or_default(|entity| {
+      entity
+         .media_ids
+         .iter()
+         .filter_map(|id| article.media.get(id))
+         .filter(|media| !media.url.is_empty())
+         .collect::<Vec<_>>()
+   });
 
-   match entity.entity_type {
-      ArticleEntityType::Markdown => {
-         let (lang, code) = strip_markdown_fences(&entity.markdown);
-         html! {
-             div class="code-block" {
-                 div class="code-header" {
-                     span class="code-lang" { (lang) }
-                    button class="copy-btn" type="button" title="Copy" {
-                         (PreEscaped(COPY_ICON_SVG))
-                     }
-                 }
-                 pre { code { (code) } }
-             }
+   Ok(view! {
+      if let Some(entity) = entity {
+         match entity.entity_type {
+            ArticleEntityType::Markdown => {
+               let (lang, code) = strip_markdown_fences(&entity.markdown);
+               <div class="code-block">
+                  <div class="code-header">
+                     <span class="code-lang">(lang)</span>
+                     <button class="copy-btn" type="button" title="Copy">
+                        // Two stacked squares (clipboard copy icon).
+                        <svg
+                           width="16"
+                           height="16"
+                           viewBox="0 0 24 24"
+                           fill="none"
+                           stroke="currentColor"
+                           stroke-width="2"
+                           stroke-linecap="round"
+                           stroke-linejoin="round"
+                        >
+                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                     </button>
+                  </div>
+                  <pre><code>(code)</code></pre>
+               </div>
+            },
+            ArticleEntityType::Media => {
+               for media in media {
+                  match media.media_type {
+                     ArticleMediaType::ApiImage => {
+                        <span class="image">
+                           <img
+                              src=(formatters::get_pic_url(&media.url, config.config.base64_media))
+                              alt=""
+                              loading="lazy"
+                           >
+                        </span>
+                     },
+                     ArticleMediaType::ApiGif => {
+                        <span class="image">
+                           <video
+                              src=(formatters::get_vid_url(
+                                 &media.url,
+                                 &config.config.hmac_key,
+                                 config.config.base64_media,
+                              ))
+                              controls=""
+                              autoplay=""
+                              loop=""
+                           ></video>
+                        </span>
+                     },
+                     ArticleMediaType::Unknown => "",
+                  }
+               }
+            },
+            ArticleEntityType::Tweet => {
+               if let Some(tweet) = entity.tweet_id.parse::<i64>().ok().and_then(|id| tweets.get(&id)) {
+                  tweet_item(tweet: tweet, prefs: prefs, main: true)
+               }
+            },
+            ArticleEntityType::Divider => <hr>,
+            _ => "",
          }
-      },
-      ArticleEntityType::Media => {
-         let mut markup_parts = Vec::new();
-         for id in &entity.media_ids {
-            let Some(media) = article.media.get(id) else {
-               continue;
-            };
-            if media.url.is_empty() {
-               continue;
-            }
-            match media.media_type {
-               ArticleMediaType::ApiImage => {
-                  let pic = formatters::get_pic_url(&media.url, config.config.base64_media);
-                  markup_parts.push(html! {
-                      span class="image" {
-                          img src=(pic) alt="" loading="lazy";
-                      }
-                  });
-               },
-               ArticleMediaType::ApiGif => {
-                  let vid = formatters::get_vid_url(
-                     &media.url,
-                     &config.config.hmac_key,
-                     config.config.base64_media,
-                  );
-                  markup_parts.push(html! {
-                      span class="image" {
-                          video src=(vid) controls autoplay loop {};
-                      }
-                  });
-               },
-               ArticleMediaType::Unknown => {},
-            }
-         }
-         html! { @for markup in &markup_parts { (markup) } }
-      },
-      ArticleEntityType::Tweet => {
-         let tweet_id = entity.tweet_id.parse::<i64>().unwrap_or(0);
-         tweets.get(&tweet_id).map_or_else(
-            || html! {},
-            |tweet| super::tweet::TweetRenderer::new(tweet, config, prefs, true).render(),
-         )
-      },
-      ArticleEntityType::Divider => html! { hr; },
-      _ => html! {},
-   }
+      }
+   })
 }
 
 /// Strip markdown code fences (``` or ```lang) from a markdown string,
@@ -272,106 +279,89 @@ fn strip_markdown_fences(md: &str) -> (&str, &str) {
 }
 
 /// Render paragraph text with entity ranges (links, twemoji) and inline
-/// styles.
-fn render_text_with_entities(para: &ArticleParagraph, article: &Article) -> Markup {
-   let text = &para.text;
-   let chars = text.chars().collect::<Vec<char>>();
-   let mut parts = Vec::<Markup>::new();
+/// styles, escaping every piece of text.
+fn inline_html(para: &ArticleParagraph, article: &Article) -> String {
+   let chars = para.text.chars().collect::<Vec<char>>();
+   let mut html = String::new();
    let mut last = 0;
 
-   for er in &para.entity_ranges {
-      if er.offset > last {
-         parts.push(render_styled_text(para, &chars, last, er.offset));
+   for range in &para.entity_ranges {
+      if range.offset > last {
+         styled_html(&mut html, para, &chars, last, range.offset);
       }
+      let end = range.offset + range.length;
 
-      let Some(entity) = article.entities.get(er.key) else {
-         last = er.offset + er.length;
-         continue;
-      };
-
-      let styled_inner = render_styled_text(para, &chars, er.offset, er.offset + er.length);
-
-      match entity.entity_type {
-         ArticleEntityType::Link => {
-            parts.push(html! { a href=(entity.url) { (styled_inner) } });
-         },
-         ArticleEntityType::Twemoji => {
-            let pic = formatters::get_pic_url(&entity.twemoji, false);
-            parts.push(html! { img class="twemoji" src=(pic) alt=""; });
-         },
-         _ => {
-            parts.push(styled_inner);
-         },
+      if let Some(entity) = article.entities.get(range.key) {
+         match entity.entity_type {
+            ArticleEntityType::Link => {
+               let _ = write!(html, r#"<a href="{}">"#, html_escape(&entity.url));
+               styled_html(&mut html, para, &chars, range.offset, end);
+               html.push_str("</a>");
+            },
+            ArticleEntityType::Twemoji => {
+               let pic = formatters::get_pic_url(&entity.twemoji, false);
+               let _ = write!(
+                  html,
+                  r#"<img class="twemoji" src="{}" alt="">"#,
+                  html_escape(&pic)
+               );
+            },
+            _ => styled_html(&mut html, para, &chars, range.offset, end),
+         }
       }
-
-      last = er.offset + er.length;
+      last = end;
    }
 
    if last < chars.len() {
-      parts.push(render_styled_text(para, &chars, last, chars.len()));
+      styled_html(&mut html, para, &chars, last, chars.len());
    }
-
-   html! { @for part in &parts { (part) } }
+   html
 }
 
-/// Render a range of text with inline style ranges applied.
-fn render_styled_text(para: &ArticleParagraph, chars: &[char], start: usize, end: usize) -> Markup {
-   if para.inline_style_ranges.is_empty() {
-      let text = chars
-         .get(start..end)
-         .map_or_default(|slice| slice.iter().collect::<String>());
-      return html! { (text) };
-   }
-
-   let mut parts = Vec::new();
+/// Append a range of text with inline style ranges applied.
+fn styled_html(
+   html: &mut String,
+   para: &ArticleParagraph,
+   chars: &[char],
+   start: usize,
+   end: usize,
+) {
    let mut pos = start;
-
    while pos < end {
-      let mut is_bold = false;
-      let mut is_italic = false;
-      let mut is_strike = false;
-
-      for sr in &para.inline_style_ranges {
-         if sr.offset <= pos && pos < sr.offset + sr.length {
-            match sr.style {
-               ArticleStyle::Bold => is_bold = true,
-               ArticleStyle::Italic => is_italic = true,
-               ArticleStyle::Strikethrough => is_strike = true,
+      let mut styles = [false; 3];
+      let mut style_end = end;
+      for range in &para.inline_style_ranges {
+         let range_end = range.offset + range.length;
+         if range.offset <= pos && pos < range_end {
+            match range.style {
+               ArticleStyle::Bold => styles[0] = true,
+               ArticleStyle::Italic => styles[1] = true,
+               ArticleStyle::Strikethrough => styles[2] = true,
                ArticleStyle::Unknown => {},
             }
          }
-      }
-
-      let mut style_end = end;
-      for sr in &para.inline_style_ranges {
-         let sr_start = sr.offset;
-         let sr_end = sr.offset + sr.length;
-         if sr_start > pos && sr_start < style_end {
-            style_end = sr_start;
-         }
-         if sr_end > pos && sr_end < style_end {
-            style_end = sr_end;
+         for boundary in [range.offset, range_end] {
+            if boundary > pos && boundary < style_end {
+               style_end = boundary;
+            }
          }
       }
 
       let chunk = chars
          .get(pos..style_end)
          .map_or_default(|slice| slice.iter().collect::<String>());
-
-      let mut markup = html! { (chunk) };
-      if is_strike {
-         markup = html! { s { (markup) } };
+      let tags = ["strong", "em", "s"]
+         .into_iter()
+         .zip(styles)
+         .filter_map(|(tag, on)| on.then_some(tag))
+         .collect::<Vec<_>>();
+      for tag in &tags {
+         let _ = write!(html, "<{tag}>");
       }
-      if is_italic {
-         markup = html! { em { (markup) } };
+      html.push_str(&html_escape(&chunk));
+      for tag in tags.iter().rev() {
+         let _ = write!(html, "</{tag}>");
       }
-      if is_bold {
-         markup = html! { strong { (markup) } };
-      }
-      parts.push(markup);
-
       pos = style_end;
    }
-
-   html! { @for part in &parts { (part) } }
 }

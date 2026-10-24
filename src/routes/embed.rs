@@ -1,3 +1,10 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
+
 use axum::{
    Router,
    extract::{
@@ -10,7 +17,6 @@ use axum::{
       header,
    },
    response::{
-      Html,
       IntoResponse as _,
       Json,
       Redirect,
@@ -18,8 +24,18 @@ use axum::{
    },
    routing::get,
 };
-use maud::html;
 use serde::Deserialize;
+use topcoat::{
+   context::Cx,
+   router::{
+      page,
+      path_param,
+   },
+   view::{
+      View,
+      view,
+   },
+};
 
 use super::helpers::get_cached_translation;
 use crate::{
@@ -32,18 +48,31 @@ use crate::{
       Error,
       Result,
    },
+   routes::helpers::{
+      state,
+      user_agent,
+   },
    types::timeline::{
       Conversation,
       RankingMode,
    },
-   utils::formatters::format_relative_time,
+   utils::{
+      entity_expander::html_escape,
+      formatters::format_relative_time,
+   },
    views::{
-      embed as embed_view,
+      document::strip_html,
+      embed::{
+         has_playable_video,
+         tweet_embed,
+         video_embed,
+      },
       embed_activity,
       embed_activity::ActivityId,
-      layout::strip_html,
    },
 };
+
+path_param!(id);
 
 #[derive(Debug, Deserialize)]
 pub struct OEmbedQuery {
@@ -67,8 +96,6 @@ pub struct LegacyEmbedQuery {
 
 pub fn router() -> Router<AppState> {
    Router::new()
-        .route("/{username}/status/{id}/embed", get(tweet_embed))
-        .route("/i/videos/tweet/{id}", get(video_embed))
         // Legacy embed URL support (Twitter's old embed format)
         .route("/embed/Tweet.html", get(legacy_embed_redirect))
         // ActivityPub endpoint for Discord multi-image support
@@ -90,31 +117,29 @@ async fn legacy_embed_redirect(Query(query): Query<LegacyEmbedQuery>) -> Respons
 
 /// Tweet embed endpoint - returns HTML with proper OG meta tags for
 /// Discord/etc.
-async fn tweet_embed(
-   State(state): State<AppState>,
-   Path((_username, id)): Path<(String, String)>,
-   headers: HeaderMap,
-) -> Result<Response> {
-   let tweet = cached_conversation(&state, &id).await?.tweet;
-
-   let discord_activity = headers
-      .get(header::USER_AGENT)
-      .and_then(|value| value.to_str().ok())
-      .is_some_and(|user_agent| user_agent.contains("Discordbot"));
-   let markup = embed_view::render_tweet_embed(&tweet, &state.config, discord_activity);
-   Ok(Html(markup.into_string()).into_response())
+#[page("/{username}/status/{id}/embed")]
+pub async fn tweet_embed_page(cx: &Cx) -> topcoat::Result<impl View> {
+   let tweet = cached_conversation(state(cx), path_param::<Id>(cx))
+      .await?
+      .tweet;
+   let discord_activity = user_agent(cx).contains("Discordbot");
+   Ok(view! {
+      tweet_embed(tweet: &tweet, discord_activity: discord_activity)
+   })
 }
 
 /// Video embed endpoint - returns HTML with video player.
-async fn video_embed(State(state): State<AppState>, Path(id): Path<String>) -> Result<Response> {
-   let tweet = cached_conversation(&state, &id).await?.tweet;
-
-   if !embed_view::has_playable_video(&tweet) {
-      return Err(Error::NotFound("No video found".into()));
+#[page("/i/videos/tweet/{id}")]
+pub async fn video_embed_page(cx: &Cx) -> topcoat::Result<impl View> {
+   let tweet = cached_conversation(state(cx), path_param::<Id>(cx))
+      .await?
+      .tweet;
+   if !has_playable_video(&tweet) {
+      return Err(Error::NotFound("No video found".into()).into());
    }
-
-   let markup = embed_view::render_video_embed(&tweet, &state.config);
-   Ok(Html(markup.into_string()).into_response())
+   Ok(view! {
+      video_embed(tweet: &tweet)
+   })
 }
 
 /// `ActivityPub` JSON endpoint for Discord multi-image support.
@@ -302,17 +327,16 @@ async fn oembed_standard(
    let author_url = format!("{url_prefix}/{}", tweet.user.username);
    let tweet_text = strip_html(&tweet.text);
 
-   // Maud escapes all tweet-controlled text and attribute values.
-   let html = html! {
-      blockquote {
-         p { (tweet_text) }
-         "— " (author_name) " "
-         a href=(format!("{url_prefix}/{}/status/{}", tweet.user.username, tweet.id)) {
-            (tweet.time.map_or_default(format_relative_time))
-         }
-      }
-   }
-   .into_string();
+   let html = format!(
+      r#"<blockquote><p>{}</p>— {} <a href="{}">{}</a></blockquote>"#,
+      html_escape(&tweet_text),
+      html_escape(&author_name),
+      html_escape(&format!(
+         "{url_prefix}/{}/status/{}",
+         tweet.user.username, tweet.id
+      )),
+      tweet.time.map_or_default(format_relative_time),
+   );
 
    let data = StandardOEmbed {
       version: "1.0",

@@ -1,31 +1,32 @@
-use axum::{
-   Router,
-   extract::{
-      Path,
-      Query,
-      State,
-   },
-   response::{
-      Html,
-      IntoResponse as _,
-      Response,
-   },
-   routing::get,
-};
-use axum_extra::extract::CookieJar;
-use maud::html;
-use serde::Deserialize;
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
 
-use super::helpers;
+use topcoat::{
+   context::Cx,
+   router::{
+      page,
+      path_param,
+      query_params,
+   },
+   view::{
+      View,
+      view,
+   },
+};
+
 use crate::{
    AppState,
    cache::keys as cache_keys,
-   error::{
-      Error,
-      Result,
+   error::Result,
+   routes::helpers::{
+      request_prefs,
+      state,
    },
    types::{
-      prefs::Prefs,
       timeline::{
          List,
          PaginatedResult,
@@ -34,53 +35,47 @@ use crate::{
       user::User,
    },
    views::{
-      layout,
-      timeline as timeline_view,
-      user_list,
+      document::document,
+      timeline::{
+         ListTab,
+         list_header,
+         timeline,
+      },
+      user_list::user_list,
    },
 };
 
-#[derive(Debug, Deserialize)]
-pub struct ListQuery {
-   pub cursor:      Option<String>,
+#[query_params(error = bad_request)]
+struct ListQuery {
+   cursor:      Option<String>,
    /// Exclude retweets from list timeline (`?no_retweets=true`).
-   pub no_retweets: Option<String>,
+   no_retweets: Option<String>,
 }
 
-pub fn router() -> Router<AppState> {
-   Router::new()
-      .route("/{username}/lists", get(user_lists_unsupported))
-      .route("/{username}/lists/", get(user_lists_unsupported))
-      .route("/{username}/lists/{slug}", get(list_by_slug))
-      .route("/i/lists/{id}", get(list_by_id))
-      .route("/i/lists/{id}/members", get(list_members))
-}
+path_param!(username);
+path_param!(slug);
+path_param!(id);
 
 /// User lists browsing is not supported.
-async fn user_lists_unsupported(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(username): Path<String>,
-) -> Response {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let content = html! {
-       div class="overlay-panel" {
-           h1 { "User Lists" }
-           p {
+#[page("/{username}/lists")]
+pub async fn user_lists_unsupported(cx: &Cx) -> topcoat::Result<impl View> {
+   let username = path_param::<Username>(cx);
+   let prefs = request_prefs(cx);
+   let title = format!("@{username}'s Lists");
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         <div class="overlay-panel">
+            <h1>"User Lists"</h1>
+            <p>
                "Browsing user lists is not currently supported. "
                "You can access a specific list directly if you have its URL or slug."
-           }
-           p {
-               a href=(format!("/{username}")) { "Go to @" (username) "'s profile" }
-           }
-       }
-   };
-
-   let title = format!("@{username}'s Lists");
-   let markup = layout::PageLayout::new(&state.config, &title, content)
-      .prefs(&prefs)
-      .render();
-   Html(markup.into_string()).into_response()
+            </p>
+            <p><a href=(format!("/{username}"))>"Go to @" (username) "'s profile"</a></p>
+         </div>
+      )
+   })
 }
 
 /// Filter retweets from timeline groups if requested.
@@ -95,157 +90,128 @@ fn maybe_filter_retweets(content: Vec<Vec<Tweet>>, exclude: bool) -> Vec<Vec<Twe
    }
 }
 
-async fn list_by_slug(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path((username, slug)): Path<(String, String)>,
-   Query(query): Query<ListQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
+async fn cached_list(state: &AppState, id: &str) -> Result<List> {
+   let cache_key = cache_keys::list(id);
+   if let Some(cached) = state.cache.get::<List>(&cache_key) {
+      tracing::debug!("Cache hit for list: {id}");
+      return Ok(cached);
+   }
+   let fetched = state.api.get_list(id).await?;
+   state
+      .cache
+      .set(&cache_key, &fetched, state.config.cache.list_minutes * 60);
+   Ok(fetched)
+}
 
-   let list = state.api.get_list_by_slug(&username, &slug).await?;
+#[page("/{username}/lists/{slug}")]
+pub async fn list_by_slug(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let username = path_param::<Username>(cx);
+   let slug = path_param::<Slug>(cx);
+   let query = query_params::<ListQuery>(cx)?;
+   let prefs = request_prefs(cx);
 
-   let timeline = state
+   let list = state.api.get_list_by_slug(username, slug).await?;
+   let tweets = state
       .api
       .get_list_tweets(&list.id, query.cursor.as_deref())
       .await?;
-   let exclude_rts = query.no_retweets.as_deref() == Some("true");
-   let groups = maybe_filter_retweets(timeline.content, exclude_rts);
-   let cursor = timeline.bottom.as_deref();
+   let groups = maybe_filter_retweets(tweets.content, query.no_retweets.as_deref() == Some("true"));
    let base_url = format!("/{username}/lists/{slug}");
+   let title = format!("{} - List by @{username}", list.name);
 
-   let content = html! {
-       div class="timeline-container" {
-           (timeline_view::render_list_header(&list, timeline_view::ListTab::Tweets, &state.config))
-           (timeline_view::render_timeline(&groups, &state.config, cursor, Some(&base_url), None, &prefs, None))
-       }
-   };
-
-   let title = format!("{} - List by @{}", list.name, username);
-   let markup = layout::PageLayout::new(&state.config, &title, content)
-      .description(&list.description)
-      .prefs(&prefs)
-      .render();
-   Ok(Html(markup.into_string()).into_response())
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         description: &list.description,
+         <div class="timeline-container">
+            list_header(list: &list, active: ListTab::Tweets)
+            timeline(groups: &groups, prefs: &prefs, cursor: tweets.bottom.as_deref(), base_url: &base_url)
+         </div>
+      )
+   })
 }
 
-async fn list_by_id(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(id): Path<String>,
-   Query(query): Query<ListQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
+#[page("/i/lists/{id}")]
+pub async fn list_by_id(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let id = path_param::<Id>(cx);
+   let query = query_params::<ListQuery>(cx)?;
+   let prefs = request_prefs(cx);
 
-   let (list, timeline) = tokio::join!(
-      async {
-         let cache_key = cache_keys::list(&id);
-         if let Some(cached) = state.cache.get::<List>(&cache_key) {
-            tracing::debug!("Cache hit for list: {id}");
-            return Ok::<_, Error>(cached);
-         }
-         let fetched = state.api.get_list(&id).await?;
-         state
-            .cache
-            .set(&cache_key, &fetched, state.config.cache.list_minutes * 60);
-         Ok(fetched)
-      },
-      state.api.get_list_tweets(&id, query.cursor.as_deref()),
+   let (list, tweets) = tokio::join!(
+      cached_list(state, id),
+      state.api.get_list_tweets(id, query.cursor.as_deref()),
    );
    let list = list?;
-   let timeline = timeline?;
-   let exclude_rts = query.no_retweets.as_deref() == Some("true");
-   let groups = maybe_filter_retweets(timeline.content, exclude_rts);
-   let cursor = timeline.bottom.as_deref();
+   let tweets = tweets?;
+   let groups = maybe_filter_retweets(tweets.content, query.no_retweets.as_deref() == Some("true"));
    let base_url = format!("/i/lists/{id}");
-
-   let content = html! {
-       div class="timeline-container" {
-           (timeline_view::render_list_header(&list, timeline_view::ListTab::Tweets, &state.config))
-           (timeline_view::render_timeline(&groups, &state.config, cursor, Some(&base_url), None, &prefs, None))
-       }
-   };
-
    let title = format!("{} - List", list.name);
-   let markup = layout::PageLayout::new(&state.config, &title, content)
-      .description(&list.description)
-      .prefs(&prefs)
-      .render();
-   Ok(Html(markup.into_string()).into_response())
+
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         description: &list.description,
+         <div class="timeline-container">
+            list_header(list: &list, active: ListTab::Tweets)
+            timeline(groups: &groups, prefs: &prefs, cursor: tweets.bottom.as_deref(), base_url: &base_url)
+         </div>
+      )
+   })
 }
 
-async fn list_members(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(id): Path<String>,
-   Query(query): Query<ListQuery>,
-) -> Result<Response> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
+async fn cached_members(
+   state: &AppState,
+   id: &str,
+   cursor: Option<&str>,
+) -> Result<PaginatedResult<User>> {
+   if cursor.is_some() {
+      return state.api.get_list_members(id, cursor).await;
+   }
+   let cache_key = cache_keys::list_members(id);
+   if let Some(cached) = state.cache.get::<PaginatedResult<User>>(&cache_key) {
+      tracing::debug!("Cache hit for list members: {id}");
+      return Ok(cached);
+   }
+   let members = state.api.get_list_members(id, None).await?;
+   state
+      .cache
+      .set(&cache_key, &members, state.config.cache.list_minutes * 60);
+   Ok(members)
+}
 
-   let (list, members_result) = tokio::join!(
-      async {
-         let cache_key = cache_keys::list(&id);
-         if let Some(cached) = state.cache.get::<List>(&cache_key) {
-            return Ok::<_, Error>(cached);
-         }
-         let fetched = state.api.get_list(&id).await?;
-         state
-            .cache
-            .set(&cache_key, &fetched, state.config.cache.list_minutes * 60);
-         Ok(fetched)
-      },
-      async {
-         let members_cache_key = cache_keys::list_members(&id);
-         if query.cursor.is_none() {
-            if let Some(cached) = state.cache.get::<PaginatedResult<User>>(&members_cache_key) {
-               tracing::debug!("Cache hit for list members: {id}");
-               return Ok(cached);
-            }
-            let result = state.api.get_list_members(&id, None).await;
-            if let Ok(ref members) = result {
-               state.cache.set(
-                  &members_cache_key,
-                  members,
-                  state.config.cache.list_minutes * 60,
-               );
-            }
-            result
-         } else {
-            state
-               .api
-               .get_list_members(&id, query.cursor.as_deref())
-               .await
-         }
-      },
+#[page("/i/lists/{id}/members")]
+pub async fn list_members(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let id = path_param::<Id>(cx);
+   let query = query_params::<ListQuery>(cx)?;
+   let prefs = request_prefs(cx);
+
+   let (list, members) = tokio::join!(
+      cached_list(state, id),
+      cached_members(state, id, query.cursor.as_deref()),
    );
    let list = list?;
+   let members = members?;
+   let base_url = format!("/i/lists/{id}/members");
+   let title = format!("{} - Members", list.name);
 
-   match members_result {
-      Ok(members) => {
-         let cursor = members.bottom.as_deref();
-         let base_url = format!("/i/lists/{id}/members");
-
-         let content = html! {
-             div class="timeline-container" {
-                 (timeline_view::render_list_header(&list, timeline_view::ListTab::Members, &state.config))
-                 (user_list::render_user_list(&members.content, &state.config, cursor, Some(&base_url), &prefs))
-             }
-         };
-
-         let title = format!("{} - Members", list.name);
-         let markup = layout::PageLayout::new(&state.config, &title, content)
-            .prefs(&prefs)
-            .render();
-         Ok(Html(markup.into_string()).into_response())
-      },
-      Err(err) => {
-         Ok(helpers::api_error_titled(
-            &state.config,
-            &err,
-            "Error loading members",
-         ))
-      },
-   }
+   Ok(view! {
+      document(
+         title: &title,
+         prefs: &prefs,
+         <div class="timeline-container">
+            list_header(list: &list, active: ListTab::Members)
+            user_list(
+               users: &members.content,
+               prefs: &prefs,
+               cursor: members.bottom.as_deref(),
+               base_url: &base_url,
+            )
+         </div>
+      )
+   })
 }
-
-// List header rendering lives in views::timeline::render_list_header

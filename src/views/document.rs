@@ -9,18 +9,17 @@ use std::{
    fs,
    ops::Index,
    path::Path,
+   sync::LazyLock,
 };
 
 use percent_encoding::{
    NON_ALPHANUMERIC,
    utf8_percent_encode,
 };
+use regex::Regex;
 use topcoat::{
    Result,
-   context::{
-      Cx,
-      app_context,
-   },
+   context::Cx,
    runtime::{
       Signal,
       script,
@@ -29,49 +28,58 @@ use topcoat::{
    view::{
       Child,
       View,
+      class,
       component,
       view,
    },
 };
 
 use crate::{
-   AppState,
    types::prefs::{
       Prefs,
       Toggle,
    },
-   views::layout::{
-      CLEAN_CSS,
-      FONTELLO_CSS,
-      STYLE_CSS,
-   },
+   views::renderutils::config,
 };
+
+pub const STYLE_CSS: &str = "/css/style.css";
+pub const CLEAN_CSS: &str = "/css/clean.css";
+pub const FONTELLO_CSS: &str = "/css/fontello.css";
 
 const X_LOGO_PATH: &str = "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 \
                            6.231H2.744l7.737-8.834L1.254 2.25H8.08l4.259 5.622L18.244 \
                            2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z";
+
+const SCRIPTS: [&str; 4] = [
+   "/js/htmx.min.js",
+   "/js/site.js",
+   "/js/threadContext.js",
+   "/js/imageLightbox.js",
+];
 
 /// Preferences as browser signals, so a change restyles the page before saving.
 pub struct LivePrefs {
    theme:     Signal<String>,
    font_size: Signal<String>,
    toggles:   Vec<Signal<bool>>,
+   themes:    Vec<String>,
 }
 
 impl LivePrefs {
-   pub fn new(cx: &Cx, prefs: &Prefs, themes: &[String]) -> Self {
+   pub fn new(cx: &Cx, prefs: &Prefs, themes: Vec<String>) -> Self {
       let theme = themes
          .iter()
          .find(|name| theme_matches(name, &prefs.theme))
          .map_or_else(|| prefs.theme.clone(), Clone::clone);
 
       Self {
-         theme:     signal(cx, || theme),
+         theme: signal(cx, || theme),
          font_size: signal(cx, || prefs.font_size.clone()),
-         toggles:   Toggle::ALL
+         toggles: Toggle::ALL
             .iter()
             .map(|&toggle| signal(&cx.keyed(toggle.name()), || toggle.field(prefs)))
             .collect(),
+         themes,
       }
    }
 
@@ -81,6 +89,10 @@ impl LivePrefs {
 
    pub const fn font_size(&self) -> &Signal<String> {
       &self.font_size
+   }
+
+   pub fn themes(&self) -> &[String] {
+      &self.themes
    }
 }
 
@@ -95,6 +107,21 @@ impl Index<Toggle> for LivePrefs {
 pub fn theme_matches(name: &str, selected: &str) -> bool {
    name.eq_ignore_ascii_case(selected)
       || name.to_lowercase().replace(' ', "_") == selected.to_lowercase()
+}
+
+fn theme_href(name: &str) -> Option<String> {
+   (!name.is_empty() && !name.eq_ignore_ascii_case("teapot"))
+      .then(|| format!("/css/themes/{}.css", name.to_lowercase().replace(' ', "_")))
+}
+
+const fn font_size_style(size: &str) -> &'static str {
+   match size.as_bytes() {
+      b"Small" => "font-size: 14px",
+      b"Medium" => "font-size: 16px",
+      b"Large" => "font-size: 18px",
+      b"X-Large" => "font-size: 20px",
+      _ => "",
+   }
 }
 
 /// Discover available themes from CSS files in the static directory.
@@ -149,31 +176,67 @@ pub fn themes(static_dir: &str) -> Vec<String> {
    )
 }
 
-#[component]
-pub async fn document(
-   cx: &Cx,
-   title: &str,
-   description: &str,
-   live: &LivePrefs,
-   themes: &[String],
-   #[default] referer: &str,
-   #[default] child: Child<'_>,
-) -> Result<impl View> {
-   let config = &app_context::<AppState>(cx).config;
-   let server_title = config.server.title.as_str();
+static A_RE: LazyLock<Regex> =
+   LazyLock::new(|| Regex::new(r#"<a\s+[^>]*href="([^"]*)"[^>]*>[^<]*</a>"#).unwrap());
 
-   let theme = live.theme();
-   let font_size = live.font_size();
-   let sticky_nav = &live[Toggle::StickyNav];
-   let twemoji = &live[Toggle::UseTwemoji];
-   let theme_links = themes
-      .iter()
-      .filter(|name| !name.eq_ignore_ascii_case("teapot"))
-      .map(|name| {
-         let href = format!("/css/themes/{}.css", name.to_lowercase().replace(' ', "_"));
-         (name.clone(), href)
-      })
-      .collect::<Vec<_>>();
+/// Strip HTML tags from text, replacing `<a href="...">display</a>` with the
+/// actual URL. Used for `og:description` where we want link targets, not
+/// display text.
+pub fn strip_html(text: &str) -> String {
+   // Show each <a> tag's href URL instead of its display text
+   let text = A_RE.replace_all(text, |caps: &regex::Captures| {
+      let url = &caps[1];
+      if url.contains("http") {
+         url.to_owned()
+      } else {
+         caps[0].to_owned()
+      }
+   });
+
+   let mut result = String::new();
+   let mut in_tag = false;
+   for ch in text.chars() {
+      match ch {
+         '<' => in_tag = true,
+         '>' => in_tag = false,
+         _ if !in_tag => result.push(ch),
+         _ => {},
+      }
+   }
+   result
+}
+
+/// The page shell. `head` adds tags after the `OpenGraph` block, and
+/// `custom_og` lets `head` supply that block itself. With `live`, the theme,
+/// font size and toggles follow their signals. A `fragment` renders only the
+/// child, for infinite scroll requests.
+#[component]
+pub async fn document<'a>(
+   cx: &Cx,
+   title: &'a str,
+   prefs: &'a Prefs,
+   #[default] live: Option<&'a LivePrefs>,
+   #[default] description: &'a str,
+   #[default] rss: &'a str,
+   #[default] canonical: &'a str,
+   #[default] referer: &'a str,
+   #[default] og_image: &'a str,
+   #[default("article")] og_type: &'a str,
+   #[default("#1F1F1F")] theme_color: &'a str,
+   #[default] custom_og: bool,
+   #[default] head: Option<Child<'a>>,
+   #[default] fragment: bool,
+   #[default] child: Child<'a>,
+) -> Result<impl View> {
+   let config = config(cx);
+   let server_title = config.server.title.as_str();
+   let has_head = head.is_some();
+   let rss = (config.config.enable_rss && !rss.is_empty()).then_some(rss);
+   let canonical_or_x = if canonical.is_empty() {
+      "https://x.com"
+   } else {
+      canonical
+   };
    let settings_href = if referer.is_empty() {
       "/settings".to_owned()
    } else {
@@ -182,153 +245,261 @@ pub async fn document(
          utf8_percent_encode(referer, NON_ALPHANUMERIC)
       )
    };
-   let opensearch = format!("{}/opensearch", config.url_prefix());
+   let page_title = if title.is_empty() {
+      server_title.to_owned()
+   } else {
+      format!("{title} | {server_title}")
+   };
+   let live_themes = live.map_or_default(|live| {
+      live
+         .themes()
+         .iter()
+         .filter_map(|name| theme_href(name).map(|href| (name.clone(), href)))
+         .collect::<Vec<_>>()
+   });
+   let static_theme = theme_href(&prefs.theme).filter(|_| live.is_none());
+   let signals = live.map(|live| {
+      (
+         live.theme(),
+         live.font_size(),
+         &live[Toggle::StickyNav],
+         &live[Toggle::UseTwemoji],
+      )
+   });
 
    Ok(view! {
-      <!DOCTYPE html>
-      <html lang="en">
-         <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta name="theme-color" content="#1F1F1F">
-            <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-            <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-            <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-            <link rel="manifest" href="/site.webmanifest">
-            <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#ff6c60">
-            <link
-               rel="search"
-               type="application/opensearchdescription+xml"
-               title=(server_title)
-               href=(opensearch)
-            >
-            <link rel="stylesheet" type="text/css" href=(STYLE_CSS)>
-            <link rel="stylesheet" type="text/css" href=(CLEAN_CSS)>
-            <link rel="stylesheet" type="text/css" href=(FONTELLO_CSS)>
-            for (name, href) in theme_links {
-               <link
-                  rel="stylesheet"
-                  type="text/css"
-                  href=(href)
-                  :disabled=$(theme.get() != name)
-               >
-            }
-            <link
-               rel="stylesheet"
-               type="text/css"
-               href="/css/twemoji.css"
-               :disabled=$(!twemoji.get())
-            >
-            <title>(title) " | " (server_title)</title>
-            <meta property="og:site_name" content=(server_title)>
-            <meta property="og:locale" content="en_US">
-            <meta property="og:title" content=(title)>
-            <meta property="og:description" content=(description)>
-            <meta property="og:type" content="article">
-            script()
-            <link
-               rel="preload"
-               type="font/woff2"
-               as="font"
-               href="/fonts/fontello.woff2?61663884"
-               crossorigin="anonymous"
-            >
-         </head>
-         <body
-            :class=$(if sticky_nav.get() { "fixed-nav" } else { "" })
-            :style=$({
-               let size = font_size.get();
-               if size == "Small" {
-                  "font-size: 14px"
-               } else if size == "Medium" {
-                  "font-size: 16px"
-               } else if size == "Large" {
-                  "font-size: 18px"
-               } else if size == "X-Large" {
-                  "font-size: 20px"
+      if fragment {
+         (child)
+      } else {
+         <!DOCTYPE html>
+         <html lang="en">
+            <head>
+               <meta charset="utf-8">
+               <meta name="viewport" content="width=device-width, initial-scale=1.0">
+               if custom_og {
+                  <meta property="theme-color" content=(theme_color)>
                } else {
-                  ""
+                  <meta name="theme-color" content=(theme_color)>
+                  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
                }
-            })
-         >
-            <nav>
-               <div class="inner-nav">
-                  <div class="nav-item">
-                     <a class="site-brand" href="/">
-                        <img class="site-logo" src="/logo.svg" alt="">
-                        <span class="site-name">(server_title)</span>
-                     </a>
-                  </div>
-                  <div class="nav-item right">
-                     <a class="nav-icon" title="Search" href="/search">
-                        <span class="icon-search" aria-hidden="true"></span>
-                     </a>
-                     <a class="nav-icon" title="Open in X" href="https://x.com">
-                        <svg
-                           viewBox="0 0 24 24"
-                           width="18"
-                           height="18"
-                           fill="currentColor"
-                           aria-hidden="true"
-                        >
-                           <path d=(X_LOGO_PATH)></path>
-                        </svg>
-                     </a>
-                     <a class="nav-icon" title="About" href="/about">
-                        <span class="icon-info" aria-hidden="true"></span>
-                     </a>
-                     <a class="nav-icon" title="Preferences" href=(&settings_href)>
-                        <span class="icon-cog" aria-hidden="true"></span>
-                     </a>
-                  </div>
-                  <details class="mobile-nav">
-                     <summary aria-label="Open navigation menu">
-                        <svg
-                           viewBox="0 0 24 24"
-                           width="19"
-                           height="19"
-                           fill="none"
-                           stroke="currentColor"
-                           stroke-width="1.8"
-                           stroke-linecap="round"
-                           aria-hidden="true"
-                        >
-                           <path d="M4 7h16M4 12h16M4 17h16"></path>
-                        </svg>
-                     </summary>
-                     <div class="mobile-nav-menu">
-                        <a href="/search">
-                           <span class="icon-search" aria-hidden="true"></span>
-                           "Search"
-                        </a>
-                        <a href="https://x.com">
-                           <svg
-                              viewBox="0 0 24 24"
-                              width="15"
-                              height="15"
-                              fill="currentColor"
-                              aria-hidden="true"
-                           >
-                              <path d=(X_LOGO_PATH)></path>
-                           </svg>
-                           "Open in X"
-                        </a>
-                        <a href="/about">
-                           <span class="icon-info" aria-hidden="true"></span>
-                           "About"
-                        </a>
-                        <a href=(&settings_href)>
-                           <span class="icon-cog" aria-hidden="true"></span>
-                           "Preferences"
-                        </a>
-                     </div>
-                  </details>
+               <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+               <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+               <link rel="manifest" href="/site.webmanifest">
+               <link
+                  rel="mask-icon"
+                  href="/safari-pinned-tab.svg"
+                  color=(if custom_og { theme_color } else { "#ff6c60" })
+               >
+               // OpenSearch description (full absolute URL to /opensearch)
+               <link
+                  rel="search"
+                  type="application/opensearchdescription+xml"
+                  title=(server_title)
+                  href=(format!("{}/opensearch", config.url_prefix()))
+               >
+               if let Some(rss) = rss {
+                  <link rel="alternate" type="application/rss+xml" title="RSS feed" href=(rss)>
+               }
+               // Main CSS + icon fonts (with cache-busting)
+               <link rel="stylesheet" type="text/css" href=(STYLE_CSS)>
+               // After the component styles, whose layout decisions it replaces.
+               <link rel="stylesheet" type="text/css" href=(CLEAN_CSS)>
+               <link rel="stylesheet" type="text/css" href=(FONTELLO_CSS)>
+               if let Some(href) = static_theme {
+                  <link rel="stylesheet" type="text/css" href=(href)>
+               }
+               if let Some((theme, _, _, twemoji)) = signals {
+                  for (name, href) in live_themes {
+                     <link
+                        rel="stylesheet"
+                        type="text/css"
+                        href=(href)
+                        :disabled=$(theme.get() != name)
+                     >
+                  }
+                  <link
+                     rel="stylesheet"
+                     type="text/css"
+                     href="/css/twemoji.css"
+                     :disabled=$(!twemoji.get())
+                  >
+               } else if prefs.use_twemoji {
+                  // Twemoji font (opt-in via preferences, on by default)
+                  <link rel="stylesheet" type="text/css" href="/css/twemoji.css">
+               }
+               <title>(page_title)</title>
+               if !custom_og {
+                  <meta property="og:site_name" content=(server_title)>
+                  <meta property="og:locale" content="en_US">
+                  <meta property="og:title" content=(title)>
+                  <meta property="og:description" content=(strip_html(description))>
+                  // head provides its own og:type and twitter:card when present
+                  // (e.g. video/player for GIF embeds). Discord takes the first
+                  // occurrence, so suppress defaults.
+                  if !has_head {
+                     <meta property="og:type" content=(og_type)>
+                  }
+                  if !og_image.is_empty() {
+                     <meta property="og:image" content=(og_image)>
+                     <meta property="twitter:image:src" content=(og_image)>
+                  }
+                  if !has_head && rss.is_some() {
+                     <meta name="twitter:card" content="summary">
+                  }
+               }
+               // Custom head content (OG overrides, oEmbed, ActivityPub)
+               if let Some(head) = head {
+                  (head)
+               }
+               // Link to original x.com URL
+               if !canonical.is_empty() {
+                  <link rel="alternate" href=(canonical) title="View on X">
+               }
+               // Scripts in <head> with defer
+               for src in SCRIPTS {
+                  <script src=(src) defer=""></script>
+               }
+               if prefs.infinite_scroll {
+                  <script src="/js/infiniteScroll.js" defer=""></script>
+               }
+               if live.is_some() {
+                  script()
+               }
+               <link
+                  rel="preload"
+                  type="font/woff2"
+                  as="font"
+                  href="/fonts/fontello.woff2?61663884"
+                  crossorigin="anonymous"
+               >
+            </head>
+            if let Some((_, font_size, sticky_nav, _)) = signals {
+               <body
+                  :class=$(if sticky_nav.get() { "fixed-nav" } else { "" })
+                  :style=$({
+                     let size = font_size.get();
+                     if size == "Small" {
+                        "font-size: 14px"
+                     } else if size == "Medium" {
+                        "font-size: 16px"
+                     } else if size == "Large" {
+                        "font-size: 18px"
+                     } else if size == "X-Large" {
+                        "font-size: 20px"
+                     } else {
+                        ""
+                     }
+                  })
+               >
+                  navbar(rss: rss, canonical: canonical_or_x, settings_href: &settings_href)
+                  <main><div class="container">(child)</div></main>
+               </body>
+            } else {
+               <body
+                  class=(class!("fixed-nav" if prefs.sticky_nav))
+                  style=(Some(font_size_style(&prefs.font_size)).filter(|style| !style.is_empty()))
+               >
+                  navbar(rss: rss, canonical: canonical_or_x, settings_href: &settings_href)
+                  <main><div class="container">(child)</div></main>
+               </body>
+            }
+         </html>
+      }
+   })
+}
+
+#[component]
+async fn navbar<'a>(
+   cx: &Cx,
+   rss: Option<&'a str>,
+   canonical: &'a str,
+   settings_href: &'a str,
+) -> Result<impl View> {
+   let server_title = config(cx).server.title.as_str();
+   Ok(view! {
+      <nav>
+         <div class="inner-nav">
+            <div class="nav-item">
+               <a class="site-brand" href="/">
+                  <img class="site-logo" src="/logo.svg" alt="">
+                  <span class="site-name">(server_title)</span>
+               </a>
+            </div>
+            <div class="nav-item right">
+               <a class="nav-icon" title="Search" href="/search">
+                  <span class="icon-search" aria-hidden="true"></span>
+               </a>
+               if let Some(rss) = rss {
+                  <a class="nav-icon" title="RSS Feed" href=(rss)>
+                     <span class="icon-rss" aria-hidden="true"></span>
+                  </a>
+               }
+               <a class="nav-icon" title="Open in X" href=(canonical)>
+                  <svg
+                     viewBox="0 0 24 24"
+                     xmlns="http://www.w3.org/2000/svg"
+                     width="18"
+                     height="18"
+                     fill="currentColor"
+                     aria-hidden="true"
+                  >
+                     <path d=(X_LOGO_PATH)></path>
+                  </svg>
+               </a>
+               <a class="nav-icon" title="About" href="/about">
+                  <span class="icon-info" aria-hidden="true"></span>
+               </a>
+               <a class="nav-icon" title="Preferences" href=(settings_href)>
+                  <span class="icon-cog" aria-hidden="true"></span>
+               </a>
+            </div>
+            <details class="mobile-nav">
+               <summary aria-label="Open navigation menu">
+                  <svg
+                     viewBox="0 0 24 24"
+                     width="19"
+                     height="19"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.8"
+                     stroke-linecap="round"
+                     aria-hidden="true"
+                  >
+                     <path d="M4 7h16M4 12h16M4 17h16"></path>
+                  </svg>
+               </summary>
+               <div class="mobile-nav-menu">
+                  <a href="/search"><span class="icon-search" aria-hidden="true"></span>"Search"</a>
+                  if let Some(rss) = rss {
+                     <a href=(rss)><span class="icon-rss" aria-hidden="true"></span>"RSS feed"</a>
+                  }
+                  <a href=(canonical)>
+                     <svg
+                        viewBox="0 0 24 24"
+                        width="15"
+                        height="15"
+                        fill="currentColor"
+                        aria-hidden="true"
+                     >
+                        <path d=(X_LOGO_PATH)></path>
+                     </svg>
+                     "Open in X"
+                  </a>
+                  <a href="/about"><span class="icon-info" aria-hidden="true"></span>"About"</a>
+                  <a href=(settings_href)><span class="icon-cog" aria-hidden="true"></span>"Preferences"</a>
                </div>
-            </nav>
-            <main>
-               <div class="container">(child)</div>
-            </main>
-         </body>
-      </html>
+            </details>
+         </div>
+      </nav>
+   })
+}
+
+/// Render an error page body.
+#[component]
+pub async fn error_panel(message: &str) -> Result<impl View> {
+   Ok(view! {
+      <div class="panel-container">
+         <div class="error-panel"><span>(message)</span></div>
+      </div>
    })
 }

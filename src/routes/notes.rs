@@ -1,70 +1,64 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[page] and view! expansions"
+)]
+
 use std::collections::{
    HashMap,
    HashSet,
    VecDeque,
 };
 
-use axum::{
-   Router,
-   extract::{
-      Path,
-      State,
-   },
-   response::{
-      Html,
-      IntoResponse,
-   },
-   routing::get,
-};
-use axum_extra::extract::CookieJar;
-use maud::html;
 use tokio::task::JoinSet;
+use topcoat::{
+   context::Cx,
+   router::{
+      page,
+      path_param,
+   },
+   view::{
+      View,
+      view,
+   },
+};
 
 use crate::{
-   AppState,
    api::budget,
-   error::Result,
-   types::{
-      article::{
-         ArticleBlockType,
-         ArticleEntityType,
-      },
-      prefs::Prefs,
+   routes::helpers::{
+      request_prefs,
+      state,
+   },
+   types::article::{
+      ArticleBlockType,
+      ArticleEntityType,
    },
    utils::formatters,
    views::{
-      layout::PageLayout,
-      notes as notes_view,
+      document::document,
+      notes::note,
    },
 };
 
-pub fn router() -> Router<AppState> {
-   Router::new()
-      .route("/{username}/article/{id}", get(show_note))
-      .route("/i/article/{id}", get(show_note_by_id))
-}
+path_param!(id);
 
 /// Serves `/i/article/{id}` using only the tweet ID.
-async fn show_note_by_id(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path(id): Path<String>,
-) -> Result<impl IntoResponse> {
-   show_note_inner(state, jar, id).await
+#[page("/i/article/{id}")]
+pub async fn show_note_by_id(cx: &Cx) -> topcoat::Result<impl View> {
+   show_note_inner(cx).await
 }
 
 /// Serves `/{username}/article/{id}` with username context.
-async fn show_note(
-   State(state): State<AppState>,
-   jar: CookieJar,
-   Path((_username, id)): Path<(String, String)>,
-) -> Result<impl IntoResponse> {
-   show_note_inner(state, jar, id).await
+#[page("/{username}/article/{id}")]
+pub async fn show_note(cx: &Cx) -> topcoat::Result<impl View> {
+   show_note_inner(cx).await
 }
 
-async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<impl IntoResponse> {
-   let prefs = Prefs::from_cookies(&jar, &state.config);
-   let (_tweet, article) = state.api.get_article_tweet(&id).await?;
+async fn show_note_inner(cx: &Cx) -> topcoat::Result<impl View> {
+   let state = state(cx);
+   let prefs = request_prefs(cx);
+   let (_tweet, article) = state.api.get_article_tweet(path_param::<Id>(cx)).await?;
 
    // Fetch embedded tweets concurrently with a small bound so a large article
    // cannot consume the entire upstream session pool.
@@ -101,8 +95,6 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
       }
    }
 
-   let content = notes_view::render_note(&article, &tweets, &state.config, &prefs);
-
    let description = article
       .paragraphs
       .iter()
@@ -128,18 +120,21 @@ async fn show_note_inner(state: AppState, jar: CookieJar, id: String) -> Result<
    };
 
    // twitter:card = summary_large_image for big cover preview in Discord/etc
-   let head_extra = html! {
-      @if !article.cover_image.is_empty() {
-         meta name="twitter:card" content="summary_large_image";
+   let has_cover = !article.cover_image.is_empty();
+   let head = view! { cx =>
+      if has_cover {
+         <meta name="twitter:card" content="summary_large_image">
       }
    };
 
-   let markup = PageLayout::new(&state.config, &article.title, content)
-      .prefs(&prefs)
-      .description(&description)
-      .og_image(&og_image)
-      .head_extra(&head_extra)
-      .render();
-
-   Ok(Html(markup.into_string()))
+   Ok(view! { cx =>
+      document(
+         title: &article.title,
+         prefs: &prefs,
+         description: &description,
+         og_image: &og_image,
+         head: Some(head.into()),
+         note(article: &article, tweets: &tweets, prefs: &prefs)
+      )
+   })
 }

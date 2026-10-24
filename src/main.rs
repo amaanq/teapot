@@ -1,3 +1,7 @@
+// topcoat views nest one type per element, and a full tweet page goes deeper
+// than the default limit of 128.
+#![recursion_limit = "256"]
+
 mod api;
 mod cache;
 mod config;
@@ -35,18 +39,7 @@ use misstep::{
    ResultExt as _,
 };
 use tokio::net::TcpListener;
-use topcoat::{
-   asset::{
-      AssetBundle,
-      RouterBuilderAssetExt as _,
-   },
-   cookie::RouterBuilderCookieExt as _,
-   router::{
-      Router as PageRouter,
-      tower::TowerService,
-   },
-   runtime::RouterBuilderRuntimeExt as _,
-};
+use topcoat::asset::AssetBundle;
 use tower::{
    Layer as _,
    limit::ConcurrencyLimitLayer,
@@ -174,28 +167,14 @@ async fn main() -> Result<()> {
       trusted_proxies: trusted_proxies.into(),
    };
 
-   let pages = TowerService::new(
-      PageRouter::builder()
-         .app_context(state.clone())
-         .assets(
-            env::var("TEAPOT_ASSETS_DIR")
-               .map_or_else(|_| AssetBundle::load(), AssetBundle::load_dir)
-               .context("loading the topcoat asset bundle")?,
-         )
-         .cookies()
-         .page(routes::preferences::settings)
-         .route(routes::preferences::save_toggle)
-         .route(routes::preferences::save_text)
-         .runtime()
-         .build(),
-   );
+   let assets = env::var("TEAPOT_ASSETS_DIR")
+      .map_or_else(|_| AssetBundle::load(), AssetBundle::load_dir)
+      .context("loading the topcoat asset bundle")?;
 
    // Build the router with specific routes before static files
    let static_dir = config.server.static_dir.clone();
    let app = Router::new()
-      .merge(routes::app::router())
-      .route_service("/settings", pages.clone())
-      .route_service("/_topcoat/{*rest}", pages)
+      .merge(routes::app::router(&state, assets))
       .nest_service("/public", ServeDir::new(&static_dir))
       .nest_service("/css", ServeDir::new(format!("{static_dir}/css")))
       .nest_service("/js", ServeDir::new(format!("{static_dir}/js")))

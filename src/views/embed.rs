@@ -1,16 +1,23 @@
+#![expect(
+   clippy::same_name_method,
+   clippy::shadow_same,
+   clippy::shadow_unrelated,
+   reason = "topcoat's #[component] and view! expansions"
+)]
+
 use std::fmt::Write as _;
 
-use maud::{
-   DOCTYPE,
-   Markup,
-   html,
+use topcoat::{
+   Result,
+   context::Cx,
+   view::{
+      Child,
+      View,
+      component,
+      view,
+   },
 };
 
-use super::{
-   embed_activity::ActivityId,
-   layout::strip_html,
-   tweet::TweetRenderer,
-};
 use crate::{
    config::{
       Config,
@@ -27,6 +34,17 @@ use crate::{
       },
    },
    utils::formatters,
+   views::{
+      document::{
+         FONTELLO_CSS,
+         STYLE_CSS,
+         document,
+         strip_html,
+      },
+      embed_activity::ActivityId,
+      renderutils::config,
+      tweet::tweet_item,
+   },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -246,113 +264,131 @@ fn build_discord_embed_description(tweet: &Tweet) -> String {
    description
 }
 
-/// Render OG image, twitter:image, and video/gif meta tags for a tweet.
-/// Shared between `render_tweet_embed` and `render_status_page`.
-fn render_media_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> Markup {
-   let images = og_images_with_quote(tweet);
+/// OG image, twitter:image, and video/gif meta tags for a tweet. Shared
+/// between `tweet_embed` and `status_page`.
+#[component]
+async fn media_meta_tags(cx: &Cx, tweet: &Tweet) -> Result<impl View> {
+   let config = config(cx);
+   let url_prefix = config.url_prefix();
+   let base64 = config.config.base64_media;
    let photos = photos_with_quote(tweet);
    let video_source = video_source_with_quote(tweet);
-   let has_video = video_source.is_some();
    let gif_source = gif_source_with_quote(tweet);
-   let has_gif = gif_source.is_some();
+   let images = og_images_with_quote(tweet)
+      .into_iter()
+      .map(|image| {
+         let size = photos
+            .iter()
+            .find(|photo| photo.url == image && photo.width > 0 && photo.height > 0)
+            .map(|photo| (photo.width, photo.height));
+         (
+            format!("{url_prefix}{}", formatters::get_pic_url(image, base64)),
+            size,
+         )
+      })
+      .collect::<Vec<_>>();
+   let og_type = if video_source.is_some() {
+      "video.other"
+   } else if images.is_empty() {
+      "article"
+   } else {
+      "photo"
+   };
+   let player = video_source.and_then(|(media_tweet, video)| {
+      let mp4_url = video.best_mp4_url()?;
+      let (raw_width, raw_height) = video.best_dimensions();
+      let (width, height) = formatters::scale_dimensions_for_embed(raw_width, raw_height);
+      let video_url = format!(
+         "{url_prefix}{}",
+         formatters::get_vid_url(mp4_url, &config.config.hmac_key, base64)
+      );
+      Some((
+         video_url,
+         formatters::get_video_embed_url(config, media_tweet.id),
+         width,
+         height,
+      ))
+   });
+   // Point og:image for GIF tweets directly at the transcoded GIF. Discord's
+   // image proxy will fetch it, get image/gif content, and render it animated.
+   let gif_image = gif_source.map(|(_, gif)| {
+      match config.gif_transcoding.mode {
+         GifTranscodingMode::Local => {
+            format!(
+               "{url_prefix}{}",
+               formatters::get_gif_url(&gif.url, &config.config.hmac_key, base64)
+            )
+         },
+         GifTranscodingMode::External => {
+            formatters::get_external_gif_url(&gif.url, &config.gif_transcoding.external_domain)
+         },
+         GifTranscodingMode::Off => {
+            format!(
+               "{url_prefix}{}",
+               formatters::get_pic_url(&gif.thumb, base64)
+            )
+         },
+      }
+   });
+   let has_video = video_source.is_some();
+   let has_gif = gif_image.is_some();
 
-   html! {
-       @if has_video {
-           meta property="og:type" content="video.other";
-       } @else if !images.is_empty() {
-           meta property="og:type" content="photo";
-       } @else {
-           meta property="og:type" content="article";
-       }
-
-       // Skip image meta tags for GIF tweets because their branch provides og:image
-       @if !has_gif {
-           @for image in &images {
-               @let pic_url = formatters::get_pic_url(image, config.config.base64_media);
-               @let full_pic_url = format!("{url_prefix}{pic_url}");
-               meta property="og:image" content=(full_pic_url);
-               @if let Some(photo) = photos.iter().find(|photo| photo.url == *image) {
-                   @if photo.width > 0 && photo.height > 0 {
-                       meta property="og:image:width" content=(photo.width);
-                       meta property="og:image:height" content=(photo.height);
-                   }
-               }
-           }
-       }
-
-       @if has_video {
-           meta property="twitter:image" content="0";
-       } @else if !has_gif {
-           @for image in &images {
-               @let pic_url = formatters::get_pic_url(image, config.config.base64_media);
-               @let full_pic_url = format!("{url_prefix}{pic_url}");
-               meta property="twitter:image" content=(full_pic_url);
-               @if let Some(photo) = photos.iter().find(|photo| photo.url == *image) {
-                   @if photo.width > 0 && photo.height > 0 {
-                       meta property="twitter:image:width" content=(photo.width);
-                       meta property="twitter:image:height" content=(photo.height);
-                   }
-               }
-           }
-       }
-
-       @if let Some((media_tweet, video)) = video_source {
-           @let (raw_w, raw_h) = video.best_dimensions();
-           @let (width, height) = formatters::scale_dimensions_for_embed(raw_w, raw_h);
-           @let embed_url = formatters::get_video_embed_url(config, media_tweet.id);
-
-           @if let Some(mp4_url) = video.best_mp4_url() {
-               @let vid_url = formatters::get_vid_url(mp4_url, &config.config.hmac_key, config.config.base64_media);
-               @let full_vid_url = format!("{url_prefix}{vid_url}");
-
-               meta property="og:video" content=(full_vid_url);
-               meta property="og:video:secure_url" content=(full_vid_url);
-               meta property="og:video:type" content="video/mp4";
-               meta property="og:video:width" content=(width);
-               meta property="og:video:height" content=(height);
-
-               meta name="twitter:card" content="player";
-               meta name="twitter:player" content=(embed_url);
-               meta name="twitter:player:width" content=(width);
-               meta name="twitter:player:height" content=(height);
-               meta name="twitter:player:stream" content=(full_vid_url);
-               meta name="twitter:player:stream:content_type" content="video/mp4";
-           }
-       } @else if let Some((_, gif)) = gif_source {
-           // Point og:image for GIF tweets directly at the transcoded GIF.
-           // Discord's image proxy will fetch it, get image/gif content,
-           // and render it animated.
-           @match config.gif_transcoding.mode {
-               GifTranscodingMode::Local => {
-                   @let gif_url = formatters::get_gif_url(&gif.url, &config.config.hmac_key, config.config.base64_media);
-                   @let full_gif_url = format!("{url_prefix}{gif_url}");
-                   meta property="og:image" content=(full_gif_url);
-                   meta property="twitter:image" content=(full_gif_url);
-               },
-               GifTranscodingMode::External => {
-                   @let ext_gif_url = formatters::get_external_gif_url(&gif.url, &config.gif_transcoding.external_domain);
-                   meta property="og:image" content=(ext_gif_url);
-                   meta property="twitter:image" content=(ext_gif_url);
-               },
-               GifTranscodingMode::Off => {
-                   @let thumb_url = formatters::get_pic_url(&gif.thumb, config.config.base64_media);
-                   @let full_thumb_url = format!("{url_prefix}{thumb_url}");
-                   meta property="og:image" content=(full_thumb_url);
-                   meta property="twitter:image" content=(full_thumb_url);
-               },
-           }
-           meta name="twitter:card" content="summary_large_image";
-       } @else if !images.is_empty() {
-           meta name="twitter:card" content="summary_large_image";
-       } @else {
-           meta name="twitter:card" content="summary";
-       }
-   }
+   Ok(view! {
+      <meta property="og:type" content=(og_type)>
+      // Skip image meta tags for GIF tweets because their branch provides og:image
+      if !has_gif {
+         for &(ref url, size) in &images {
+            <meta property="og:image" content=(url)>
+            if let Some((width, height)) = size {
+               <meta property="og:image:width" content=(width)>
+               <meta property="og:image:height" content=(height)>
+            }
+         }
+      }
+      if has_video {
+         <meta property="twitter:image" content="0">
+      } else if !has_gif {
+         for &(ref url, size) in &images {
+            <meta property="twitter:image" content=(url)>
+            if let Some((width, height)) = size {
+               <meta property="twitter:image:width" content=(width)>
+               <meta property="twitter:image:height" content=(height)>
+            }
+         }
+      }
+      if has_video {
+         if let Some((video_url, embed_url, width, height)) = player {
+            <meta property="og:video" content=(&video_url)>
+            <meta property="og:video:secure_url" content=(&video_url)>
+            <meta property="og:video:type" content="video/mp4">
+            <meta property="og:video:width" content=(width)>
+            <meta property="og:video:height" content=(height)>
+            <meta name="twitter:card" content="player">
+            <meta name="twitter:player" content=(embed_url)>
+            <meta name="twitter:player:width" content=(width)>
+            <meta name="twitter:player:height" content=(height)>
+            <meta name="twitter:player:stream" content=(&video_url)>
+            <meta name="twitter:player:stream:content_type" content="video/mp4">
+         }
+      } else if let Some(gif_image) = gif_image {
+         <meta property="og:image" content=(&gif_image)>
+         <meta property="twitter:image" content=(&gif_image)>
+         <meta name="twitter:card" content="summary_large_image">
+      } else if !images.is_empty() {
+         <meta name="twitter:card" content="summary_large_image">
+      } else {
+         <meta name="twitter:card" content="summary">
+      }
+   })
 }
 
 /// Discord normally gets tweet media from `/api/v1/statuses/{id}`. Broadcasts
 /// keep an OG fallback because Discord sometimes skips that second request.
-fn render_discord_activity_meta_tags(tweet: &Tweet, config: &Config, url_prefix: &str) -> Markup {
+#[component]
+async fn discord_activity_meta_tags(cx: &Cx, tweet: &Tweet) -> Result<impl View> {
+   let config = config(cx);
+   let url_prefix = config.url_prefix();
+   let base64 = config.config.base64_media;
    let has_video = video_source_with_quote(tweet).is_some();
    let has_gif = gif_source_with_quote(tweet).is_some();
    let has_photo = !tweet.photos.is_empty()
@@ -361,40 +397,45 @@ fn render_discord_activity_meta_tags(tweet: &Tweet, config: &Config, url_prefix:
             .quote
             .as_deref()
             .is_some_and(|quote| !quote.photos.is_empty()));
-   let broadcast_image = tweet.card.as_ref().and_then(|card| {
-      (matches!(card.kind, CardKind::Broadcast | CardKind::Periscope) && !card.image.is_empty())
-         .then_some(card.image.as_str())
-   });
+   let broadcast_image = tweet
+      .card
+      .as_ref()
+      .filter(|card| {
+         matches!(card.kind, CardKind::Broadcast | CardKind::Periscope) && !card.image.is_empty()
+      })
+      .map(|card| {
+         format!(
+            "{url_prefix}{}",
+            formatters::get_pic_url(&card.image, base64)
+         )
+      });
    let has_activity_media = has_video || has_gif || has_photo || broadcast_image.is_some();
+   let avatar_url = format!(
+      "{url_prefix}{}",
+      formatters::get_pic_url(&tweet.user.user_pic, base64)
+   );
+   let card = if has_video {
+      "player"
+   } else if has_gif || has_photo || broadcast_image.is_some() {
+      "summary_large_image"
+   } else {
+      "summary"
+   };
 
-   html! {
-       @if let Some(image) = broadcast_image {
-           @let image_path = formatters::get_pic_url(image, config.config.base64_media);
-           @let image_url = format!("{url_prefix}{image_path}");
-           meta property="og:image" content=(image_url);
-           meta property="og:image:width" content="1920";
-           meta property="og:image:height" content="1080";
-           meta property="twitter:image" content=(image_url);
-           meta property="twitter:image:width" content="1920";
-           meta property="twitter:image:height" content="1080";
-       } @else if !has_activity_media {
-           @let avatar_path = formatters::get_pic_url(
-               &tweet.user.user_pic,
-               config.config.base64_media,
-           );
-           @let avatar_url = format!("{url_prefix}{avatar_path}");
-           meta property="og:image" content=(avatar_url);
-           meta property="twitter:image" content="0";
-       }
-
-       @if has_video {
-           meta property="twitter:card" content="player";
-       } @else if has_gif || has_photo || broadcast_image.is_some() {
-           meta property="twitter:card" content="summary_large_image";
-       } @else {
-           meta property="twitter:card" content="summary";
-       }
-   }
+   Ok(view! {
+      if let Some(image_url) = broadcast_image {
+         <meta property="og:image" content=(&image_url)>
+         <meta property="og:image:width" content="1920">
+         <meta property="og:image:height" content="1080">
+         <meta property="twitter:image" content=(&image_url)>
+         <meta property="twitter:image:width" content="1920">
+         <meta property="twitter:image:height" content="1080">
+      } else if !has_activity_media {
+         <meta property="og:image" content=(avatar_url)>
+         <meta property="twitter:image" content="0">
+      }
+      <meta property="twitter:card" content=(card)>
+   })
 }
 
 fn content_disclosure_label(tweet: &Tweet, config: &Config) -> Option<String> {
@@ -443,78 +484,61 @@ fn build_oembed_url(tweet: &Tweet, config: &Config) -> String {
 }
 
 /// Render a tweet embed with proper OG meta tags for Discord.
-#[expect(
-   clippy::module_name_repetitions,
-   reason = "public API name is clear and conventional"
-)]
-pub fn render_tweet_embed(tweet: &Tweet, config: &Config, discord_activity: bool) -> Markup {
+#[component]
+pub async fn tweet_embed(cx: &Cx, tweet: &Tweet, discord_activity: bool) -> Result<impl View> {
+   let config = config(cx);
    let url_prefix = config.url_prefix();
-   let oembed_url = build_oembed_url(tweet, config);
    let description = if discord_activity {
       build_discord_embed_description(tweet)
    } else {
       build_embed_description(tweet)
    };
+   let prefs = Prefs::with_defaults(config);
 
-   html! {
-       (DOCTYPE)
-       html lang="en" {
-           head {
-               meta charset="utf-8";
-               meta name="viewport" content="width=device-width, initial-scale=1.0";
-
-               meta property="og:site_name" content=(embed_provider_name(tweet, config));
-               meta property="og:title" content=(format!("@{}", tweet.user.username));
-               meta property="og:description" content=(description);
-
-               @if discord_activity {
-                   meta property="theme-color" content="#005ace";
-                   (render_discord_activity_meta_tags(tweet, config, url_prefix))
-               } @else {
-                   (render_media_meta_tags(tweet, config, url_prefix))
-               }
-
-               @if discord_activity {
-                   link rel="alternate"
-                       href=(format!("{url_prefix}/users/{}/statuses/{}", tweet.user.username, tweet.id))
-                       type="application/activity+json";
-               }
-
-               // oEmbed link for engagement metrics in embed footer
-               link rel="alternate"
-                   href=(oembed_url)
-                   type="application/json+oembed";
-
-               title { "@" (tweet.user.username) " on teapot" }
-               link rel="stylesheet" type="text/css" href=(super::layout::STYLE_CSS);
-               link rel="stylesheet" type="text/css" href=(super::layout::FONTELLO_CSS);
-           }
-           body {
-               div class="tweet-embed" {
-                   (TweetRenderer::new(tweet, config, &Prefs::with_defaults(config), true).render())
-               }
-           }
-       }
-   }
+   Ok(view! {
+      <!DOCTYPE html>
+      <html lang="en">
+         <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta property="og:site_name" content=(embed_provider_name(tweet, config))>
+            <meta property="og:title" content=(format!("@{}", tweet.user.username))>
+            <meta property="og:description" content=(description)>
+            if discord_activity {
+               <meta property="theme-color" content="#005ace">
+               discord_activity_meta_tags(tweet: tweet)
+               <link
+                  rel="alternate"
+                  href=(format!("{url_prefix}/users/{}/statuses/{}", tweet.user.username, tweet.id))
+                  type="application/activity+json"
+               >
+            } else {
+               media_meta_tags(tweet: tweet)
+            }
+            // oEmbed link for engagement metrics in embed footer
+            <link rel="alternate" href=(build_oembed_url(tweet, config)) type="application/json+oembed">
+            <title>"@" (&tweet.user.username) " on teapot"</title>
+            <link rel="stylesheet" type="text/css" href=(STYLE_CSS)>
+            <link rel="stylesheet" type="text/css" href=(FONTELLO_CSS)>
+         </head>
+         <body>
+            <div class="tweet-embed">tweet_item(tweet: tweet, prefs: &prefs, main: true)</div>
+         </body>
+      </html>
+   })
 }
 
 /// Render video embed page.
-#[expect(
-   clippy::module_name_repetitions,
-   reason = "public API name is clear and conventional"
-)]
-pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
+#[component]
+pub async fn video_embed(cx: &Cx, tweet: &Tweet) -> Result<impl View> {
+   let config = config(cx);
    let url_prefix = config.url_prefix();
-
    let media = video_embed_media(tweet);
    let thumbnail_path = media.as_ref().map_or_default(|media| {
       formatters::get_pic_url(media.thumbnail_url, config.config.base64_media)
    });
-   let thumbnail_url = if thumbnail_path.is_empty() {
-      String::new()
-   } else {
-      format!("{url_prefix}{thumbnail_path}")
-   };
+   let thumbnail_url =
+      (!thumbnail_path.is_empty()).then(|| format!("{url_prefix}{thumbnail_path}"));
    let stream_path = media.as_ref().map(|media| {
       formatters::get_vid_url(
          media.stream_url,
@@ -530,125 +554,136 @@ pub fn render_video_embed(tweet: &Tweet, config: &Config) -> Markup {
       .map_or((1280, 720), |media| (media.width, media.height));
    let is_gif = media.as_ref().is_some_and(|media| media.is_gif);
 
-   html! {
-       (DOCTYPE)
-       html lang="en" {
-           head {
-               meta charset="utf-8";
-               meta name="viewport" content="width=device-width, initial-scale=1.0";
-
-               meta property="og:type" content="video";
-               @if !thumbnail_url.is_empty() {
-                   meta property="og:image" content=(thumbnail_url);
-               }
-
-               meta name="twitter:card" content="player";
-               meta name="twitter:player:width" content=(width);
-               meta name="twitter:player:height" content=(height);
-
-               @if let Some(url) = stream_url.as_deref() {
-                   meta name="twitter:player:stream" content=(url);
-                   meta name="twitter:player:stream:content_type" content="video/mp4";
-               }
-
-               title { "Video" }
-               link rel="stylesheet" type="text/css" href=(super::layout::STYLE_CSS);
-               link rel="stylesheet" type="text/css" href=(super::layout::FONTELLO_CSS);
-           }
-           body {
-               div class="embed-video" {
-                   video controls="" preload="metadata" poster=(thumbnail_path) autoplay[is_gif] muted[is_gif] loop[is_gif] playsinline[is_gif] {
-                       @if let Some(path) = stream_path.as_deref() {
-                           source src=(path) type="video/mp4";
-                       }
-                   }
-               }
-           }
-       }
-   }
+   Ok(view! {
+      <!DOCTYPE html>
+      <html lang="en">
+         <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta property="og:type" content="video">
+            if let Some(url) = thumbnail_url {
+               <meta property="og:image" content=(url)>
+            }
+            <meta name="twitter:card" content="player">
+            <meta name="twitter:player:width" content=(width)>
+            <meta name="twitter:player:height" content=(height)>
+            if let Some(url) = stream_url {
+               <meta name="twitter:player:stream" content=(url)>
+               <meta name="twitter:player:stream:content_type" content="video/mp4">
+            }
+            <title>"Video"</title>
+            <link rel="stylesheet" type="text/css" href=(STYLE_CSS)>
+            <link rel="stylesheet" type="text/css" href=(FONTELLO_CSS)>
+         </head>
+         <body>
+            <div class="embed-video">
+               <video
+                  controls=""
+                  preload="metadata"
+                  poster=(thumbnail_path)
+                  autoplay=(is_gif)
+                  muted=(is_gif)
+                  loop=(is_gif)
+                  playsinline=(is_gif)
+               >
+                  if let Some(path) = stream_path {
+                     <source src=(path) type="video/mp4">
+                  }
+               </video>
+            </div>
+         </body>
+      </html>
+   })
 }
 
-/// Render a full status page with OG meta tags, video embeds, and
-/// `ActivityPub` discovery. Uses [`super::layout::PageLayout`] with custom
-/// head content for media-specific OG tags, oEmbed, and `ActivityPub` links.
-pub fn render_status_page(
-   tweet: &Tweet,
-   content: &Markup,
-   prefs: &Prefs,
-   config: &Config,
-   username: &str,
-   id: &str,
+/// A full status page with media `OpenGraph` tags, oEmbed, and `ActivityPub`
+/// discovery for Discord.
+#[component]
+pub async fn status_page<'a>(
+   cx: &Cx,
+   tweet: &'a Tweet,
+   prefs: &'a Prefs,
+   username: &'a str,
+   id: &'a str,
    activity: Option<ActivityId>,
-) -> Markup {
+   #[default] child: Child<'a>,
+) -> Result<impl View> {
+   let config = config(cx);
    let url_prefix = config.url_prefix();
-   let discord_activity = activity.is_some();
-   let oembed_url = build_oembed_url(tweet, config);
-
    let title = format!(
       "{} (@{}): \"{}\"",
       tweet.user.fullname, tweet.user.username, tweet.text
    );
    let og_title = format!("{} (@{})", tweet.user.fullname, tweet.user.username);
-   let description = if discord_activity {
+   let description = if activity.is_some() {
       build_discord_embed_description(tweet)
    } else {
       build_embed_description(tweet)
    };
    let canonical = format!("https://x.com/{username}/status/{id}");
+   let avatar_url = formatters::get_pic_url(&tweet.user.user_pic, config.config.base64_media);
+   let published = tweet
+      .time
+      .filter(|_| activity.is_none())
+      .map(|time| time.to_string());
+   let handle = format!("@{}", tweet.user.username);
+
+   let rss = format!("/{username}/status/{id}/rss");
    let referer = format!("/{username}/status/{id}");
 
-   let avatar_url = formatters::get_pic_url(&tweet.user.user_pic, config.config.base64_media);
-
-   let head_extra = html! {
-       link rel="canonical" href=(canonical);
-       meta property="og:url" content=(canonical);
-       meta property="twitter:site" content=(format!("@{}", tweet.user.username));
-       meta property="twitter:creator" content=(format!("@{}", tweet.user.username));
-       meta property="twitter:title" content=(og_title);
-       link rel="apple-touch-icon" href=(format!("{url_prefix}{avatar_url}"));
-
-       // Publish time for Discord footer timestamp
-       @if !discord_activity && let Some(ts) = tweet.time {
-           @let iso = ts.to_string();
-           meta property="article:published_time" content=(iso);
-       }
-
-       @if discord_activity {
-           (render_discord_activity_meta_tags(tweet, config, url_prefix))
-       } @else {
-           (render_media_meta_tags(tweet, config, url_prefix))
-       }
-
-       meta property="og:title" content=(og_title);
-       meta property="og:description" content=(description);
-       meta property="og:site_name" content=(embed_provider_name(tweet, config));
-       @if let Some(activity) = activity {
-           // Discord recognizes this as a Mastodon status, then requests
-           // `/api/v1/statuses/{id}` from the same host.
-            link rel="alternate"
-                href=(format!("{url_prefix}/users/{username}/statuses/{activity}"))
-                type="application/activity+json";
-       }
-
-       // oEmbed link for engagement metrics
-       link rel="alternate"
-           href=(oembed_url)
-           type="application/json+oembed"
-           title=(tweet.user.fullname);
-   };
-
-   let rss_url = format!("/{username}/status/{id}/rss");
-
-   super::layout::PageLayout::new(config, &title, content.clone())
-      .description(&description)
-      .prefs(prefs)
-      .rss(&rss_url)
-      .canonical(&canonical)
-      .referer(&referer)
-      .theme_color("#005ace")
-      .head_extra(&head_extra)
-      .custom_open_graph()
-      .render()
+   Ok(view! {
+      let canonical = &canonical;
+      let description = &description;
+      let og_title = &og_title;
+      let handle = &handle;
+      document(
+         title: &title,
+         prefs: prefs,
+         description: description,
+         rss: &rss,
+         canonical: canonical,
+         referer: &referer,
+         theme_color: "#005ace",
+         custom_og: true,
+         head: Some(view! {
+            <link rel="canonical" href=(canonical)>
+            <meta property="og:url" content=(canonical)>
+            <meta property="twitter:site" content=(handle)>
+            <meta property="twitter:creator" content=(handle)>
+            <meta property="twitter:title" content=(og_title)>
+            <link rel="apple-touch-icon" href=(format!("{url_prefix}{avatar_url}"))>
+            // Publish time for Discord footer timestamp
+            if let Some(published) = published {
+               <meta property="article:published_time" content=(published)>
+            }
+            if activity.is_some() {
+               discord_activity_meta_tags(tweet: tweet)
+            } else {
+               media_meta_tags(tweet: tweet)
+            }
+            <meta property="og:title" content=(og_title)>
+            <meta property="og:description" content=(description)>
+            <meta property="og:site_name" content=(embed_provider_name(tweet, config))>
+            if let Some(activity) = activity {
+               // Discord recognizes this as a Mastodon status, then requests
+               // `/api/v1/statuses/{id}` from the same host.
+               <link
+                  rel="alternate"
+                  href=(format!("{url_prefix}/users/{username}/statuses/{activity}"))
+                  type="application/activity+json"
+               >
+            }
+            // oEmbed link for engagement metrics
+            <link
+               rel="alternate"
+               href=(build_oembed_url(tweet, config))
+               type="application/json+oembed"
+               title=(&tweet.user.fullname)
+            >
+         }.into()),
+         (child)
+      )
+   })
 }
 
 #[cfg(test)]

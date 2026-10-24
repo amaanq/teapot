@@ -33,10 +33,7 @@ use percent_encoding::{
 };
 use serde::Deserialize;
 use topcoat::{
-   context::{
-      Cx,
-      app_context,
-   },
+   context::Cx,
    cookie::{
       Cookies as _,
       cookies,
@@ -45,7 +42,6 @@ use topcoat::{
       error::RouterErrorExt as _,
       page,
       query_params,
-      request::headers,
    },
    runtime::procedure,
    view::{
@@ -58,7 +54,13 @@ use crate::{
    AppState,
    config::Config,
    error::Result,
-   routes::middleware::same_origin_guard,
+   routes::{
+      helpers::{
+         request_prefs,
+         state,
+      },
+      middleware::same_origin_guard,
+   },
    types::prefs::{
       Prefs,
       Text,
@@ -139,10 +141,9 @@ struct SettingsQuery {
 
 #[page("/settings")]
 pub async fn settings(cx: &Cx) -> topcoat::Result<impl View> {
-   let config = &app_context::<AppState>(cx).config;
-   let prefs = Prefs::from_cookies(&CookieJar::from_headers(headers(cx)), config);
-   let themes = themes(&config.server.static_dir);
-   let live = LivePrefs::new(cx, &prefs, &themes);
+   let config = &state(cx).config;
+   let prefs = request_prefs(cx);
+   let live = LivePrefs::new(cx, &prefs, themes(&config.server.static_dir));
 
    let query = query_params::<SettingsQuery>(cx)?;
    let referer = local_redirect_target(query.referer.as_deref(), "/");
@@ -153,12 +154,11 @@ pub async fn settings(cx: &Cx) -> topcoat::Result<impl View> {
    Ok(view! {
       document(
          title: "Settings",
+         prefs: &prefs,
+         live: Some(&live),
          description: "Customize your teapot experience",
-         live: &live,
-         themes: &themes,
          preferences_form(
             prefs: &prefs,
-            themes: &themes,
             live: &live,
             referer: &referer,
             prefs_url: &prefs_url,
@@ -172,7 +172,7 @@ pub async fn save_toggle(cx: &Cx, name: String, on: bool) -> topcoat::Result<()>
    let toggle = name
       .parse::<Toggle>()
       .ok_or_bad_request("unknown preference")?;
-   let secure = app_context::<AppState>(cx).config.server.https;
+   let secure = state(cx).config.server.https;
    cookies(cx).add(toggle_cookie(toggle, on, secure));
    Ok(())
 }
@@ -185,7 +185,7 @@ pub async fn save_text(cx: &Cx, name: String, value: String) -> topcoat::Result<
    Text::accepts(&value)
       .then_some(())
       .ok_or_bad_request("invalid preference value")?;
-   let secure = app_context::<AppState>(cx).config.server.https;
+   let secure = state(cx).config.server.https;
    cookies(cx).add(text_cookie(text, &value, secure));
    Ok(())
 }

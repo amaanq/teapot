@@ -22,7 +22,7 @@ use crate::{
       formatters,
    },
    views::{
-      layout::strip_html,
+      document::strip_html,
       renderutils::{
          community_note_to_html,
          tweet_link,

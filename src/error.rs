@@ -24,7 +24,7 @@ use toml::de::Error as TomlError;
 use crate::{
    api::http::HttpError,
    utils::entity_expander::html_escape,
-   views::layout::{
+   views::document::{
       FONTELLO_CSS,
       STYLE_CSS,
    },
@@ -138,6 +138,9 @@ pub enum Error {
    #[error("Tweet not found: {0}")]
    TweetNotFound(String),
 
+   #[error("Tweet withheld: {0}")]
+   TweetTombstone(String),
+
    #[error("Protected user: {0}")]
    ProtectedUser(String),
 
@@ -174,6 +177,7 @@ impl Error {
                "That post has been deleted, or the account that made it is gone.",
             )
          },
+         Self::TweetTombstone(ref reason) => (StatusCode::NOT_FOUND, "Post not found", reason),
          Self::UserSuspended(_) => {
             (
                StatusCode::FORBIDDEN,
