@@ -1,10 +1,3 @@
-#![expect(
-   clippy::same_name_method,
-   clippy::shadow_same,
-   clippy::shadow_unrelated,
-   reason = "topcoat's #[page] and view! expansions"
-)]
-
 use std::cmp;
 
 use percent_encoding::{
@@ -260,12 +253,15 @@ async fn fetch_tab(
    cursor: Option<&str>,
    tab: TimelineKind,
 ) -> Result<Timeline> {
-   let fetch = |cursor| {
+   let fetch = |page_cursor| {
       async move {
          if tab == TimelineKind::Media {
-            state.api.get_user_media(user_id, cursor).await
+            state.api.get_user_media(user_id, page_cursor).await
          } else {
-            state.api.get_user_tweets_and_replies(user_id, cursor).await
+            state
+               .api
+               .get_user_tweets_and_replies(user_id, page_cursor)
+               .await
          }
       }
    };
@@ -470,7 +466,7 @@ async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<im
    };
 
    let title = format!("Tweets from {}", usernames.join(", "));
-   let handles = usernames
+   let mentions = usernames
       .iter()
       .map(|name| format!("@{name}"))
       .collect::<Vec<_>>()
@@ -488,7 +484,7 @@ async fn multi_user_timeline(cx: &Cx, usernames_str: &str) -> topcoat::Result<im
          title: &title,
          prefs: &prefs,
          <div class="multi-user-timeline">
-            <h2>"Combined timeline: " (handles)</h2>
+            <h2>"Combined timeline: " (mentions)</h2>
             timeline(
                groups: &groups,
                prefs: &prefs,

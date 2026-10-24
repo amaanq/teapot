@@ -1,10 +1,3 @@
-#![expect(
-   clippy::same_name_method,
-   clippy::shadow_same,
-   clippy::shadow_unrelated,
-   reason = "topcoat's #[component] and view! expansions"
-)]
-
 use std::{
    fmt::Write as _,
    sync::Arc,

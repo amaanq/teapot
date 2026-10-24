@@ -1,10 +1,3 @@
-#![expect(
-   clippy::same_name_method,
-   clippy::shadow_same,
-   clippy::shadow_unrelated,
-   reason = "topcoat's #[component] and view! expansions"
-)]
-
 use std::fmt::Write as _;
 
 use topcoat::{
@@ -614,28 +607,28 @@ pub async fn status_page<'a>(
       "{} (@{}): \"{}\"",
       tweet.user.fullname, tweet.user.username, tweet.text
    );
-   let og_title = format!("{} (@{})", tweet.user.fullname, tweet.user.username);
-   let description = if activity.is_some() {
+   let full_title = format!("{} (@{})", tweet.user.fullname, tweet.user.username);
+   let og_description = if activity.is_some() {
       build_discord_embed_description(tweet)
    } else {
       build_embed_description(tweet)
    };
-   let canonical = format!("https://x.com/{username}/status/{id}");
+   let canonical_url = format!("https://x.com/{username}/status/{id}");
    let avatar_url = formatters::get_pic_url(&tweet.user.user_pic, config.config.base64_media);
    let published = tweet
       .time
       .filter(|_| activity.is_none())
       .map(|time| time.to_string());
-   let handle = format!("@{}", tweet.user.username);
+   let at_handle = format!("@{}", tweet.user.username);
 
    let rss = format!("/{username}/status/{id}/rss");
    let referer = format!("/{username}/status/{id}");
 
    Ok(view! {
-      let canonical = &canonical;
-      let description = &description;
-      let og_title = &og_title;
-      let handle = &handle;
+      let canonical = &canonical_url;
+      let description = &og_description;
+      let og_title = &full_title;
+      let handle = &at_handle;
       document(
          title: &title,
          prefs: prefs,

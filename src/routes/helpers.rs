@@ -1,10 +1,3 @@
-#![expect(
-   clippy::same_name_method,
-   clippy::shadow_same,
-   clippy::shadow_unrelated,
-   reason = "topcoat's #[layout] and view! expansions"
-)]
-
 use std::{
    any::Any,
    collections::BTreeMap,

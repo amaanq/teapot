@@ -1,10 +1,3 @@
-#![expect(
-   clippy::same_name_method,
-   clippy::shadow_same,
-   clippy::shadow_unrelated,
-   reason = "topcoat's #[component] and view! expansions"
-)]
-
 use std::{
    collections::HashMap,
    fmt::Write as _,
@@ -187,7 +180,7 @@ async fn atomic<'a>(
       .entity_ranges
       .first()
       .and_then(|range| article.entities.get(range.key));
-   let media = entity.map_or_default(|entity| {
+   let media_items = entity.map_or_default(|entity| {
       entity
          .media_ids
          .iter()
@@ -225,7 +218,7 @@ async fn atomic<'a>(
                </div>
             },
             ArticleEntityType::Media => {
-               for media in media {
+               for media in media_items {
                   match media.media_type {
                      ArticleMediaType::ApiImage => {
                         <span class="image">

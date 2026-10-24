@@ -70,7 +70,7 @@ topcoat = {
   default-features = false,
   features = [ "asset", "cookie", "router", "runtime", "serve", "tower", "view" ],
   git = "https://github.com/amaanq/topcoat",
-  rev = "6edbeab1c5acc1546bfbbec815891acdbca82dc2",
+  rev = "20be1237071b462b090b89751821ba169eee1275",
 }
 tower = { features = [ "limit", "util" ], version = "0.5.3" }
 tower-http = {
