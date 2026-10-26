@@ -3,7 +3,7 @@ use std::slice;
 use axum::{
    Router,
    extract::State,
-   http::header::CONTENT_TYPE,
+   http::header,
    response::{
       IntoResponse as _,
       Response,
@@ -430,7 +430,10 @@ async fn opensearch(State(state): State<AppState>) -> Response {
    );
 
    (
-      [(CONTENT_TYPE, "application/opensearchdescription+xml")],
+      [(
+         header::CONTENT_TYPE,
+         "application/opensearchdescription+xml",
+      )],
       xml,
    )
       .into_response()

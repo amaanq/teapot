@@ -24,7 +24,10 @@ use axum::http::{
    Method,
    Uri,
    header,
-   uri::InvalidUri,
+   uri::{
+      InvalidUri,
+      PathAndQuery,
+   },
 };
 use bytes::Bytes;
 use flate2::read::GzDecoder;
@@ -41,7 +44,6 @@ use hyper::{
       },
    },
    client::conn::http1,
-   http::uri::PathAndQuery,
 };
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::{
