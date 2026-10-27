@@ -1,9 +1,11 @@
 use std::{
    collections::BTreeMap,
-   env,
    fmt::Write as _,
    ops::Deref,
-   path::Path,
+   path::{
+      Path,
+      PathBuf,
+   },
    sync::{
       Arc,
       atomic::{
@@ -101,7 +103,7 @@ pub struct SessionPool {
 /// Writes the rate-limit map to disk so a restart does not forget which
 /// sessions X has already cut off.
 struct LimitState {
-   path:    String,
+   path:    PathBuf,
    dirty:   Notify,
    writing: Mutex<()>,
 }
@@ -136,8 +138,12 @@ impl SessionPool {
       clippy::cognitive_complexity,
       reason = "session loading has inherent branching"
    )]
-   pub async fn load(path: &str, max_concurrent_requests: u32) -> Result<Self> {
-      let parsed = if Path::new(path).exists() {
+   pub async fn load(
+      path: &Path,
+      state_path: Option<PathBuf>,
+      max_concurrent_requests: u32,
+   ) -> Result<Self> {
+      let parsed = if path.exists() {
          let content = fs::read_to_string(path).await?;
          let mut parsed = Vec::new();
 
@@ -156,7 +162,7 @@ impl SessionPool {
          tracing::info!("Loaded {} sessions", parsed.len());
          parsed
       } else {
-         tracing::warn!("Sessions file not found: {path}");
+         tracing::warn!("Sessions file not found: {}", path.display());
          Vec::new()
       };
 
@@ -175,20 +181,16 @@ impl SessionPool {
          limits.insert(id, lims);
       }
 
-      // Defaults on, like the sessions path, so a deployment that is not the
-      // Nix service does not silently forget its limits across a restart.
-      // Empty opts out.
-      let state_path =
-         env::var("TEAPOT_SESSION_STATE_FILE").unwrap_or_else(|_| "session-limits.json".to_owned());
-      let state = if state_path.is_empty() {
-         None
-      } else {
-         Self::restore(&state_path, &mut limits).await;
-         Some(Arc::new(LimitState {
-            path:    state_path,
-            dirty:   Notify::new(),
-            writing: Mutex::new(()),
-         }))
+      let state = match state_path {
+         Some(state_path) => {
+            Self::restore(&state_path, &mut limits).await;
+            Some(Arc::new(LimitState {
+               path:    state_path,
+               dirty:   Notify::new(),
+               writing: Mutex::new(()),
+            }))
+         },
+         None => None,
       };
 
       let pool = Self {
@@ -203,7 +205,7 @@ impl SessionPool {
       Ok(pool)
    }
 
-   async fn restore(path: &str, limits: &mut BTreeMap<i64, SessionLimits>) {
+   async fn restore(path: &Path, limits: &mut BTreeMap<i64, SessionLimits>) {
       let Ok(content) = fs::read_to_string(path).await else {
          return;
       };
@@ -244,7 +246,7 @@ impl SessionPool {
    async fn store(state: &LimitState, limits: &RwLock<BTreeMap<i64, SessionLimits>>) -> Result<()> {
       let _writing = state.writing.lock().await;
       let snapshot = serde_json::to_string(&*limits.read().await)?;
-      let temporary = format!("{}.tmp", state.path);
+      let temporary = state.path.with_added_extension("tmp");
       fs::write(&temporary, snapshot).await?;
       fs::rename(&temporary, &state.path).await?;
       Ok(())
@@ -741,7 +743,7 @@ mod tests {
          "\n"
       );
       fs::write(&path, sessions).await.unwrap();
-      let pool = SessionPool::load(path.to_str().unwrap(), 1).await.unwrap();
+      let pool = SessionPool::load(&path, None, 1).await.unwrap();
 
       let cookie = pool
          .acquire("cookie-api", Some(SessionKind::Cookie))

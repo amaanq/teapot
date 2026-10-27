@@ -14,11 +14,11 @@ mod utils;
 mod views;
 
 use std::{
-   env,
    net::{
       IpAddr,
       SocketAddr,
    },
+   path::PathBuf,
    sync::Arc,
    time::Duration,
 };
@@ -38,6 +38,7 @@ use misstep::{
    Result,
    ResultExt as _,
 };
+use pound::Parse;
 use tokio::net::TcpListener;
 use topcoat::asset::AssetBundle;
 use tower::{
@@ -74,6 +75,32 @@ use crate::{
    transcode::GifTranscoder,
 };
 
+/// A privacy-focused Twitter/X frontend.
+#[derive(Parse)]
+#[pound(name = "teapot")]
+struct Cli {
+   /// The config file to load.
+   #[pound(short, long, env = "TEAPOT_CONF_FILE", default = "config/teapot.toml")]
+   config:        PathBuf,
+   /// The JSONL file of X sessions to rotate through.
+   #[pound(short, long, env = "TEAPOT_SESSIONS_FILE", default = "sessions.jsonl")]
+   sessions:      PathBuf,
+   /// Where session rate limits persist across restarts, empty to keep them in
+   /// memory.
+   #[pound(
+      long,
+      env = "TEAPOT_SESSION_STATE_FILE",
+      default = "session-limits.json"
+   )]
+   session_state: PathBuf,
+   /// A topcoat asset bundle directory, in place of the one beside the binary.
+   #[pound(long, env = "TEAPOT_ASSETS_DIR")]
+   assets:        Option<PathBuf>,
+   /// Tracing targets and levels to log.
+   #[pound(long, env = "RUST_LOG", default = "teapot=debug,tower_http=debug")]
+   log:           Targets,
+}
+
 /// Application state shared across all routes.
 #[derive(Clone)]
 pub struct AppState {
@@ -89,16 +116,15 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-   let log_filter =
-      env::var("RUST_LOG").unwrap_or_else(|_| "teapot=debug,tower_http=debug".to_owned());
+   let cli = Cli::parse();
+
    tracing_subscriber::registry()
-      .with(log_filter.parse::<Targets>().context("parsing RUST_LOG")?)
+      .with(cli.log)
       .with(fmt::layer())
       .init();
 
-   let config_path =
-      env::var("TEAPOT_CONF_FILE").unwrap_or_else(|_| "config/teapot.toml".to_owned());
-   let config = Config::load(&config_path).with_context(|| format!("loading {config_path}"))?;
+   let config =
+      Config::load(&cli.config).with_context(|| format!("loading {}", cli.config.display()))?;
    let config = Arc::new(config);
 
    tracing::info!(
@@ -116,11 +142,14 @@ async fn main() -> Result<()> {
 
    let cache = Cache::new(config.cache.max_entries);
 
-   let sessions_path =
-      env::var("TEAPOT_SESSIONS_FILE").unwrap_or_else(|_| "sessions.jsonl".to_owned());
-   let sessions = SessionPool::load(&sessions_path, config.config.max_concurrent_reqs)
-      .await
-      .with_context(|| format!("loading {sessions_path}"))?;
+   let session_state = Some(cli.session_state).filter(|path| !path.as_os_str().is_empty());
+   let sessions = SessionPool::load(
+      &cli.sessions,
+      session_state,
+      config.config.max_concurrent_reqs,
+   )
+   .await
+   .with_context(|| format!("loading {}", cli.sessions.display()))?;
 
    let api = ApiClient::new(&config, sessions);
 
@@ -167,8 +196,9 @@ async fn main() -> Result<()> {
       trusted_proxies: trusted_proxies.into(),
    };
 
-   let assets = env::var("TEAPOT_ASSETS_DIR")
-      .map_or_else(|_| AssetBundle::load(), AssetBundle::load_dir)
+   let assets = cli
+      .assets
+      .map_or_else(AssetBundle::load, AssetBundle::load_dir)
       .context("loading the topcoat asset bundle")?;
 
    // Build the router with specific routes before static files

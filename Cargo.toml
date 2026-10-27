@@ -37,6 +37,7 @@ indexmap = "2.14.0"
 jiff = { default-features = false, features = [ "serde", "std" ], version = "0.2.38" }
 misstep = { features = [ "location", "pretty" ], version = "0.4.1" }
 percent-encoding = "2.3.2"
+pound = "0.6.1"
 ring = "0.17.14"
 rustls = {
   default-features = false,
