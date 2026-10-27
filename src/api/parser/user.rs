@@ -74,6 +74,7 @@ impl TryFrom<&UserData> for User {
       let website = legacy
          .entities
          .first()
+         .or_else(|| raw.profile_bio.as_ref()?.entities.first())
          .and_then(|url_item| url_item.expanded_url.as_deref())
          .unwrap_or_default()
          .to_owned();
@@ -85,7 +86,11 @@ impl TryFrom<&UserData> for User {
          .replace("_normal", "_400x400");
 
       let banner = {
-         let url = legacy.profile_banner_url.as_deref().unwrap_or_default();
+         let url = legacy
+            .profile_banner_url
+            .as_deref()
+            .or_else(|| raw.banner.as_ref()?.image_url.as_deref())
+            .unwrap_or_default();
          if url.is_empty() {
             let color = legacy.profile_link_color.as_deref().unwrap_or_default();
             if color.is_empty() {
@@ -98,11 +103,25 @@ impl TryFrom<&UserData> for User {
          }
       };
 
-      let followers = legacy.followers_count;
-      let following = legacy.friends_count;
-      let tweets = legacy.statuses_count;
-      let likes = legacy.favourites_count;
-      let media = legacy.media_count;
+      let relationship = raw.relationship_counts.as_ref();
+      let tweet_counts = raw.tweet_counts.as_ref();
+      let followers = relationship
+         .and_then(|counts| counts.followers)
+         .unwrap_or(legacy.followers_count);
+      let following = relationship
+         .and_then(|counts| counts.following)
+         .unwrap_or(legacy.friends_count);
+      let tweets = tweet_counts
+         .and_then(|counts| counts.tweets)
+         .unwrap_or(legacy.statuses_count);
+      let media = tweet_counts
+         .and_then(|counts| counts.media_tweets)
+         .unwrap_or(legacy.media_count);
+      let likes = raw
+         .action_counts
+         .as_ref()
+         .and_then(|counts| counts.favorites_count)
+         .unwrap_or(legacy.favourites_count);
       let protected = raw
          .privacy
          .as_ref()
@@ -131,6 +150,7 @@ impl TryFrom<&UserData> for User {
       let pinned_tweet = legacy
          .pinned_tweet_ids_str
          .as_ref()
+         .or_else(|| raw.pinned_items.as_ref()?.tweet_ids_str.as_ref())
          .and_then(|ids| ids.first())
          .and_then(|id_str| id_str.parse().ok())
          .unwrap_or(0);

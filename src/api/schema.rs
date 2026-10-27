@@ -573,6 +573,38 @@ pub struct UserData {
    pub verification:        Option<Verification>,
    pub privacy:             Option<Privacy>,
    pub about_profile:       Option<AboutProfile>,
+   pub relationship_counts: Option<RelationshipCounts>,
+   pub tweet_counts:        Option<TweetCounts>,
+   pub action_counts:       Option<ActionCounts>,
+   pub banner:              Option<Banner>,
+   pub pinned_items:        Option<PinnedItems>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct RelationshipCounts {
+   pub followers: Option<i64>,
+   pub following: Option<i64>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct TweetCounts {
+   pub tweets:       Option<i64>,
+   pub media_tweets: Option<i64>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct ActionCounts {
+   pub favorites_count: Option<i64>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct Banner {
+   pub image_url: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct PinnedItems {
+   pub tweet_ids_str: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -633,6 +665,8 @@ pub struct UserLocation {
 #[derive(Deserialize, Default)]
 pub struct ProfileBio {
    pub description: Option<String>,
+   #[serde(default, deserialize_with = "deser_user_url_entities")]
+   pub entities:    Vec<UrlEntity>,
 }
 
 #[derive(Deserialize, Default)]
