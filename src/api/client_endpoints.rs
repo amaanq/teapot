@@ -751,7 +751,7 @@ impl ApiClient {
          headers.insert("x-client-transaction-id", val);
       }
 
-      let response = self.client.get_with_headers(&url, &headers).await?;
+      let response = self.client.get_via(session.proxy(), &url, &headers).await?;
       let (bytes, _) = self
          .account_response(&session, endpoints::STRATO_TRANSLATE, response)
          .await?;

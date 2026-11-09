@@ -39,7 +39,10 @@ use misstep::{
    ResultExt as _,
 };
 use pound::Parse;
-use tokio::net::TcpListener;
+use tokio::{
+   fs,
+   net::TcpListener,
+};
 use topcoat::asset::AssetBundle;
 use tower::{
    Layer as _,
@@ -65,7 +68,10 @@ use crate::{
    api::{
       auth::SessionPool,
       client::ApiClient,
-      http::HttpClient,
+      http::{
+         HttpClient,
+         Proxy,
+      },
    },
    cache::store::Cache,
    config::{
@@ -93,6 +99,10 @@ struct Cli {
       default = "session-limits.json"
    )]
    session_state: PathBuf,
+   /// A list of `host:port:user:pass` proxies, one per line, to pin sessions
+   /// to so each reaches X from its own address.
+   #[pound(long, env = "TEAPOT_API_PROXIES_FILE")]
+   api_proxies:   Option<PathBuf>,
    /// A topcoat asset bundle directory, in place of the one beside the binary.
    #[pound(long, env = "TEAPOT_ASSETS_DIR")]
    assets:        Option<PathBuf>,
@@ -142,11 +152,31 @@ async fn main() -> Result<()> {
 
    let cache = Cache::new(config.cache.max_entries);
 
+   let proxies = match cli.api_proxies.as_deref() {
+      Some(path) => {
+         let list = fs::read_to_string(path)
+            .await
+            .with_context(|| format!("reading {}", path.display()))?;
+         list
+            .lines()
+            .enumerate()
+            .filter(|&(_, line)| !line.trim().is_empty())
+            .map(|(index, line)| {
+               line
+                  .parse::<Proxy>()
+                  .with_context(|| format!("{}:{}", path.display(), index + 1))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+      },
+      None => Vec::new(),
+   };
+
    let session_state = Some(cli.session_state).filter(|path| !path.as_os_str().is_empty());
    let sessions = SessionPool::load(
       &cli.sessions,
       session_state,
       config.config.max_concurrent_reqs,
+      proxies,
    )
    .await
    .with_context(|| format!("loading {}", cli.sessions.display()))?;

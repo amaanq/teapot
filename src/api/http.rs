@@ -1,14 +1,23 @@
 use std::{
-   fmt::Write as _,
+   fmt::{
+      Display,
+      Formatter,
+      Result as FmtResult,
+      Write as _,
+   },
    future::Future as _,
    io::{
       Error as IoError,
       ErrorKind,
       Read as _,
    },
+   num::ParseIntError,
    pin::Pin,
    result::Result as StdResult,
-   str,
+   str::{
+      self,
+      FromStr,
+   },
    string::FromUtf8Error,
    sync::Arc,
    task::{
@@ -132,12 +141,45 @@ pub enum HttpError {
    InvalidUtf8(FromUtf8Error),
 }
 
-/// Parsed proxy configuration.
+/// An HTTP CONNECT proxy, parsed from `host:port` or Webshare's
+/// `host:port:user:pass` list format.
 #[derive(Clone)]
-struct ProxyConfig {
+pub struct Proxy {
    host: String,
    port: u16,
    auth: Option<String>,
+}
+
+#[derive(Debug, flub::Error)]
+pub enum ProxyParseError {
+   #[error("expected host:port or host:port:user:pass, got {0} fields")]
+   Fields(usize),
+   #[error("invalid port: {0}")]
+   Port(ParseIntError),
+}
+
+impl FromStr for Proxy {
+   type Err = ProxyParseError;
+
+   fn from_str(line: &str) -> StdResult<Self, Self::Err> {
+      let fields = line.trim().split(':').collect::<Vec<_>>();
+      let (host, port, auth) = match *fields {
+         [host, port] => (host, port, None),
+         [host, port, user, pass] => (host, port, Some(format!("{user}:{pass}"))),
+         _ => return Err(ProxyParseError::Fields(fields.len())),
+      };
+      Ok(Self {
+         host: host.to_owned(),
+         port: port.parse().map_err(ProxyParseError::Port)?,
+         auth: auth.map(|auth| data_encoding::BASE64.encode(auth.as_bytes())),
+      })
+   }
+}
+
+impl Display for Proxy {
+   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+      write!(f, "{}:{}", self.host, self.port)
+   }
 }
 
 /// Lightweight HTTP client wrapping hyper-util's connection-pooling client.
@@ -151,7 +193,7 @@ struct ProxyConfig {
 pub struct HttpClient {
    inner:           Client<Connector, Empty<Bytes>>,
    default_headers: HeaderMap,
-   proxy:           Option<ProxyConfig>,
+   proxy:           Option<Proxy>,
    tls:             Arc<rustls::ClientConfig>,
 }
 
@@ -283,10 +325,17 @@ impl HttpClient {
       self
    }
 
-   /// Send a request with a given method and optional extra headers.
-   async fn send(&self, method: Method, uri: &str, extra_headers: &HeaderMap) -> Result<Response> {
+   /// Send a request with a given method and optional extra headers, through
+   /// `proxy` when given and the client's own proxy otherwise.
+   async fn send(
+      &self,
+      proxy: Option<&Proxy>,
+      method: Method,
+      uri: &str,
+      extra_headers: &HeaderMap,
+   ) -> Result<Response> {
       timeout(REQUEST_TIMEOUT, async {
-         if let Some(ref proxy) = self.proxy {
+         if let Some(proxy) = proxy.or(self.proxy.as_ref()) {
             self.send_via_proxy(proxy, method, uri, extra_headers).await
          } else {
             self.send_direct(method, uri, extra_headers).await
@@ -334,7 +383,7 @@ impl HttpClient {
    /// Send request through HTTP CONNECT proxy tunnel.
    async fn send_via_proxy(
       &self,
-      proxy: &ProxyConfig,
+      proxy: &Proxy,
       method: Method,
       uri: &str,
       extra_headers: &HeaderMap,
@@ -491,22 +540,32 @@ impl HttpClient {
 
    /// Send a GET request.
    pub async fn get(&self, uri: &str) -> Result<Response> {
-      self.send(Method::GET, uri, &HeaderMap::new()).await
+      self.send(None, Method::GET, uri, &HeaderMap::new()).await
    }
 
    /// Send a GET request with additional headers.
    pub async fn get_with_headers(&self, uri: &str, extra_headers: &HeaderMap) -> Result<Response> {
-      self.send(Method::GET, uri, extra_headers).await
+      self.send(None, Method::GET, uri, extra_headers).await
+   }
+
+   /// Send a GET request with additional headers through a chosen proxy.
+   pub async fn get_via(
+      &self,
+      proxy: Option<&Proxy>,
+      uri: &str,
+      extra_headers: &HeaderMap,
+   ) -> Result<Response> {
+      self.send(proxy, Method::GET, uri, extra_headers).await
    }
 
    /// Send a HEAD request.
    pub async fn head(&self, uri: &str) -> Result<Response> {
-      self.send(Method::HEAD, uri, &HeaderMap::new()).await
+      self.send(None, Method::HEAD, uri, &HeaderMap::new()).await
    }
 }
 
 /// Parse proxy URL (e.g. `http://host:port`) and optional `user:pass` auth.
-fn parse_proxy(url: &str, auth: &str) -> ProxyConfig {
+fn parse_proxy(url: &str, auth: &str) -> Proxy {
    let stripped = url
       .strip_prefix("https://")
       .or_else(|| url.strip_prefix("http://"))
@@ -521,7 +580,7 @@ fn parse_proxy(url: &str, auth: &str) -> ProxyConfig {
    } else {
       Some(data_encoding::BASE64.encode(auth.as_bytes()))
    };
-   ProxyConfig { host, port, auth }
+   Proxy { host, port, auth }
 }
 
 impl Response {

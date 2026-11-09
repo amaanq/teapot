@@ -525,7 +525,7 @@ impl ApiClient {
          .graphql_headers(session, base_url, &path, variables, features, field_toggles)
          .await?;
 
-      let response = self.client.get_with_headers(&url, &headers).await?;
+      let response = self.client.get_via(session.proxy(), &url, &headers).await?;
       let accounted = self.account_response(session, endpoint, response).await;
 
       if session.kind == SessionKind::Cookie && matches!(accounted, Err(Error::TransientUpstream)) {
@@ -602,7 +602,8 @@ impl ApiClient {
 
          if status.as_u16() == 429 {
             // An edge 429 carries no `x-rate-limit-*` headers, so it is aimed
-            // at the address every session shares rather than at this account.
+            // at the address the session leaves from rather than at the
+            // account.
             if account_scoped {
                if !limit_recorded {
                   self
@@ -611,7 +612,7 @@ impl ApiClient {
                      .await;
                }
             } else {
-               self.sessions.back_off_edge();
+               self.sessions.back_off_edge(session);
             }
             return Err(Error::RateLimited);
          }
@@ -796,7 +797,7 @@ impl ApiClient {
          headers.insert("x-client-transaction-id", value);
       }
 
-      let response = self.client.get_with_headers(url, &headers).await?;
+      let response = self.client.get_via(session.proxy(), url, &headers).await?;
       let (bytes, _) = self
          .account_response(&session, session_key, response)
          .await?;

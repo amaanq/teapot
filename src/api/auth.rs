@@ -1,6 +1,14 @@
 use std::{
-   collections::BTreeMap,
-   fmt::Write as _,
+   collections::{
+      BTreeMap,
+      VecDeque,
+   },
+   fmt::{
+      Display,
+      Formatter,
+      Result as FmtResult,
+      Write as _,
+   },
    ops::Deref,
    path::{
       Path,
@@ -8,6 +16,9 @@ use std::{
    },
    sync::{
       Arc,
+      Mutex as StdMutex,
+      PoisonError,
+      RwLock as StdRwLock,
       atomic::{
          AtomicI64,
          AtomicUsize,
@@ -37,6 +48,7 @@ use tokio::{
 };
 
 use crate::{
+   api::http::Proxy,
    error::{
       Error,
       Result,
@@ -97,7 +109,36 @@ pub struct SessionPool {
    limits:       Arc<RwLock<BTreeMap<i64, SessionLimits>>>,
    cursor:       Arc<AtomicUsize>,
    state:        Option<Arc<LimitState>>,
-   edge_backoff: Arc<AtomicI64>,
+   spare_egress: Arc<StdMutex<VecDeque<Arc<Egress>>>>,
+}
+
+/// The address a session reaches X from. x.com's edge rate-limits per
+/// address, so a refusal pauses every session sharing one.
+struct Egress {
+   proxy:         Option<Proxy>,
+   blocked_until: AtomicI64,
+}
+
+impl Egress {
+   fn new(proxy: Option<Proxy>) -> Arc<Self> {
+      Arc::new(Self {
+         proxy,
+         blocked_until: AtomicI64::new(0),
+      })
+   }
+
+   fn blocked(&self) -> bool {
+      self.blocked_until.load(Ordering::Relaxed) > jiff::Timestamp::now().as_second()
+   }
+}
+
+impl Display for Egress {
+   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+      match self.proxy {
+         Some(ref proxy) => write!(f, "proxy {proxy}"),
+         None => f.write_str("the host"),
+      }
+   }
 }
 
 /// Writes the rate-limit map to disk so a restart does not forget which
@@ -116,24 +157,49 @@ struct SessionSlot {
    credentials:     Arc<SessionCredentials>,
    permits:         Arc<Semaphore>,
    max_concurrency: usize,
+   egress:          StdRwLock<Arc<Egress>>,
+}
+
+impl SessionSlot {
+   fn egress(&self) -> Arc<Egress> {
+      Arc::clone(&self.egress.read().unwrap_or_else(PoisonError::into_inner))
+   }
 }
 
 /// A session and the concurrency permit held for its request lifetime.
 pub struct SessionLease {
-   credentials: Arc<SessionCredentials>,
-   _permit:     OwnedSemaphorePermit,
+   slot:    Arc<SessionSlot>,
+   egress:  Arc<Egress>,
+   _permit: OwnedSemaphorePermit,
+}
+
+impl SessionLease {
+   fn new(slot: &Arc<SessionSlot>, permit: OwnedSemaphorePermit) -> Self {
+      Self {
+         slot:    Arc::clone(slot),
+         egress:  slot.egress(),
+         _permit: permit,
+      }
+   }
+
+   /// The proxy this session's requests leave through, if it has its own.
+   pub fn proxy(&self) -> Option<&Proxy> {
+      self.egress.proxy.as_ref()
+   }
 }
 
 impl Deref for SessionLease {
    type Target = SessionCredentials;
 
    fn deref(&self) -> &Self::Target {
-      &self.credentials
+      &self.slot.credentials
    }
 }
 
 impl SessionPool {
-   /// Load sessions from a JSONL file.
+   /// Load sessions from a JSONL file, pinning session `n` to `proxies[n]`
+   /// and keeping the rest as spares. With fewer proxies than sessions they
+   /// share round-robin, and with none every session leaves from the host.
    #[expect(
       clippy::cognitive_complexity,
       reason = "session loading has inherent branching"
@@ -142,6 +208,7 @@ impl SessionPool {
       path: &Path,
       state_path: Option<PathBuf>,
       max_concurrent_requests: u32,
+      proxies: Vec<Proxy>,
    ) -> Result<Self> {
       let parsed = if path.exists() {
          let content = fs::read_to_string(path).await?;
@@ -169,14 +236,33 @@ impl SessionPool {
       let max_concurrency = usize::try_from(max_concurrent_requests.max(1)).unwrap_or(usize::MAX);
       let mut sessions = Vec::with_capacity(parsed.len());
       let mut limits = BTreeMap::new();
+      let mut egress = if proxies.is_empty() {
+         VecDeque::from([Egress::new(None)])
+      } else {
+         proxies
+            .into_iter()
+            .map(|proxy| Egress::new(Some(proxy)))
+            .collect()
+      };
+      let assigned = egress
+         .drain(..parsed.len().min(egress.len()))
+         .collect::<Vec<_>>();
+      if assigned.iter().any(|pinned| pinned.proxy.is_some()) {
+         tracing::info!(
+            "Pinned sessions to {} proxies, {} spare",
+            assigned.len(),
+            egress.len()
+         );
+      }
 
-      for session in parsed {
+      for (index, session) in parsed.into_iter().enumerate() {
          let (creds, lims) = session.into_credentials_and_limits();
          let id = creds.id;
          sessions.push(Arc::new(SessionSlot {
             credentials: Arc::new(creds),
             permits: Arc::new(Semaphore::new(max_concurrency)),
             max_concurrency,
+            egress: StdRwLock::new(Arc::clone(&assigned[index % assigned.len()])),
          }));
          limits.insert(id, lims);
       }
@@ -198,7 +284,7 @@ impl SessionPool {
          limits: Arc::new(RwLock::new(limits)),
          cursor: Arc::new(AtomicUsize::new(0)),
          state,
-         edge_backoff: Arc::new(AtomicI64::new(0)),
+         spare_egress: Arc::new(StdMutex::new(egress)),
       };
       pool.spawn_flusher();
 
@@ -311,23 +397,54 @@ impl SessionPool {
          .await
    }
 
-   /// Pause the whole pool after X's edge refuses the host rather than the
-   /// account. Every session leaves from one address, so the block is shared
-   /// and flagging the session that happened to draw it walks the rotation.
-   pub fn back_off_edge(&self) {
+   /// Pause the address X's edge refused rather than the account, and move
+   /// the session onto a spare proxy if one is left. The paused proxy goes to
+   /// the back of the spares, so it has cooled down by the time it returns.
+   pub fn back_off_edge(&self, lease: &SessionLease) {
       let now = jiff::Timestamp::now().as_second();
-      let previous = self
-         .edge_backoff
+      let previous = lease
+         .egress
+         .blocked_until
          .swap(now + EDGE_BACKOFF_SECS, Ordering::Relaxed);
-      if previous <= now {
-         tracing::warn!(
-            "upstream edge refused the host, pausing all sessions for {EDGE_BACKOFF_SECS}s"
-         );
-      }
-   }
 
-   fn edge_blocked(&self) -> bool {
-      self.edge_backoff.load(Ordering::Relaxed) > jiff::Timestamp::now().as_second()
+      let mut current = lease
+         .slot
+         .egress
+         .write()
+         .unwrap_or_else(PoisonError::into_inner);
+      if !Arc::ptr_eq(&current, &lease.egress) {
+         return;
+      }
+
+      let next = {
+         let mut spares = self
+            .spare_egress
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+         let next = spares.pop_front();
+         if next.is_some() {
+            spares.push_back(Arc::clone(&lease.egress));
+         }
+         next
+      };
+      let Some(spare) = next else {
+         drop(current);
+         if previous <= now {
+            tracing::warn!(
+               "upstream edge refused {}, pausing it for {EDGE_BACKOFF_SECS}s",
+               lease.egress
+            );
+         }
+         return;
+      };
+
+      *current = Arc::clone(&spare);
+      drop(current);
+      tracing::warn!(
+         session_id = lease.id,
+         "upstream edge refused {}, moving the session to {spare}",
+         lease.egress
+      );
    }
 
    /// Whether some other session still has budget for `api`.
@@ -341,13 +458,11 @@ impl SessionPool {
       required_kind: Option<SessionKind>,
       excluded_id: i64,
    ) -> bool {
-      if self.edge_blocked() {
-         return false;
-      }
       let limits = self.limits.read().await;
       self.sessions.iter().any(|slot| {
          slot.credentials.id != excluded_id
             && required_kind.is_none_or(|kind| slot.credentials.kind == kind)
+            && !slot.egress().blocked()
             && limits
                .get(&slot.credentials.id)
                .is_none_or(|session_limits| {
@@ -364,9 +479,6 @@ impl SessionPool {
    ) -> Result<SessionLease> {
       if self.sessions.is_empty() {
          return Err(Error::NoSessions);
-      }
-      if self.edge_blocked() {
-         return Err(Error::RateLimited);
       }
 
       let limits = self.limits.read().await;
@@ -388,16 +500,14 @@ impl SessionPool {
 
       // Prefer a non-limited session with a permit immediately available.
       for slot in &eligible {
-         let limited = limits
-            .get(&slot.credentials.id)
-            .is_some_and(|session_limits| {
-               session_limits.is_limited(api_for(slot.credentials.kind))
-            });
+         let limited = slot.egress().blocked()
+            || limits
+               .get(&slot.credentials.id)
+               .is_some_and(|session_limits| {
+                  session_limits.is_limited(api_for(slot.credentials.kind))
+               });
          if !limited && let Ok(permit) = Arc::clone(&slot.permits).try_acquire_owned() {
-            return Ok(SessionLease {
-               credentials: Arc::clone(&slot.credentials),
-               _permit:     permit,
-            });
+            return Ok(SessionLease::new(slot, permit));
          }
       }
 
@@ -405,26 +515,22 @@ impl SessionPool {
       let chosen = eligible
          .iter()
          .find(|slot| {
-            !limits
-               .get(&slot.credentials.id)
-               .is_some_and(|session_limits| {
-                  session_limits.is_limited(api_for(slot.credentials.kind))
-               })
+            !slot.egress().blocked()
+               && !limits
+                  .get(&slot.credentials.id)
+                  .is_some_and(|session_limits| {
+                     session_limits.is_limited(api_for(slot.credentials.kind))
+                  })
          })
          .copied()
          .ok_or(Error::RateLimited)?;
-      let credentials = Arc::clone(&chosen.credentials);
-      let permits = Arc::clone(&chosen.permits);
       drop(limits);
 
-      let permit = permits
+      let permit = Arc::clone(&chosen.permits)
          .acquire_owned()
          .await
          .map_err(|_| Error::Internal("session request limiter closed".into()))?;
-      Ok(SessionLease {
-         credentials,
-         _permit: permit,
-      })
+      Ok(SessionLease::new(chosen, permit))
    }
 
    /// Update rate limit info for a session.
@@ -743,7 +849,7 @@ mod tests {
          "\n"
       );
       fs::write(&path, sessions).await.unwrap();
-      let pool = SessionPool::load(&path, None, 1).await.unwrap();
+      let pool = SessionPool::load(&path, None, 1, Vec::new()).await.unwrap();
 
       let cookie = pool
          .acquire("cookie-api", Some(SessionKind::Cookie))

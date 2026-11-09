@@ -360,6 +360,16 @@
               '';
             };
 
+            apiProxiesFile = lib.mkOption {
+              type = lib.types.nullOr lib.types.path;
+              default = null;
+              description = ''
+                Path to a list of proxies, one `host:port:user:pass` per line.
+                Each session is pinned to its own proxy, and the rest are spares
+                a session moves to when x.com's edge refuses its address.
+              '';
+            };
+
             kagiTokenFile = lib.mkOption {
               type = lib.types.nullOr lib.types.path;
               default = null;
@@ -391,13 +401,15 @@
                 LoadCredential = [
                   "sessionsFile:${cfg.sessionsFile}"
                 ]
-                ++ lib.optional (cfg.kagiTokenFile != null) "kagiToken:${cfg.kagiTokenFile}";
+                ++ lib.optional (cfg.kagiTokenFile != null) "kagiToken:${cfg.kagiTokenFile}"
+                ++ lib.optional (cfg.apiProxiesFile != null) "apiProxies:${cfg.apiProxiesFile}";
                 StateDirectory = "teapot";
                 Environment = [
                   "TEAPOT_CONF_FILE=/var/lib/teapot/teapot.toml"
                   "TEAPOT_SESSIONS_FILE=%d/sessionsFile"
                   "TEAPOT_SESSION_STATE_FILE=/var/lib/teapot/session-limits.json"
-                ];
+                ]
+                ++ lib.optional (cfg.apiProxiesFile != null) "TEAPOT_API_PROXIES_FILE=%d/apiProxies";
                 WorkingDirectory = "${cfg.package}/share/teapot";
                 ExecStart = "${cfg.package}/bin/teapot";
                 ExecStartPre = "${preStart}";
