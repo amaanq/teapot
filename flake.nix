@@ -135,7 +135,9 @@
 
             package = lib.mkOption {
               type = lib.types.package;
-              default = pkgs.callPackage ./nix/package.nix { };
+              default = pkgs.callPackage ./nix/package.nix {
+                topcoat-cli = pkgs.callPackage ./nix/topcoat-cli.nix { };
+              };
               defaultText = lib.literalExpression "pkgs.callPackage ./nix/package.nix { }";
               description = "The teapot package to use.";
             };
