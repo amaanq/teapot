@@ -416,6 +416,8 @@
                 AmbientCapabilities = lib.mkIf (cfg.server.port < 1024) [ "CAP_NET_BIND_SERVICE" ];
                 Restart = "on-failure";
                 RestartSec = "5s";
+                RestartSteps = 10;
+                RestartMaxDelaySec = "15min";
                 # Hardening
                 CapabilityBoundingSet = if (cfg.server.port < 1024) then [ "CAP_NET_BIND_SERVICE" ] else [ "" ];
                 DeviceAllow = [ "" ];
