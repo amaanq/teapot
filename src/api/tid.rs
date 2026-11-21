@@ -147,10 +147,12 @@ pub async fn fetch_home(
    // Logged-out visitors get a stripped shell built from a different bundle
    // that carries no chunk manifest, so the bootstrap needs a session cookie
    // to reach the client-web app the transaction ID is derived from.
-   let cookie = sessions
-      .cookie_header()
+   let (cookie, proxy) = sessions
+      .web_session()
+      .await
       .ok_or("no cookie session available to load x.com")?;
-   headers.insert(
+   let mut home_headers = headers.clone();
+   home_headers.insert(
       header::COOKIE,
       cookie
          .parse()
@@ -158,7 +160,7 @@ pub async fn fetch_home(
    );
 
    let home_html = http
-      .get_with_headers("https://x.com", &headers)
+      .get_via(proxy.as_ref(), "https://x.com", &home_headers)
       .await
       .map_err(|err| format!("fetch x.com: {err}"))?
       .text()

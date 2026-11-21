@@ -108,6 +108,7 @@ pub struct SessionPool {
    sessions:     Vec<Arc<SessionSlot>>,
    limits:       Arc<RwLock<BTreeMap<i64, SessionLimits>>>,
    cursor:       Arc<AtomicUsize>,
+   web_cursor:   Arc<AtomicUsize>,
    state:        Option<Arc<LimitState>>,
    spare_egress: Arc<StdMutex<VecDeque<Arc<Egress>>>>,
 }
@@ -283,6 +284,7 @@ impl SessionPool {
          sessions,
          limits: Arc::new(RwLock::new(limits)),
          cursor: Arc::new(AtomicUsize::new(0)),
+         web_cursor: Arc::new(AtomicUsize::new(0)),
          state,
          spare_egress: Arc::new(StdMutex::new(egress)),
       };
@@ -609,20 +611,30 @@ impl SessionPool {
       self.sessions.is_empty()
    }
 
-   /// Cookie header for a cookie session, for requests that fetch x.com's web
-   /// app rather than the API. Takes no concurrency permit, since those pages
-   /// are outside the per-session API rate limits.
-   pub(crate) fn cookie_header(&self) -> Option<String> {
-      self
+   /// Cookie header and proxy of the next healthy cookie session, for requests
+   /// that fetch x.com's web app rather than the API. Takes no concurrency
+   /// permit, since those pages are outside the per-session API rate limits.
+   pub(crate) async fn web_session(&self) -> Option<(String, Option<Proxy>)> {
+      let limits = self.limits.read().await;
+      let usable = self
          .sessions
          .iter()
-         .map(|slot| &slot.credentials)
-         .find(|creds| {
+         .filter(|slot| {
+            let creds = &slot.credentials;
             creds.kind == SessionKind::Cookie
                && !creds.auth_token.is_empty()
                && !creds.ct0.is_empty()
+               && !limits.get(&creds.id).is_some_and(|lim| lim.rejected)
          })
-         .map(|creds| format!("auth_token={}; ct0={}", creds.auth_token, creds.ct0))
+         .collect::<Vec<_>>();
+      let slot =
+         usable.get(self.web_cursor.fetch_add(1, Ordering::Relaxed) % usable.len().max(1))?;
+      let creds = &slot.credentials;
+
+      Some((
+         format!("auth_token={}; ct0={}", creds.auth_token, creds.ct0),
+         slot.egress().proxy.clone(),
+      ))
    }
 
    /// Get health statistics about the session pool.
