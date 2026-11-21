@@ -528,8 +528,10 @@ impl ApiClient {
       let response = self.client.get_via(session.proxy(), &url, &headers).await?;
       let accounted = self.account_response(session, endpoint, response).await;
 
-      if session.kind == SessionKind::Cookie && matches!(accounted, Err(Error::TransientUpstream)) {
-         self.query_ids.mark_stale();
+      if session.kind == SessionKind::Cookie {
+         self
+            .query_ids
+            .record(endpoint, matches!(accounted, Err(Error::TransientUpstream)));
       }
 
       let (bytes, limit_recorded) = accounted?;

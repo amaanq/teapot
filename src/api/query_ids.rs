@@ -15,6 +15,7 @@ use std::{
    collections::HashMap,
    sync::{
       Arc,
+      Mutex as StdMutex,
       RwLock,
    },
    time::{
@@ -46,6 +47,10 @@ const REFRESH_INTERVAL: Duration = Duration::from_hours(1);
 /// not refetch the homepage on every request.
 const RETRY_INTERVAL: Duration = Duration::from_mins(5);
 
+/// X refuses about 30% of `SearchTimeline` calls on a live ID with the same
+/// bodyless 404 it gives a retired one, so only a run this long means retired.
+const RETIRED_STREAK: u32 = 20;
+
 const CHUNK_CONCURRENCY: usize = 8;
 
 const CLIENT_WEB: &str = "https://abs.twimg.com/responsive-web/client-web/";
@@ -60,6 +65,7 @@ struct RefreshState {
 pub struct QueryIds {
    live:     Arc<RwLock<HashMap<String, String>>>,
    state:    Arc<Mutex<RefreshState>>,
+   streaks:  Arc<StdMutex<HashMap<String, u32>>>,
    http:     HttpClient,
    sessions: SessionPool,
 }
@@ -73,6 +79,7 @@ impl QueryIds {
             last_try: None,
             main_url: None,
          })),
+         streaks: Arc::default(),
          http,
          sessions,
       }
@@ -93,9 +100,28 @@ impl QueryIds {
       }
    }
 
-   /// Pull the next refresh forward after an upstream 404 that may be a retired
-   /// query ID.
-   pub fn mark_stale(&self) {
+   /// Count consecutive bodyless 404s per endpoint, and pull the next refresh
+   /// forward once a streak says its query ID was retired.
+   pub fn record(&self, endpoint: &str, not_found: bool) {
+      let mut streaks = self.streaks.lock().unwrap();
+
+      if !not_found {
+         streaks.remove(endpoint);
+         return;
+      }
+
+      let streak = streaks.entry(endpoint.to_owned()).or_default();
+      *streak += 1;
+      if *streak < RETIRED_STREAK {
+         return;
+      }
+
+      *streak = 0;
+      drop(streaks);
+      self.mark_stale();
+   }
+
+   fn mark_stale(&self) {
       let Ok(mut state) = self.state.try_lock() else {
          return;
       };
