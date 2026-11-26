@@ -20,7 +20,16 @@ A privacy-focused Twitter/X frontend written in Rust.
 ## Building
 
 ```bash
+# Goes without saying, but have rust installed
+export TOPCOAT_COMMIT=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].dependencies.[] | select(.name == "topcoat").source' | sed 's/.*rev=//')
+cargo install --git https://github.com/amaanq/topcoat --rev $TOPCOAT_COMMIT topcoat-cli
+topcoat asset bundle --release
 cargo build --release
+
+# Or, if you use NixOS...
+nix develop
+cargo build --release
+topcoat asset bundle --release
 ```
 
 ## Configuration
